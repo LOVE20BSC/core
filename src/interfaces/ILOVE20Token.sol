@@ -15,7 +15,6 @@ interface ILOVE20TokenEvents {
 }
 
 interface ILOVE20TokenErrors {
-    error AlreadyInitialized();
     error InvalidAddress();
     error NotMinter();
     error ExceedsMaxSupply();
@@ -34,10 +33,6 @@ interface ILOVE20Token is
     function minter() external view returns (address);
 
     function parentTokenAddress() external view returns (address);
-
-    function slAddress() external view returns (address);
-
-    function stAddress() external view returns (address);
 
     function parentPool() external view returns (uint256);
 

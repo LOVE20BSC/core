@@ -15,52 +15,35 @@ contract LOVE20Token is ERC20, ILOVE20Token, ReentrancyGuard {
     uint256 public immutable maxSupply;
     address public minter;
     address public parentTokenAddress;
-    address public slAddress;
-    address public stAddress;
-    bool public initialized;
-
     /**
      * @notice Contract constructor
      * @param name Token name
      * @param symbol Token symbol
      * @param initialSupply Initial token supply
      * @param maxSupply_ Maximum token supply
-     * @param to Initial token recipient
+     * @param distributor Initial token recipient
+     * @param minter_ Address allowed to mint
+     * @param parentTokenAddress_ Parent token address
      */
     constructor(
         string memory name,
         string memory symbol,
         uint256 initialSupply,
         uint256 maxSupply_,
-        address to
+        address distributor,
+        address minter_,
+        address parentTokenAddress_
     ) ERC20(name, symbol) {
         if (maxSupply_ < initialSupply) revert InvalidSupply();
-        if (to == address(0)) revert InvalidAddress();
+        if (distributor == address(0) || minter_ == address(0) || parentTokenAddress_ == address(0)) {
+            revert InvalidAddress();
+        }
 
-        _mint(to, initialSupply);
-        emit TokenMint({to: to, amount: initialSupply});
+        _mint(distributor, initialSupply);
+        emit TokenMint({to: distributor, amount: initialSupply});
         maxSupply = maxSupply_;
-    }
-
-    function initialize(
-        address minter_,
-        address parentTokenAddress_,
-        address slAddress_,
-        address stAddress_
-    ) external {
-        if (initialized) revert AlreadyInitialized();
-        if (
-            minter_ == address(0) ||
-            parentTokenAddress_ == address(0) ||
-            slAddress_ == address(0) ||
-            stAddress_ == address(0)
-        ) revert InvalidAddress();
-
-        initialized = true;
         minter = minter_;
         parentTokenAddress = parentTokenAddress_;
-        slAddress = slAddress_;
-        stAddress = stAddress_;
     }
 
     modifier onlyMinter() {
