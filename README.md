@@ -8,5 +8,6 @@ Core 负责 MemberNFT、Phase、Stake、Proposal、Vote、Mint、LOVE20Token、T
 
 - `src/LOVE20Token.sol`：旧版原始迁移快照，暂未开始 BSC 语义改造。
 - `src/interfaces/ILOVE20Token.sol`：对应旧版快照接口。
+- `src/TokenFactory.sol`：已完成 BSC 版 TokenFactory，负责由 Launch 创建代币；Pair 由 Stake 首次 LP 质押时按需创建。
 
 每个提交只做一个行为变化，并附带编译、测试和 ABI 差异说明。
