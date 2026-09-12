@@ -92,14 +92,14 @@ contract LOVE20TokenTest {
     }
 
     function testBurnReducesCallerBalanceAndSupply() public {
-        token.transfer(address(holder), 20 ether);
+        require(token.transfer(address(holder), 20 ether), "transfer");
         holder.burn(token, 7 ether);
         require(token.balanceOf(address(holder)) == 13 ether, "balance");
         require(token.totalSupply() == 93 ether, "supply");
     }
 
     function testBurnForParentTokenUsesPoolRatio() public {
-        token.transfer(address(holder), 20 ether);
+        require(token.transfer(address(holder), 20 ether), "transfer");
         parent.mint(address(token), 200 ether);
 
         uint256 received = holder.burnForParentToken(token, 10 ether);

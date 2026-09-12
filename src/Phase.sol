@@ -90,7 +90,11 @@ contract Phase is IPhase {
         uint256 phase = currentPhase();
         if (phase == 0) revert InvalidPhase(0);
         uint256 currentPhaseBlocks_ = _phaseBlocks(phase);
-        if (_lastSyncPhase == phase) return (false, currentPhaseBlocks_);
+        if (_lastSyncPhase == phase) {
+            // No adjustment occurred before this idempotent sync; return false explicitly.
+            // forge-lint: disable-next-line(boolean-cst)
+            return (false, currentPhaseBlocks_);
+        }
         _lastSyncPhase = phase;
         uint256 selected = type(uint256).max;
         uint256 count = _observationBlocks.length;
@@ -111,6 +115,7 @@ contract Phase is IPhase {
         if (selected != type(uint256).max) {
             uint256 elapsedBlocks = block.number - _observationBlocks[selected];
             uint256 elapsedSeconds = block.timestamp - _observationTimestamps[selected];
+            // forge-lint: disable-next-line(block-timestamp)
             if (elapsedBlocks > 0 && elapsedSeconds > 0) {
                 uint256 observed = Math.mulDiv(elapsedBlocks, TARGET_SECONDS, elapsedSeconds);
                 uint256 difference = observed > currentPhaseBlocks_ ? observed - currentPhaseBlocks_ : currentPhaseBlocks_ - observed;

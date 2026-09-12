@@ -118,6 +118,8 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
 
         _safeMint(memberOwner, id);
 
+        // Keep this event after _safeMint to preserve the established event order; failures revert atomically.
+        // forge-lint: disable-next-item(reentrancy-events)
         emit Mint({
             id: id,
             owner: memberOwner,
@@ -152,6 +154,7 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
 
         uint256 difference = BYTES_THRESHOLD - byteLength;
 
+        // forge-lint: disable-next-line(divide-before-multiply)
         return baseCost * (MULTIPLIER ** difference);
     }
 
@@ -238,10 +241,14 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     function _addTestPrefixIfNeeded(
         string memory name
     ) internal view returns (string memory) {
-        bytes4 prefix = bytes4(
-            bytes(ILOVE20Token(LOVE20_TOKEN_ADDRESS).symbol())
-        );
-        if (prefix == bytes4("Test")) {
+        bytes memory symbolBytes = bytes(ILOVE20Token(LOVE20_TOKEN_ADDRESS).symbol());
+        if (
+            symbolBytes.length >= 4 &&
+            symbolBytes[0] == "T" &&
+            symbolBytes[1] == "e" &&
+            symbolBytes[2] == "s" &&
+            symbolBytes[3] == "t"
+        ) {
             bytes memory nameBytes = bytes(name);
             if (
                 nameBytes.length < 4 ||

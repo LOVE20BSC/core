@@ -8,3 +8,8 @@ optimizer = true
 optimizer_runs = 200
 bytecode_hash = "none"
 cbor_metadata = false
+deny = "warnings"
+
+[lint]
+severity = ["high", "med", "low"]
+ignore = ["test/**/*.sol"]

@@ -76,6 +76,8 @@ contract TokenFactory is ITokenFactory {
         );
         tokenAddress = address(token);
 
+        // The new token address is known only after deployment, so this event follows the external call.
+        // forge-lint: disable-next-item(reentrancy-events)
         emit TokenCreated({
             tokenAddress: tokenAddress,
             parentTokenAddress: parentTokenAddress,

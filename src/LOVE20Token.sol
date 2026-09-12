@@ -87,7 +87,9 @@ contract LOVE20Token is ERC20, ILOVE20Token, ReentrancyGuard {
 
         _burn(msg.sender, amount);
 
-        ERC20(parentTokenAddress).transfer(msg.sender, parentTokenAmount);
+        require(ERC20(parentTokenAddress).transfer(msg.sender, parentTokenAmount), "parent transfer failed");
+        // Emit this event only after the parent-token transfer succeeds; a failure reverts the whole transaction.
+        // forge-lint: disable-next-item(reentrancy-events)
         emit BurnForParentToken({
             burner: msg.sender,
             burnAmount: amount,
