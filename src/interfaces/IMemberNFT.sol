@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity =0.8.17;
+pragma solidity =0.8.37;
 
-interface ILOVE20GroupEvents {
+import {IERC721Enumerable} from "../../lib/openzeppelin-contracts/contracts/token/ERC721/extensions/IERC721Enumerable.sol";
+
+interface IMemberNFTEvents {
     event Mint(
-        uint256 indexed tokenId,
+        uint256 indexed id,
         address indexed owner,
-        string groupName,
+        string name,
         string normalizedName,
         uint256 cost
     );
@@ -15,15 +17,15 @@ interface ILOVE20GroupEvents {
     event RemoveHolder(address indexed holder, uint256 totalHolders);
 }
 
-interface ILOVE20GroupErrors {
-    error GroupNameAlreadyExists(uint256 existingTokenId);
-    error GroupNameEmpty();
-    error GroupNameTooLong(uint256 length, uint256 maxLength);
-    error GroupNameInvalidCharacters();
-    error HolderIndexOutOfBounds(uint256 length);
+interface IMemberNFTErrors {
+    error NameAlreadyExists(uint256 existingId);
+    error NameEmpty();
+    error NameTooLong(uint256 length, uint256 maxLength);
+    error NameInvalidCharacters();
+    error AlreadyInitialized();
 }
 
-interface ILOVE20Group is ILOVE20GroupEvents, ILOVE20GroupErrors {
+interface IMemberNFT is IERC721Enumerable, IMemberNFTEvents, IMemberNFTErrors {
     function LOVE20_TOKEN_ADDRESS() external view returns (address);
 
     function BASE_DIVISOR() external view returns (uint256);
@@ -32,39 +34,36 @@ interface ILOVE20Group is ILOVE20GroupEvents, ILOVE20GroupErrors {
 
     function MULTIPLIER() external view returns (uint256);
 
-    function MAX_GROUP_NAME_LENGTH() external view returns (uint256);
+    function MAX_NAME_LENGTH() external view returns (uint256);
+
+    function initialized() external view returns (bool);
+
+    function init(address firstTokenAddress) external;
 
     function mint(
-        string calldata groupName
-    ) external returns (uint256 tokenId, uint256 mintCost);
+        string calldata name
+    ) external returns (uint256 id, uint256 mintCost);
 
     function calculateMintCost(
-        string memory groupName
+        string calldata name
     ) external view returns (uint256);
 
-    function groupNameOf(uint256 tokenId) external view returns (string memory);
+    function nameOf(uint256 id) external view returns (string memory);
 
-    function isGroupNameUsed(
-        string calldata groupName
+    function isNameUsed(
+        string calldata name
     ) external view returns (bool);
 
-    function tokenIdOf(
-        string calldata groupName
+    function idOf(
+        string calldata name
     ) external view returns (uint256);
 
     function normalizedNameOf(
-        string calldata groupName
+        string calldata name
     ) external pure returns (string memory);
 
     function totalBurnedForMint() external view returns (uint256);
 
-    /// @dev Deprecated: non-authoritative helper on deployed LOVE20Group.
-    /// It may become stale after ERC721 self-transfers. Use Transfer events
-    /// or totalSupply/tokenByIndex/ownerOf to rebuild reliable holder sets.
-    function holdersCount() external view returns (uint256);
-
-    /// @dev Deprecated: non-authoritative helper on deployed LOVE20Group.
-    /// It may become stale after ERC721 self-transfers. Use Transfer events
-    /// or totalSupply/tokenByIndex/ownerOf to rebuild reliable holder sets.
-    function holdersAtIndex(uint256 index) external view returns (address);
+    function holders(uint256 offset, uint256 limit, bool reverse)
+        external view returns (address[] memory holderList, uint256 totalCount);
 }

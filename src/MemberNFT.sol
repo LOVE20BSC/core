@@ -1,42 +1,44 @@
 // SPDX-License-Identifier: MIT
-pragma solidity =0.8.17;
+pragma solidity =0.8.37;
 
-import {ILOVE20Group} from "./interfaces/ILOVE20Group.sol";
 import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
-import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
+import {ERC721} from "../lib/openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
 import {
     ERC721Enumerable
-} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
+} from "../lib/openzeppelin-contracts/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import {
     SafeERC20,
     IERC20
-} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+} from "../lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
- * @title LOVE20Group
- * @notice ERC721-based Group system for LOVE20 ecosystem
- * @dev Each Group represents ownership of a group in the LOVE20 ecosystem
+ * @title MemberNFT
+ * @notice ERC721-based Member identity system for LOVE20 ecosystem
  */
-contract LOVE20Group is ERC721Enumerable, ILOVE20Group {
+contract MemberNFT is ERC721Enumerable, IMemberNFT {
     using SafeERC20 for IERC20;
-    // ============ Immutable Parameters ============
 
-    address public immutable LOVE20_TOKEN_ADDRESS;
+    // ============ Fixed Parameters ============
+
+    address public LOVE20_TOKEN_ADDRESS;
     uint256 public immutable BASE_DIVISOR;
     uint256 public immutable BYTES_THRESHOLD;
     uint256 public immutable MULTIPLIER;
-    uint256 public immutable MAX_GROUP_NAME_LENGTH;
+    uint256 public immutable MAX_NAME_LENGTH;
 
     // ============ State Variables ============
+
+    bool public initialized;
 
     uint256 internal _nextTokenId = 1;
 
     uint256 public totalBurnedForMint;
 
-    // tokenId => groupName
-    mapping(uint256 => string) internal _groupNames;
+    // id => name
+    mapping(uint256 => string) internal _names;
 
-    // normalizedName => tokenId
+    // normalizedName => id
     mapping(string => uint256) internal _normalizedNameToTokenId;
 
     // all holder addresses
@@ -48,91 +50,93 @@ contract LOVE20Group is ERC721Enumerable, ILOVE20Group {
     // ============ Constructor ============
 
     /**
-     * @param love20Token_ Address of the LOVE20 token
      * @param baseDivisor_ Base divisor for cost calculation (e.g., 1e8)
      * @param bytesThreshold_ Byte length threshold for cost multiplier (e.g., 7)
      * @param multiplier_ Multiplier for short names (e.g., 10)
-     * @param maxGroupNameLength_ Maximum group name length in bytes (e.g., 64)
+     * @param maxNameLength_ Maximum name length in bytes (e.g., 32)
      */
     constructor(
-        address love20Token_,
         uint256 baseDivisor_,
         uint256 bytesThreshold_,
         uint256 multiplier_,
-        uint256 maxGroupNameLength_
-    ) ERC721("LOVE20 Group", "Group") {
-        LOVE20_TOKEN_ADDRESS = love20Token_;
+        uint256 maxNameLength_
+    ) ERC721("LOVE20 Member NFT", "Member") {
+        require(baseDivisor_ > 0 && bytesThreshold_ > 0 && multiplier_ > 0 && maxNameLength_ > 0);
         BASE_DIVISOR = baseDivisor_;
         BYTES_THRESHOLD = bytesThreshold_;
         MULTIPLIER = multiplier_;
-        MAX_GROUP_NAME_LENGTH = maxGroupNameLength_;
+        MAX_NAME_LENGTH = maxNameLength_;
     }
 
-    // ============ Group Functions ============
+    function init(address firstTokenAddress) external {
+        if (initialized) revert AlreadyInitialized();
+        require(firstTokenAddress != address(0));
+        LOVE20_TOKEN_ADDRESS = firstTokenAddress;
+        initialized = true;
+    }
+
+    // ============ Member Functions ============
 
     /**
-     * @notice Mint a new group with the given group name
+     * @notice Mint a new member identity with the given name
      * @dev Requires payment in LOVE20 tokens based on name length.
      *      Uses safeMint to ensure recipient can receive ERC721.
-     * @param groupName The unique name for the group
-     * @return tokenId The newly minted token ID
+     * @param name The unique name for the member
+     * @return id The newly minted token ID
      */
     function mint(
-        string memory groupName
-    ) external returns (uint256 tokenId, uint256 mintCost) {
-        groupName = _addTestPrefixIfNeeded(groupName);
+        string calldata name
+    ) external returns (uint256 id, uint256 mintCost) {
+        string memory name_ = _addTestPrefixIfNeeded(name);
 
-        _validateGroupName(groupName);
+        _validateName(name_);
 
-        mintCost = calculateMintCost(groupName);
-        tokenId = _mintGroup(msg.sender, groupName, mintCost);
-        return (tokenId, mintCost);
+        mintCost = calculateMintCost(name_);
+        id = _mintMember(msg.sender, name_, mintCost);
+        return (id, mintCost);
     }
 
-    function _mintGroup(
-        address groupOwner,
-        string memory groupName,
+    function _mintMember(
+        address memberOwner,
+        string memory name,
         uint256 mintCost
-    ) internal returns (uint256 tokenId) {
+    ) internal returns (uint256 id) {
         // Use normalized (lowercase) name for storage
-        string memory normalizedName = _toLowerCase(groupName);
+        string memory normalizedName = _toLowerCase(name);
 
-        tokenId = _nextTokenId++;
-        _groupNames[tokenId] = groupName;
-        _normalizedNameToTokenId[normalizedName] = tokenId;
+        id = _nextTokenId++;
+        _names[id] = name;
+        _normalizedNameToTokenId[normalizedName] = id;
 
         if (mintCost > 0) {
             totalBurnedForMint += mintCost;
 
             IERC20 token = IERC20(LOVE20_TOKEN_ADDRESS);
-            token.safeTransferFrom(groupOwner, address(this), mintCost);
+            token.safeTransferFrom(memberOwner, address(this), mintCost);
             ILOVE20Token(LOVE20_TOKEN_ADDRESS).burn(mintCost);
         }
 
-        _safeMint(groupOwner, tokenId);
+        _safeMint(memberOwner, id);
 
         emit Mint({
-            tokenId: tokenId,
-            owner: groupOwner,
-            groupName: groupName,
+            id: id,
+            owner: memberOwner,
+            name: name,
             normalizedName: normalizedName,
             cost: mintCost
         });
 
-        return tokenId;
+        return id;
     }
 
     /**
-     * @notice Calculate the cost to mint a group with the given group name
-     * @dev Cost formula:
-     *      Base cost = remaining unminted LOVE20 / 10^7
-     *      For names with >= 7 bytes: cost = base cost
-     *      For names with < 7 bytes: cost = base cost * (10 ^ (7 - byte_length))
-     * @param groupName The group name to calculate cost for
+     * @notice Calculate the cost to mint a member with the given name
+     * @dev Uses the supplied name's byte length without adding a Test prefix.
+     * @param name The member name to calculate cost for
      * @return The cost in LOVE20 tokens
      */
     function calculateMintCost(
-        string memory groupName
+        string memory name
     ) public view returns (uint256) {
         ILOVE20Token token = ILOVE20Token(LOVE20_TOKEN_ADDRESS);
 
@@ -140,7 +144,7 @@ contract LOVE20Group is ERC721Enumerable, ILOVE20Group {
 
         uint256 baseCost = unmintedSupply / BASE_DIVISOR;
 
-        uint256 byteLength = bytes(groupName).length;
+        uint256 byteLength = bytes(name).length;
 
         if (byteLength >= BYTES_THRESHOLD) {
             return baseCost;
@@ -152,85 +156,93 @@ contract LOVE20Group is ERC721Enumerable, ILOVE20Group {
     }
 
     /**
-     * @notice Get the group name for a token ID
-     * @param tokenId The token ID to query
-     * @return The group name associated with the token ID (empty string if token doesn't exist)
+     * @notice Get the member name for a token ID
+     * @param id The token ID to query
+     * @return The member name associated with the token ID (empty string if token doesn't exist)
      */
-    function groupNameOf(
-        uint256 tokenId
+    function nameOf(
+        uint256 id
     ) external view returns (string memory) {
-        return _groupNames[tokenId];
+        return _names[id];
     }
 
     /**
-     * @notice Check if a group name is already used (case-insensitive)
-     * @param groupName The group name to check
-     * @return True if the group name is already used
+     * @notice Check if a member name is already used (case-insensitive)
+     * @param name The member name to check
+     * @return True if the member name is already used
      */
-    function isGroupNameUsed(
-        string calldata groupName
+    function isNameUsed(
+        string calldata name
     ) external view returns (bool) {
-        return _normalizedNameToTokenId[_toLowerCase(groupName)] != 0;
+        return _normalizedNameToTokenId[_toLowerCase(name)] != 0;
     }
 
     /**
-     * @notice Get token ID by group name (case-insensitive)
-     * @param groupName The group name to query
-     * @return The token ID associated with the group name (0 if not exists)
+     * @notice Get token ID by member name (case-insensitive)
+     * @param name The member name to query
+     * @return The token ID associated with the member name (0 if not exists)
      */
-    function tokenIdOf(
-        string calldata groupName
+    function idOf(
+        string calldata name
     ) external view returns (uint256) {
-        return _normalizedNameToTokenId[_toLowerCase(groupName)];
+        return _normalizedNameToTokenId[_toLowerCase(name)];
     }
 
     /**
-     * @notice Get the normalized (lowercase) version of a group name
-     * @param groupName The group name to normalize
-     * @return The normalized group name with ASCII uppercase converted to lowercase
+     * @notice Get the normalized (lowercase) version of a member name
+     * @param name The member name to normalize
+     * @return The normalized member name with ASCII uppercase converted to lowercase
      */
     function normalizedNameOf(
-        string calldata groupName
+        string calldata name
     ) external pure returns (string memory) {
-        return _toLowerCase(groupName);
+        return _toLowerCase(name);
     }
 
     /**
-     * @notice Get the total number of unique holders
-     * @return The number of unique addresses that currently hold NFTs
+     * @notice Get paginated list of holder addresses
+     * @param offset Starting index in the holders array (0-based)
+     * @param limit Maximum number of holders to return
+     * @param reverse If true, iterate from the end (newest holders first)
+     * @return holderList Array of holder addresses in the requested page
+     * @return totalCount Total number of unique holders
      */
-    function holdersCount() external view returns (uint256) {
-        return _allHolders.length;
-    }
-
-    /**
-     * @notice Get the holder address at the given index
-     * @param index The index in the holders array (0-based)
-     * @return The holder address at the given index
-     */
-    function holdersAtIndex(uint256 index) external view returns (address) {
-        if (index >= _allHolders.length) {
-            revert HolderIndexOutOfBounds(_allHolders.length);
+    function holders(uint256 offset, uint256 limit, bool reverse)
+        external view returns (address[] memory holderList, uint256 totalCount)
+    {
+        totalCount = _allHolders.length;
+        if (offset >= totalCount) {
+            return (new address[](0), totalCount);
         }
-        return _allHolders[index];
+
+        uint256 remaining = totalCount - offset;
+        uint256 pageSize = remaining < limit ? remaining : limit;
+        holderList = new address[](pageSize);
+
+        for (uint256 i = 0; i < pageSize; i++) {
+            uint256 index = reverse ? (totalCount - 1 - offset - i) : (offset + i);
+            holderList[i] = _allHolders[index];
+        }
+
+        return (holderList, totalCount);
     }
 
     // ============ Internal Functions ============
 
     /**
-     * @dev Add "Test" prefix to group name if token symbol starts with "Test"
-     *      and group name doesn't already start with "Test"
-     * @param groupName The original group name
-     * @return The group name with "Test" prefix added if needed
+     * @dev Add "Test" prefix to member name if token symbol starts with "Test"
+     *      and member name doesn't already start with "Test"
+     * @param name The original member name
+     * @return The member name with "Test" prefix added if needed
      */
     function _addTestPrefixIfNeeded(
-        string memory groupName
+        string memory name
     ) internal view returns (string memory) {
         bytes4 prefix = bytes4(
             bytes(ILOVE20Token(LOVE20_TOKEN_ADDRESS).symbol())
         );
         if (prefix == bytes4("Test")) {
-            bytes memory nameBytes = bytes(groupName);
+            bytes memory nameBytes = bytes(name);
             if (
                 nameBytes.length < 4 ||
                 nameBytes[0] != "T" ||
@@ -238,10 +250,10 @@ contract LOVE20Group is ERC721Enumerable, ILOVE20Group {
                 nameBytes[2] != "s" ||
                 nameBytes[3] != "t"
             ) {
-                return string(abi.encodePacked("Test", groupName));
+                return string(abi.encodePacked("Test", name));
             }
         }
-        return groupName;
+        return name;
     }
 
     /**
@@ -275,71 +287,49 @@ contract LOVE20Group is ERC721Enumerable, ILOVE20Group {
         emit RemoveHolder({holder: holder, totalHolders: _allHolders.length});
     }
 
-    /**
-     * @dev Hook that is called before any token transfer
-     * @param from Address transferring the token (address(0) for mint)
-     * @param to Address receiving the token (address(0) for burn)
-     * @param firstTokenId The token ID being transferred
-     * @param batchSize The number of tokens being transferred (always 1 for this contract)
-     */
-    function _beforeTokenTransfer(
-        address from,
+    function _update(
         address to,
-        uint256 firstTokenId,
-        uint256 batchSize
-    ) internal virtual override {
-        uint256 fromBalanceBefore = from != address(0) ? balanceOf(from) : 0;
-        uint256 toBalanceBefore = to != address(0) ? balanceOf(to) : 0;
+        uint256 tokenId,
+        address auth
+    ) internal virtual override returns (address from) {
+        from = super._update(to, tokenId, auth);
+        if (from == to) return from;
 
-        super._beforeTokenTransfer(from, to, firstTokenId, batchSize);
-
-        if (from == address(0)) {
-            // Mint
-            if (toBalanceBefore == 0 && to != address(0)) {
-                _addHolder(to);
-            }
-        } else if (to == address(0)) {
-            // Burn
-            if (fromBalanceBefore == 1) {
-                _removeHolder(from);
-            }
-        } else {
-            // Transfer
-            if (fromBalanceBefore == 1) {
-                _removeHolder(from);
-            }
-            if (toBalanceBefore == 0) {
-                _addHolder(to);
-            }
+        if (from != address(0) && balanceOf(from) == 0) {
+            _removeHolder(from);
         }
+        if (to != address(0) && balanceOf(to) == 1) {
+            _addHolder(to);
+        }
+        return from;
     }
 
     /**
-     * @dev Validate group name and revert with specific error
-     * @param groupName The group name to validate
+     * @dev Validate member name and revert with specific error
+     * @param name The member name to validate
      */
-    function _validateGroupName(string memory groupName) internal view {
-        bytes memory nameBytes = bytes(groupName);
+    function _validateName(string memory name) internal view {
+        bytes memory nameBytes = bytes(name);
         uint256 len = nameBytes.length;
 
-        if (len == 0) revert GroupNameEmpty();
-        if (len > MAX_GROUP_NAME_LENGTH)
-            revert GroupNameTooLong(len, MAX_GROUP_NAME_LENGTH);
-        if (!_isValidGroupNameChars(nameBytes))
-            revert GroupNameInvalidCharacters();
+        if (len == 0) revert NameEmpty();
+        if (len > MAX_NAME_LENGTH)
+            revert NameTooLong(len, MAX_NAME_LENGTH);
+        if (!_isValidNameChars(nameBytes))
+            revert NameInvalidCharacters();
 
         // Check uniqueness (case-insensitive)
-        string memory normalizedName = _toLowerCase(groupName);
+        string memory normalizedName = _toLowerCase(name);
         uint256 existingTokenId = _normalizedNameToTokenId[normalizedName];
         if (existingTokenId != 0) {
-            revert GroupNameAlreadyExists(existingTokenId);
+            revert NameAlreadyExists(existingTokenId);
         }
     }
 
     /**
-     * @dev Validate group name characters and format
-     * @param nameBytes The group name bytes to validate
-     * @return bool True if the group name characters are valid
+     * @dev Validate member name characters and format
+     * @param nameBytes The member name bytes to validate
+     * @return bool True if the member name characters are valid
      *
      * Validation rules:
      * - Must be valid UTF-8 encoding
@@ -355,7 +345,7 @@ contract LOVE20Group is ERC721Enumerable, ILOVE20Group {
      * Note: We check byte length, not character count. A single Unicode
      * character may use multiple bytes in UTF-8 encoding.
      */
-    function _isValidGroupNameChars(
+    function _isValidNameChars(
         bytes memory nameBytes
     ) internal pure returns (bool) {
         uint256 len = nameBytes.length;
@@ -415,7 +405,7 @@ contract LOVE20Group is ERC721Enumerable, ILOVE20Group {
             }
 
             // Now check for forbidden Unicode characters
-            // Gas-optimized: Group checks by first byte to reduce redundant comparisons
+            // Gas-optimized: checks grouped by first byte
             if (numBytes == 2) {
                 uint8 byte1 = uint8(nameBytes[i]);
                 uint8 byte2 = uint8(nameBytes[i + 1]);
@@ -449,7 +439,7 @@ contract LOVE20Group is ERC721Enumerable, ILOVE20Group {
                 uint8 byte2 = uint8(nameBytes[i + 1]);
                 uint8 byte3 = uint8(nameBytes[i + 2]);
 
-                // Gas-optimized: Group checks by first byte to reduce redundant comparisons
+                // Gas-optimized: checks grouped by first byte
 
                 if (byte1 == 0xE1) {
                     // Check for U+1680 (Ogham Space Mark): 0xE1 0x9A 0x80
