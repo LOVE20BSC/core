@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity =0.8.17;
+pragma solidity =0.8.37;
 
 import {ERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
-import {ReentrancyGuard} from "../lib/openzeppelin-contracts/contracts/security/ReentrancyGuard.sol";
+import {ReentrancyGuard} from "../lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title LOVE20Token

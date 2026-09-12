@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity =0.8.17;
+pragma solidity =0.8.37;
 
 import {LOVE20Token} from "./LOVE20Token.sol";
 import {ITokenFactory} from "./interfaces/ITokenFactory.sol";

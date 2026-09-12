@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity =0.8.17;
+pragma solidity =0.8.37;
 
 import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {ILOVE20TokenErrors} from "../src/interfaces/ILOVE20Token.sol";
@@ -40,7 +40,12 @@ contract TokenCaller {
     }
 }
 
+interface Vm {
+    function expectRevert(bytes4 revertData) external;
+}
+
 contract LOVE20TokenTest {
+    Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
     MockParentToken private parent;
     LOVE20Token private token;
     TokenCaller private minter;
@@ -106,7 +111,8 @@ contract LOVE20TokenTest {
 
     function testConstructorRejectsInvalidSupply() public {
         parent = new MockParentToken();
-        try new LOVE20Token(
+        vm.expectRevert(ILOVE20TokenErrors.InvalidSupply.selector);
+        new LOVE20Token(
             "LOVE20",
             "LOVE",
             101 ether,
@@ -114,16 +120,13 @@ contract LOVE20TokenTest {
             address(this),
             address(this),
             address(parent)
-        ) returns (LOVE20Token) {
-            revert("invalid supply accepted");
-        } catch (bytes memory reason) {
-            require(_selector(reason) == ILOVE20TokenErrors.InvalidSupply.selector, "invalid supply");
-        }
+        );
     }
 
     function testConstructorRejectsZeroAddresses() public {
         parent = new MockParentToken();
-        try new LOVE20Token(
+        vm.expectRevert(ILOVE20TokenErrors.InvalidAddress.selector);
+        new LOVE20Token(
             "LOVE20",
             "LOVE",
             1 ether,
@@ -131,13 +134,10 @@ contract LOVE20TokenTest {
             address(0),
             address(this),
             address(parent)
-        ) returns (LOVE20Token) {
-            revert("zero distributor accepted");
-        } catch (bytes memory reason) {
-            require(_selector(reason) == ILOVE20TokenErrors.InvalidAddress.selector, "zero distributor");
-        }
+        );
 
-        try new LOVE20Token(
+        vm.expectRevert(ILOVE20TokenErrors.InvalidAddress.selector);
+        new LOVE20Token(
             "LOVE20",
             "LOVE",
             1 ether,
@@ -145,13 +145,10 @@ contract LOVE20TokenTest {
             address(this),
             address(0),
             address(parent)
-        ) returns (LOVE20Token) {
-            revert("zero minter accepted");
-        } catch (bytes memory reason) {
-            require(_selector(reason) == ILOVE20TokenErrors.InvalidAddress.selector, "zero minter");
-        }
+        );
 
-        try new LOVE20Token(
+        vm.expectRevert(ILOVE20TokenErrors.InvalidAddress.selector);
+        new LOVE20Token(
             "LOVE20",
             "LOVE",
             1 ether,
@@ -159,11 +156,7 @@ contract LOVE20TokenTest {
             address(this),
             address(this),
             address(0)
-        ) returns (LOVE20Token) {
-            revert("zero parent accepted");
-        } catch (bytes memory reason) {
-            require(_selector(reason) == ILOVE20TokenErrors.InvalidAddress.selector, "zero parent");
-        }
+        );
     }
 
     function _selector(bytes memory data) private pure returns (bytes4 selector) {
