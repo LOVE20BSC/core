@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.37;
 
-import {ILaunch, DistributorMode} from "./interfaces/ILaunch.sol";
+import {ILaunch, DistributorMode, LaunchInitParams} from "./interfaces/ILaunch.sol";
 import {ILaunchDistributor} from "./interfaces/ILaunchDistributor.sol";
 import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
-import {ITokenFactory} from "./interfaces/ITokenFactory.sol";
+import {LOVE20Token} from "./LOVE20Token.sol";
 
 /**
  * @title Launch
@@ -14,10 +14,6 @@ import {ITokenFactory} from "./interfaces/ITokenFactory.sol";
 contract Launch is ILaunch {
     // ============ Fixed Parameters ============
 
-    bool public initialized;
-
-    // used for creating tokens
-    address public tokenFactoryAddress;
     // used for the launch count permission
     address public mintAddress;
     // used for member ownership checks
@@ -31,6 +27,11 @@ contract Launch is ILaunch {
     uint256 public LAUNCH_RATIO;
     // per-community upper bound of issued launch counts
     uint256 public MAX_LAUNCH_COUNT;
+    // first token supply
+    uint256 public LAUNCH_AMOUNT;
+    // maximum supply of every launched token
+    uint256 public MAX_SUPPLY;
+    bool public initialized;
 
     // ============ State Variables ============
 
@@ -52,75 +53,52 @@ contract Launch is ILaunch {
 
     /**
      * @notice Bind dependencies, create and register the first token, and initialize MemberNFT
-     * @dev Parameter checks run before the initialization state check. The first token does not consume a
+     * @dev The initialization state check runs before parameter checks. The first token does not consume a
      *      launch count, does not receive Launch KV and always uses NoCallback.
-     * @param tokenFactoryAddress_ The TokenFactory that creates every LOVE20 token
-     * @param mintAddress_ The only caller allowed to add launch counts
-     * @param memberNFTAddress_ The member identity NFT contract
-     * @param rootParentTokenAddress_ The parent of the first token, WBNB on BSC
-     * @param distributor First token distributor, the Airdrop contract
-     * @param launchRatio Launch threshold ratio, 1e18 precision
-     * @param maxLaunchCount Per-community upper bound of issued launch counts
-     * @param tokenSymbolLength Sub-token symbol length
-     * @param name First token name
-     * @param symbol First token symbol; not constrained by tokenSymbolLength
+     * @param params Dependencies, launch settings, token supply settings and first-token metadata
      */
-    function init(
-        address tokenFactoryAddress_,
-        address mintAddress_,
-        address memberNFTAddress_,
-        address rootParentTokenAddress_,
-        address distributor,
-        uint256 launchRatio,
-        uint256 maxLaunchCount,
-        uint256 tokenSymbolLength,
-        string calldata name,
-        string calldata symbol
-    ) external {
+    function init(LaunchInitParams calldata params) external {
+        if (initialized) revert AlreadyInitialized();
         if (
-            tokenFactoryAddress_ == address(0) ||
-            mintAddress_ == address(0) ||
-            memberNFTAddress_ == address(0) ||
-            rootParentTokenAddress_ == address(0) ||
-            distributor == address(0)
+            params.mintAddress == address(0) || params.memberNFTAddress == address(0)
+                || params.rootParentTokenAddress == address(0) || params.distributor == address(0)
         ) {
             revert InvalidAddress();
         }
-        if (launchRatio == 0) revert ZeroAmount("launchRatio");
-        if (maxLaunchCount == 0) revert ZeroAmount("maxLaunchCount");
-        if (tokenSymbolLength == 0) revert ZeroAmount("tokenSymbolLength");
-        if (initialized) revert AlreadyInitialized();
+        if (params.launchRatio == 0) revert ZeroAmount("launchRatio");
+        if (params.maxLaunchCount == 0) revert ZeroAmount("maxLaunchCount");
+        if (params.tokenSymbolLength == 0) revert ZeroAmount("tokenSymbolLength");
+        if (params.launchAmount > params.maxSupply) revert InvalidAmount();
 
         initialized = true;
-        tokenFactoryAddress = tokenFactoryAddress_;
-        mintAddress = mintAddress_;
-        memberNFTAddress = memberNFTAddress_;
-        rootParentTokenAddress = rootParentTokenAddress_;
-        LAUNCH_RATIO = launchRatio;
-        MAX_LAUNCH_COUNT = maxLaunchCount;
-        TOKEN_SYMBOL_LENGTH = tokenSymbolLength;
+        mintAddress = params.mintAddress;
+        memberNFTAddress = params.memberNFTAddress;
+        rootParentTokenAddress = params.rootParentTokenAddress;
+        LAUNCH_RATIO = params.launchRatio;
+        MAX_LAUNCH_COUNT = params.maxLaunchCount;
+        TOKEN_SYMBOL_LENGTH = params.tokenSymbolLength;
+        LAUNCH_AMOUNT = params.launchAmount;
+        MAX_SUPPLY = params.maxSupply;
 
-        address firstTokenAddress = ITokenFactory(tokenFactoryAddress_).createToken(
-            rootParentTokenAddress_,
-            name,
-            symbol,
-            distributor
-        );
+        address firstTokenAddress =
+            _createToken(params.rootParentTokenAddress, params.name, params.symbol, params.distributor);
         _tokens.push(firstTokenAddress);
-        _parentTokenOf[firstTokenAddress] = rootParentTokenAddress_;
-        _tokenAddressBySymbol[symbol] = firstTokenAddress;
-        _childTokens[rootParentTokenAddress_].push(firstTokenAddress);
+        _parentTokenOf[firstTokenAddress] = params.rootParentTokenAddress;
+        _tokenAddressBySymbol[params.symbol] = firstTokenAddress;
+        _childTokens[params.rootParentTokenAddress].push(firstTokenAddress);
 
         // MemberNFT is initialized with the first token in the same transaction; it does not store Launch.
-        IMemberNFT(memberNFTAddress_).init(firstTokenAddress);
+        IMemberNFT(params.memberNFTAddress).init(firstTokenAddress);
 
         // The first token address is known only after deployment, so this event follows the external call.
         // forge-lint: disable-next-item(reentrancy-events)
         emit TokenLaunched({
             tokenAddress: firstTokenAddress,
-            parentTokenAddress: rootParentTokenAddress_,
+            parentTokenAddress: params.rootParentTokenAddress,
             launcherMemberId: 0,
-            distributor: distributor
+            distributor: params.distributor,
+            name: params.name,
+            symbol: params.symbol
         });
     }
 
@@ -184,12 +162,7 @@ contract Launch is ILaunch {
         // reentrant call cannot observe an inconsistent registry, and the registry is complete before
         // the distributor callback runs.
         // forge-lint: disable-next-item(reentrancy-no-eth)
-        tokenAddress = ITokenFactory(tokenFactoryAddress).createToken(
-            parentTokenAddress,
-            tokenName,
-            subTokenSymbol,
-            distributor
-        );
+        tokenAddress = _createToken(parentTokenAddress, tokenName, subTokenSymbol, distributor);
         _tokens.push(tokenAddress);
         _parentTokenOf[tokenAddress] = parentTokenAddress;
         _tokenAddressBySymbol[subTokenSymbol] = tokenAddress;
@@ -201,17 +174,13 @@ contract Launch is ILaunch {
             tokenAddress: tokenAddress,
             parentTokenAddress: parentTokenAddress,
             launcherMemberId: memberId,
-            distributor: distributor
+            distributor: distributor,
+            name: tokenName,
+            symbol: subTokenSymbol
         });
 
         if (distributorMode == DistributorMode.Callback) {
-            ILaunchDistributor(distributor).onTokenLaunched(
-                tokenAddress,
-                parentTokenAddress,
-                memberId,
-                keys,
-                values
-            );
+            ILaunchDistributor(distributor).onTokenLaunched(tokenAddress, parentTokenAddress, memberId, keys, values);
         }
     }
 
@@ -224,12 +193,9 @@ contract Launch is ILaunch {
      * @param targetMemberId The member that receives the count, only required to exist
      * @param count The transferred count, greater than zero
      */
-    function mergeLaunchCount(
-        address tokenAddress,
-        uint256 sourceMemberId,
-        uint256 targetMemberId,
-        uint256 count
-    ) external {
+    function mergeLaunchCount(address tokenAddress, uint256 sourceMemberId, uint256 targetMemberId, uint256 count)
+        external
+    {
         if (sourceMemberId == targetMemberId) {
             revert SourceAndTargetMustBeDifferent();
         }
@@ -250,10 +216,7 @@ contract Launch is ILaunch {
         _launchCount[tokenAddress][targetMemberId] += count;
 
         emit LaunchCountMerged({
-            tokenAddress: tokenAddress,
-            sourceMemberId: sourceMemberId,
-            targetMemberId: targetMemberId,
-            count: count
+            tokenAddress: tokenAddress, sourceMemberId: sourceMemberId, targetMemberId: targetMemberId, count: count
         });
     }
 
@@ -265,11 +228,7 @@ contract Launch is ILaunch {
      * @param memberId The member that receives the counts
      * @param count The added count, greater than zero
      */
-    function addLaunchCount(
-        address tokenAddress,
-        uint256 memberId,
-        uint256 count
-    ) external {
+    function addLaunchCount(address tokenAddress, uint256 memberId, uint256 count) external {
         if (msg.sender != mintAddress) revert UnauthorizedCaller();
         if (count == 0) revert CountMustBeGreaterThanZero();
         if (!isLOVE20Token(tokenAddress)) revert InvalidTokenAddress();
@@ -284,11 +243,7 @@ contract Launch is ILaunch {
         _launchCount[tokenAddress][memberId] += count;
         _issuedLaunchCount[tokenAddress] = issuedCount + count;
 
-        emit LaunchCountAdded({
-            tokenAddress: tokenAddress,
-            memberId: memberId,
-            count: count
-        });
+        emit LaunchCountAdded({tokenAddress: tokenAddress, memberId: memberId, count: count});
     }
 
     // ============ Queries ============
@@ -318,11 +273,11 @@ contract Launch is ILaunch {
      * @return tokenList The requested page
      * @return totalCount Total number of launched tokens
      */
-    function tokens(
-        uint256 offset,
-        uint256 limit,
-        bool reverse
-    ) external view returns (address[] memory tokenList, uint256 totalCount) {
+    function tokens(uint256 offset, uint256 limit, bool reverse)
+        external
+        view
+        returns (address[] memory tokenList, uint256 totalCount)
+    {
         return _page(_tokens, offset, limit, reverse);
     }
 
@@ -337,12 +292,11 @@ contract Launch is ILaunch {
      * @return tokenList The requested page
      * @return totalCount Total number of sub-tokens of the community
      */
-    function childTokens(
-        address parentTokenAddress,
-        uint256 offset,
-        uint256 limit,
-        bool reverse
-    ) external view returns (address[] memory tokenList, uint256 totalCount) {
+    function childTokens(address parentTokenAddress, uint256 offset, uint256 limit, bool reverse)
+        external
+        view
+        returns (address[] memory tokenList, uint256 totalCount)
+    {
         return _page(_childTokens[parentTokenAddress], offset, limit, reverse);
     }
 
@@ -366,16 +320,26 @@ contract Launch is ILaunch {
 
     // ============ Internal Functions ============
 
+    function _createToken(address parentTokenAddress, string memory name, string memory symbol, address distributor)
+        internal
+        returns (address tokenAddress)
+    {
+        if (bytes(name).length == 0) revert EmptyString("name");
+        if (bytes(symbol).length == 0) revert EmptyString("symbol");
+        tokenAddress = address(
+            new LOVE20Token(name, symbol, LAUNCH_AMOUNT, MAX_SUPPLY, distributor, mintAddress, parentTokenAddress)
+        );
+    }
+
     /**
      * @dev Shared pagination for the launch lists: an out-of-range offset yields an empty page with
      *      the true total count, and a limit above the remaining entries is clamped.
      */
-    function _page(
-        address[] storage list,
-        uint256 offset,
-        uint256 limit,
-        bool reverse
-    ) private view returns (address[] memory tokenList, uint256 totalCount) {
+    function _page(address[] storage list, uint256 offset, uint256 limit, bool reverse)
+        private
+        view
+        returns (address[] memory tokenList, uint256 totalCount)
+    {
         totalCount = list.length;
         if (offset >= totalCount) {
             return (new address[](0), totalCount);
@@ -448,17 +412,15 @@ contract Launch is ILaunch {
      * @dev Add the "Test" prefix when the parent token symbol starts with "Test"; the comparison uses the
      *      first four bytes of the parent symbol, so a shorter symbol never matches.
      */
-    function _addTestPrefixIfNeeded(
-        string calldata tokenSymbol,
-        string memory parentTokenSymbol
-    ) internal pure returns (string memory) {
+    function _addTestPrefixIfNeeded(string calldata tokenSymbol, string memory parentTokenSymbol)
+        internal
+        pure
+        returns (string memory)
+    {
         bytes memory parentSymbolBytes = bytes(parentTokenSymbol);
         if (
-            parentSymbolBytes.length >= 4 &&
-            parentSymbolBytes[0] == "T" &&
-            parentSymbolBytes[1] == "e" &&
-            parentSymbolBytes[2] == "s" &&
-            parentSymbolBytes[3] == "t"
+            parentSymbolBytes.length >= 4 && parentSymbolBytes[0] == "T" && parentSymbolBytes[1] == "e"
+                && parentSymbolBytes[2] == "s" && parentSymbolBytes[3] == "t"
         ) {
             return string(abi.encodePacked("Test", tokenSymbol));
         }
