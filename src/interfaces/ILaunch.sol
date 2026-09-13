@@ -1,227 +1,93 @@
 // SPDX-License-Identifier: MIT
-pragma solidity =0.8.17;
+pragma solidity =0.8.37;
 
-uint256 constant CLAIM_DELAY_BLOCKS = 1;
+enum DistributorMode { NoCallback, Callback }
 
-struct LaunchInfo {
-    address parentTokenAddress;
-    uint256 parentTokenFundraisingGoal;
-    uint256 secondHalfMinBlocks;
-    uint256 launchAmount;
-    uint256 startBlock;
-    uint256 secondHalfStartBlock;
-    uint256 endBlock;
-    bool hasEnded;
-    uint256 participantCount;
-    uint256 totalContributed;
-    uint256 totalExtraRefunded;
-}
-interface ILOVE20LaunchErrors {
+interface ILaunchErrors {
     error AlreadyInitialized();
     error InvalidTokenSymbol();
     error TokenSymbolExists();
-    error NotEligibleToLaunchToken();
-    error LaunchAlreadyEnded();
-    error LaunchNotEnded();
-    error ClaimDelayNotPassed();
-    error NoContribution();
-    error NotEnoughWaitingBlocks();
-    error TokensAlreadyClaimed();
-    error LaunchAlreadyExists();
-    error ParentTokenNotSet();
-    error ZeroContribution();
     error InvalidTokenAddress();
-    error InvalidToAddress();
     error InvalidParentToken();
+    error InvalidAddress();
+    error InvalidKVLength();
+    error InvalidDistributorMode();
+    error ZeroAmount(string parameter);
+    error UnauthorizedCaller();
+    error NotMemberOwner(uint256 memberId);
+    error CountMustBeGreaterThanZero();
+    error SourceAndTargetMustBeDifferent();
+    error NotEnoughLaunchCount();
+    error LaunchCountLimitReached();
 }
 
-interface ILOVE20LaunchEvents {
-    event LaunchToken(
+interface ILaunchEvents {
+    event TokenLaunched(
         address indexed tokenAddress,
-        string tokenSymbol,
         address indexed parentTokenAddress,
-        address indexed account
+        uint256 indexed launcherMemberId,
+        address distributor
     );
-
-    event Contribute(
+    event LaunchCountAdded(address indexed tokenAddress, uint256 indexed memberId, uint256 count);
+    event LaunchCountMerged(
         address indexed tokenAddress,
-        address indexed account,
-        uint256 amount,
-        uint256 totalContributed,
-        uint256 participantCount
-    );
-
-    event Withdraw(
-        address indexed tokenAddress,
-        address indexed account,
-        uint256 amount
-    );
-
-    event Claim(
-        address indexed tokenAddress,
-        address indexed account,
-        uint256 receivedTokenAmount,
-        uint256 extraRefund
-    );
-
-    event SecondHalfStart(
-        address indexed tokenAddress,
-        uint256 secondHalfStartBlock,
-        uint256 totalContributed
-    );
-
-    event LaunchEnd(
-        address indexed tokenAddress,
-        uint256 totalContributed,
-        uint256 participantCount,
-        uint256 endBlock
+        uint256 indexed sourceMemberId,
+        uint256 indexed targetMemberId,
+        uint256 count
     );
 }
 
-interface ILOVE20Launch is ILOVE20LaunchErrors, ILOVE20LaunchEvents {
-    function tokenFactoryAddress()
-        external
-        view
-        returns (address factoryAddress);
-
-    function submitAddress() external view returns (address address_);
-    function mintAddress() external view returns (address address_);
-
-    function TOKEN_SYMBOL_LENGTH() external view returns (uint256 length);
-
-    function FIRST_PARENT_TOKEN_FUNDRAISING_GOAL()
-        external
-        view
-        returns (uint256 goal);
-
-    function PARENT_TOKEN_FUNDRAISING_GOAL()
-        external
-        view
-        returns (uint256 goal);
-
-    function SECOND_HALF_MIN_BLOCKS() external view returns (uint256 blocks);
-
-    function WITHDRAW_WAITING_BLOCKS() external view returns (uint256 blocks);
-
-    function MIN_GOV_REWARD_MINTS_TO_LAUNCH()
-        external
-        view
-        returns (uint256 mints);
-
-    function isLOVE20Token(address tokenAddress) external view returns (bool);
-
-    function launchToken(
-        string memory tokenSymbol,
-        address parentTokenAddress
-    ) external returns (address tokenAddress);
-
-    function contribute(
-        address tokenAddress,
-        uint256 parentTokenAmount,
-        address to
+interface ILaunch is ILaunchErrors, ILaunchEvents {
+    function tokenFactoryAddress() external view returns (address);
+    function mintAddress() external view returns (address);
+    function memberNFTAddress() external view returns (address);
+    function rootParentTokenAddress() external view returns (address);
+    function TOKEN_SYMBOL_LENGTH() external view returns (uint256);
+    function LAUNCH_RATIO() external view returns (uint256);
+    function MAX_LAUNCH_COUNT() external view returns (uint256);
+    function initialized() external view returns (bool);
+    function init(
+        address tokenFactoryAddress,
+        address mintAddress,
+        address memberNFTAddress,
+        address rootParentTokenAddress,
+        address distributor,
+        uint256 launchRatio,
+        uint256 maxLaunchCount,
+        uint256 tokenSymbolLength,
+        string calldata name,
+        string calldata symbol
     ) external;
-
-    function withdraw(address tokenAddress) external;
-
-    function claim(
-        address tokenAddress
-    ) external returns (uint256 receivedTokenAmount, uint256 extraRefund);
-
-    function claimInfo(
+    function isLOVE20Token(address tokenAddress) external view returns (bool);
+    function launchToken(
+        string calldata tokenSymbol,
+        address parentTokenAddress,
+        uint256 memberId,
+        address distributor,
+        DistributorMode distributorMode,
+        bytes32[] calldata keys,
+        bytes[] calldata values
+    ) external returns (address tokenAddress);
+    function mergeLaunchCount(
         address tokenAddress,
-        address account
-    )
-        external
-        view
-        returns (
-            uint256 receivedTokenAmount,
-            uint256 extraRefund,
-            bool isClaimed
-        );
-
-    function remainingLaunchCount(
+        uint256 sourceMemberId,
+        uint256 targetMemberId,
+        uint256 count
+    ) external;
+    function addLaunchCount(address tokenAddress, uint256 memberId, uint256 count) external;
+    function launchCount(address tokenAddress, uint256 memberId) external view returns (uint256);
+    function issuedLaunchCount(address tokenAddress) external view returns (uint256);
+    function tokens(
+        uint256 offset,
+        uint256 limit,
+        bool reverse
+    ) external view returns (address[] memory tokenList, uint256 totalCount);
+    function childTokens(
         address parentTokenAddress,
-        address account
-    ) external view returns (uint256 count);
-
-    function tokensCount() external view returns (uint256 count);
-    function tokensAtIndex(
-        uint256 index
-    ) external view returns (address tokenAddress);
-
-    function childTokensByLauncherCount(
-        address parentTokenAddress,
-        address account
-    ) external view returns (uint256 count);
-    function childTokensByLauncherAtIndex(
-        address parentTokenAddress,
-        address account,
-        uint256 index
-    ) external view returns (address tokenAddress);
-
-    function childTokensCount(
-        address parentTokenAddress
-    ) external view returns (uint256 count);
-
-    function childTokensAtIndex(
-        address parentTokenAddress,
-        uint256 index
-    ) external view returns (address tokenAddress);
-
-    function launchingTokensCount() external view returns (uint256 count);
-
-    function launchingTokensAtIndex(
-        uint256 index
-    ) external view returns (address tokenAddress);
-
-    function launchedTokensCount() external view returns (uint256 count);
-
-    function launchedTokensAtIndex(
-        uint256 index
-    ) external view returns (address tokenAddress);
-
-    function launchingChildTokensCount(
-        address parentTokenAddress
-    ) external view returns (uint256 count);
-
-    function launchingChildTokensAtIndex(
-        address parentTokenAddress,
-        uint256 index
-    ) external view returns (address tokenAddress);
-
-    function launchedChildTokensCount(
-        address parentTokenAddress
-    ) external view returns (uint256 count);
-
-    function launchedChildTokensAtIndex(
-        address parentTokenAddress,
-        uint256 index
-    ) external view returns (address tokenAddress);
-
-    function participatedTokensCount(
-        address account
-    ) external view returns (uint256 count);
-
-    function participatedTokensAtIndex(
-        address account,
-        uint256 index
-    ) external view returns (address tokenAddress);
-
-    function tokenAddressBySymbol(
-        string memory symbol
-    ) external view returns (address tokenAddress);
-
-    function launchInfo(
-        address tokenAddress
-    ) external view returns (LaunchInfo memory info);
-
-    function contributed(
-        address tokenAddress,
-        address account
-    ) external view returns (uint256 amount);
-
-    function lastContributedBlock(
-        address tokenAddress,
-        address account
-    ) external view returns (uint256 blockNumber);
+        uint256 offset,
+        uint256 limit,
+        bool reverse
+    ) external view returns (address[] memory tokenList, uint256 totalCount);
+    function tokenAddressBySymbol(string calldata symbol) external view returns (address);
+    function parentTokenOf(address tokenAddress) external view returns (address);
 }
