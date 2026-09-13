@@ -44,7 +44,7 @@ contract PhaseTest {
         Phase phase = new Phase(block.number + 10, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT);
         (bool ok, bytes memory data) = address(phase).call(abi.encodeWithSelector(IPhase.sync.selector));
         require(!ok && _selector(data) == IPhaseErrors.InvalidPhase.selector);
-        require(phase.syncObservationsCount() == 0);
+        require(_observationsCount(phase) == 0);
     }
 
     function testSyncRecordsOncePerPhaseAndAdjustsNextPhase() external {
@@ -55,17 +55,17 @@ contract PhaseTest {
         vm.warp(timestamp);
         (bool adjusted, uint256 length) = phase.sync();
         require(!adjusted && length == PHASE_BLOCKS);
-        require(phase.syncObservationsCount() == 1);
+        require(_observationsCount(phase) == 1);
 
         (adjusted, length) = phase.sync();
         require(!adjusted && length == PHASE_BLOCKS);
-        require(phase.syncObservationsCount() == 1);
+        require(_observationsCount(phase) == 1);
 
         vm.roll(origin + PHASE_BLOCKS + 1);
         vm.warp(timestamp + 1000);
         (adjusted, length) = phase.sync();
         require(adjusted && length > PHASE_BLOCKS);
-        require(phase.syncObservationsCount() == 2);
+        require(_observationsCount(phase) == 2);
         require(phase.phaseAtBlock(origin + PHASE_BLOCKS) == 2);
         (uint256 start, uint256 phaseLength) = phase.phaseInfo(2);
         require(start == origin + PHASE_BLOCKS && phaseLength == PHASE_BLOCKS);
@@ -101,7 +101,7 @@ contract PhaseTest {
         vm.warp(block.timestamp + 1000);
         (bool adjusted, uint256 newBlocks) = phase.sync();
         require(adjusted && newBlocks > 10);
-        require(phase.syncObservationsCount() == 3);
+        require(_observationsCount(phase) == 3);
     }
 
     function testStrictObservationBoundaryDoesNotAdjust() external {
@@ -170,15 +170,38 @@ contract PhaseTest {
         require(vm.getRecordedLogs().length == 0);
     }
 
-    function testObservationBounds() external {
-        Phase phase = new Phase(block.number + 1, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT);
-        (bool ok, bytes memory data) = address(phase).call(
-            abi.encodeWithSelector(IPhase.syncObservation.selector, 1)
-        );
-        require(!ok && _selector(data) == IPhaseErrors.ObservationNotFound.selector);
+    function testObservationPaginationBounds() external {
+        uint256 origin = block.number + 1;
+        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT);
 
-        (ok, data) = address(phase).call(abi.encodeWithSelector(IPhase.phaseInfo.selector, 0));
+        // Empty history: empty page with the true count.
+        (uint256[] memory blockNumbers, uint256[] memory blockTimestamps, uint256 totalCount) =
+            phase.syncObservations(0, OBSERVATION_LIMIT, false);
+        require(blockNumbers.length == 0 && blockTimestamps.length == 0 && totalCount == 0);
+
+        vm.roll(origin);
+        vm.warp(block.timestamp + 1000);
+        phase.sync();
+
+        // Out-of-range offset: empty page, no revert, true count.
+        (blockNumbers, blockTimestamps, totalCount) = phase.syncObservations(1, OBSERVATION_LIMIT, false);
+        require(blockNumbers.length == 0 && blockTimestamps.length == 0 && totalCount == 1);
+
+        // Limit larger than the remaining entries is clamped to the remaining entries.
+        (blockNumbers,, totalCount) = phase.syncObservations(0, OBSERVATION_LIMIT, false);
+        require(blockNumbers.length == 1 && blockNumbers[0] == origin && totalCount == 1);
+
+        // Reverse returns the newest observation first.
+        (blockNumbers,, ) = phase.syncObservations(0, 1, true);
+        require(blockNumbers.length == 1 && blockNumbers[0] == origin);
+
+        (bool ok, bytes memory data) = address(phase).call(abi.encodeWithSelector(IPhase.phaseInfo.selector, 0));
         require(!ok && _selector(data) == IPhaseErrors.InvalidPhase.selector);
+    }
+
+    function _observationsCount(Phase phase) private view returns (uint256) {
+        (,, uint256 totalCount) = phase.syncObservations(0, 0, false);
+        return totalCount;
     }
 
     function _selector(bytes memory data) private pure returns (bytes4 selector) {
