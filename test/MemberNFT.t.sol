@@ -409,6 +409,77 @@ contract MemberNFTTest {
         require(holderList.length == 0, "out of bounds empty list");
     }
 
+    function testHoldersPaginatesWithOffsetAndLimit() public {
+        _fund(dave);
+        alice.mint(nft, "aaa");
+        bob.mint(nft, "bbb");
+        carol.mint(nft, "ccc");
+        dave.mint(nft, "ddd");
+
+        // limit 小于剩余条数：只返回一页，总数仍为全量
+        (address[] memory page, uint256 total) = nft.holders(0, 2, false);
+        require(total == 4, "total count");
+        require(page.length == 2, "page size follows limit");
+        require(page[0] == address(alice), "page 0");
+        require(page[1] == address(bob), "page 1");
+
+        // offset 从中间开始：跳过前面的持有人
+        (page, total) = nft.holders(1, 2, false);
+        require(total == 4, "offset total count");
+        require(page.length == 2, "offset page size");
+        require(page[0] == address(bob), "offset 1 holder 0");
+        require(page[1] == address(carol), "offset 1 holder 1");
+
+        // limit 大于剩余条数：截断到最后一位
+        (page, total) = nft.holders(3, 100, false);
+        require(page.length == 1, "tail page size");
+        require(page[0] == address(dave), "tail page holder");
+
+        // limit 为 0：返回空页与真实总数，不回滚
+        (page, total) = nft.holders(0, 0, false);
+        require(total == 4, "zero limit total count");
+        require(page.length == 0, "zero limit empty page");
+
+        // offset 恰好等于总数：空页与真实总数，不回滚
+        (page, total) = nft.holders(4, 10, false);
+        require(total == 4, "offset at total count");
+        require(page.length == 0, "offset at total count empty page");
+    }
+
+    function testHoldersReverseIteratesFromTheEnd() public {
+        _fund(dave);
+        alice.mint(nft, "aaa");
+        bob.mint(nft, "bbb");
+        carol.mint(nft, "ccc");
+        dave.mint(nft, "ddd");
+
+        // 倒序全量：从最新加入的持有人开始
+        (address[] memory page, uint256 total) = nft.holders(0, 4, true);
+        require(total == 4, "reverse total count");
+        require(page.length == 4, "reverse page size");
+        require(page[0] == address(dave), "reverse holder 0");
+        require(page[1] == address(carol), "reverse holder 1");
+        require(page[2] == address(bob), "reverse holder 2");
+        require(page[3] == address(alice), "reverse holder 3");
+
+        // 倒序叠加 offset：先跳过末尾若干个，再倒着取
+        (page, total) = nft.holders(1, 2, true);
+        require(page.length == 2, "reverse offset page size");
+        require(page[0] == address(carol), "reverse offset holder 0");
+        require(page[1] == address(bob), "reverse offset holder 1");
+
+        // 倒序叠加 limit 截断：取到集合开头为止
+        (page, total) = nft.holders(2, 100, true);
+        require(page.length == 2, "reverse tail page size");
+        require(page[0] == address(bob), "reverse tail holder 0");
+        require(page[1] == address(alice), "reverse tail holder 1");
+
+        // 倒序 offset 越界：空页与真实总数
+        (page, total) = nft.holders(4, 10, true);
+        require(total == 4, "reverse out of bounds total count");
+        require(page.length == 0, "reverse out of bounds empty page");
+    }
+
     function testMintAndHolderEvents() public {
         bob.mint(nft, "ccc");
 
