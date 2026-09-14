@@ -125,8 +125,7 @@ contract Launch is ILaunch {
      * @param memberId The member that consumes the launch count, must be held by the caller
      * @param distributor Receiver of the initial supply
      * @param distributorMode NoCallback or Callback
-     * @param keys Launch KV keys, opaque to Launch
-     * @param values Launch KV values, opaque to Launch
+     * @param distributorData Opaque data array passed to the distributor callback, format defined by distributor
      * @return tokenAddress The newly created sub-token
      */
     function launchToken(
@@ -135,12 +134,11 @@ contract Launch is ILaunch {
         uint256 memberId,
         address distributor,
         DistributorMode distributorMode,
-        bytes32[] calldata keys,
-        bytes[] calldata values
+        bytes[] calldata distributorData
     ) external returns (address tokenAddress) {
         _checkValidTokenSymbol(tokenSymbol);
         if (distributor == address(0)) revert InvalidAddress();
-        _checkDistributorMode(distributorMode, distributor, keys, values);
+        _checkDistributorMode(distributorMode, distributor);
 
         if (!isLOVE20Token(parentTokenAddress)) revert InvalidParentToken();
 
@@ -180,7 +178,7 @@ contract Launch is ILaunch {
         });
 
         if (distributorMode == DistributorMode.Callback) {
-            ILaunchDistributor(distributor).onTokenLaunched(tokenAddress, parentTokenAddress, memberId, keys, values);
+            ILaunchDistributor(distributor).onTokenLaunched(tokenAddress, parentTokenAddress, memberId, distributorData);
         }
     }
 
@@ -391,18 +389,13 @@ contract Launch is ILaunch {
     }
 
     /**
-     * @dev KV and distributor mode rules: both arrays must have the same length, NoCallback requires both
-     *      arrays to be empty, Callback requires a contract distributor.
+     * @dev NoCallback ignores distributor data; Callback requires a contract distributor.
      */
     function _checkDistributorMode(
         DistributorMode distributorMode,
-        address distributor,
-        bytes32[] calldata keys,
-        bytes[] calldata values
+        address distributor
     ) internal view {
-        if (keys.length != values.length) revert InvalidKVLength();
         if (distributorMode == DistributorMode.NoCallback) {
-            if (keys.length != 0) revert InvalidKVLength();
             return;
         }
         if (distributor.code.length == 0) revert InvalidDistributorMode();

@@ -6,7 +6,6 @@ interface ILaunchDistributor {
         address tokenAddress,
         address parentTokenAddress,
         uint256 launcherMemberId,
-        bytes32[] calldata keys,
-        bytes[] calldata values
+        bytes[] calldata distributorData
     ) external;
 }

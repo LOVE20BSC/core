@@ -61,8 +61,7 @@ contract CallbackDistributor {
     address public lastTokenAddress;
     address public lastParentTokenAddress;
     uint256 public lastLauncherMemberId;
-    bytes32[] public lastKeys;
-    bytes[] public lastValues;
+    bytes[] public lastData;
     uint256 public callCount;
     bool public rejectNextCall;
 
@@ -84,21 +83,16 @@ contract CallbackDistributor {
         address tokenAddress,
         address parentTokenAddress,
         uint256 launcherMemberId,
-        bytes32[] calldata keys,
-        bytes[] calldata values
+        bytes[] calldata data
     ) external {
         if (rejectNextCall) revert DistributorCallbackFailed();
         lastTokenAddress = tokenAddress;
         lastParentTokenAddress = parentTokenAddress;
         lastLauncherMemberId = launcherMemberId;
         // 逐元素复制：calldata 的嵌套动态数组不能整体写入 storage
-        delete lastKeys;
-        for (uint256 i; i < keys.length; ++i) {
-            lastKeys.push(keys[i]);
-        }
-        delete lastValues;
-        for (uint256 i; i < values.length; ++i) {
-            lastValues.push(values[i]);
+        delete lastData;
+        for (uint256 i; i < data.length; ++i) {
+            lastData.push(data[i]);
         }
         if (address(probe) != address(0)) {
             observedRegistered = probe.isLOVE20Token(tokenAddress);
@@ -532,25 +526,20 @@ contract LaunchTest {
                 aliceMemberId,
                 address(0),
                 DistributorMode.NoCallback,
-                _emptyKeys(),
-                _emptyValues()
+                _emptyData()
             )
         );
         require(!ok, "zero distributor must revert");
         require(_selector(data) == ILaunchErrors.InvalidAddress.selector, "address selector");
     }
 
-    function testLaunchTokenEnforcesKvAndModeRules() public {
+    function testLaunchTokenEnforcesDataAndModeRules() public {
         _grantCount(address(firstToken), aliceMemberId, 1);
 
-        bytes32[] memory twoKeys = new bytes32[](2);
-        twoKeys[0] = bytes32(uint256(1));
-        twoKeys[1] = bytes32(uint256(2));
         bytes[] memory oneValue = new bytes[](1);
         oneValue[0] = hex"aabb";
 
-        // KV 长度不等：必须用 Callback + 合约 distributor 才隔离得开——NoCallback 的
-        // 「两数组必须为空」在等长校验失效时会抛出同一个错误，断言无法归因
+        // NoCallback 忽略 data 数组，且不调用回调
         (bool ok, bytes memory data) = alice.forward(
             address(launch),
             _launchCalldata(
@@ -558,31 +547,13 @@ contract LaunchTest {
                 address(firstToken),
                 aliceMemberId,
                 address(distributor),
-                DistributorMode.Callback,
-                twoKeys,
-                oneValue
-            )
-        );
-        require(!ok, "mismatched KV must revert");
-        require(_selector(data) == ILaunchErrors.InvalidKVLength.selector, "kv length selector");
-
-        // NoCallback 要求两数组同时为空：等长但非空，且不调用回调
-        bytes32[] memory oneKey = new bytes32[](1);
-        oneKey[0] = bytes32(uint256(1));
-        (ok, data) = alice.forward(
-            address(launch),
-            _launchCalldata(
-                "AAA",
-                address(firstToken),
-                aliceMemberId,
-                address(distributor),
                 DistributorMode.NoCallback,
-                oneKey,
                 oneValue
             )
         );
-        require(!ok, "no callback with KV must revert");
-        require(_selector(data) == ILaunchErrors.InvalidKVLength.selector, "no callback kv selector");
+        require(ok, "no callback ignores data");
+        address tokenAddress = abi.decode(data, (address));
+        require(tokenAddress != address(0), "token created");
         require(distributor.callCount() == 0, "no callback invoked");
 
         // Callback 要求 distributor 是合约
@@ -594,43 +565,37 @@ contract LaunchTest {
                 aliceMemberId,
                 EOA,
                 DistributorMode.Callback,
-                _emptyKeys(),
-                _emptyValues()
+                _emptyData()
             )
         );
         require(!ok, "eoa callback must revert");
         require(_selector(data) == ILaunchErrors.InvalidDistributorMode.selector, "mode selector");
 
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 1, "count untouched");
+        require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "count consumed");
     }
 
     function testLaunchTokenInvokesCallbackDistributor() public {
         _grantCount(address(firstToken), aliceMemberId, 1);
 
-        bytes32[] memory keys = new bytes32[](2);
-        keys[0] = bytes32(uint256(1));
-        keys[1] = bytes32(uint256(2));
-        bytes[] memory values = new bytes[](2);
-        values[0] = hex"aabb";
-        values[1] = hex"cc";
+        bytes[] memory data = new bytes[](2);
+        data[0] = hex"aabb";
+        data[1] = hex"cc";
 
-        (bool ok, bytes memory data) = alice.forward(
+        (bool ok, bytes memory returnData) = alice.forward(
             address(launch),
             _launchCalldata(
-                "AAA", address(firstToken), aliceMemberId, address(distributor), DistributorMode.Callback, keys, values
+                "AAA", address(firstToken), aliceMemberId, address(distributor), DistributorMode.Callback, data
             )
         );
         require(ok, "callback launch");
-        address tokenAddress = abi.decode(data, (address));
+        address tokenAddress = abi.decode(returnData, (address));
 
         require(distributor.callCount() == 1, "called once");
         require(distributor.lastTokenAddress() == tokenAddress, "callback token");
         require(distributor.lastParentTokenAddress() == address(firstToken), "callback parent");
         require(distributor.lastLauncherMemberId() == aliceMemberId, "callback member");
-        require(distributor.lastKeys(0) == bytes32(uint256(1)), "key 0");
-        require(distributor.lastKeys(1) == bytes32(uint256(2)), "key 1");
-        require(keccak256(distributor.lastValues(0)) == keccak256(hex"aabb"), "value 0");
-        require(distributor.lastValues(1).length == 1, "value 1");
+        require(keccak256(distributor.lastData(0)) == keccak256(hex"aabb"), "data 0");
+        require(distributor.lastData(1).length == 1, "data 1");
         require(LOVE20Token(tokenAddress).balanceOf(address(distributor)) == LAUNCH_AMOUNT, "supply to distributor");
         require(launch.isLOVE20Token(tokenAddress), "registered before callback");
     }
@@ -646,8 +611,7 @@ contract LaunchTest {
                 aliceMemberId,
                 address(distributor),
                 DistributorMode.NoCallback,
-                _emptyKeys(),
-                _emptyValues()
+                _emptyData()
             )
         );
         require(ok, "no callback launch");
@@ -668,8 +632,7 @@ contract LaunchTest {
                 aliceMemberId,
                 address(distributor),
                 DistributorMode.Callback,
-                _emptyKeys(),
-                _emptyValues()
+                _emptyData()
             )
         );
         require(ok, "callback launch");
@@ -695,8 +658,7 @@ contract LaunchTest {
                 aliceMemberId,
                 address(distributor),
                 DistributorMode.Callback,
-                _emptyKeys(),
-                _emptyValues()
+                _emptyData()
             )
         );
         require(!ok, "callback failure must revert");
@@ -769,7 +731,7 @@ contract LaunchTest {
         (bool ok, bytes memory data) = alice.forward(
             address(launch),
             _launchCalldata(
-                "aa", address(firstToken), aliceMemberId, address(0), DistributorMode.NoCallback, _emptyKeys(), _emptyValues()
+                "aa", address(firstToken), aliceMemberId, address(0), DistributorMode.NoCallback, _emptyData()
             )
         );
         require(!ok && _selector(data) == ILaunchErrors.InvalidTokenSymbol.selector, "symbol before distributor");
@@ -778,7 +740,7 @@ contract LaunchTest {
         (ok, data) = alice.forward(
             address(launch),
             _launchCalldata(
-                "AAA", address(0), aliceMemberId, address(0), DistributorMode.NoCallback, _emptyKeys(), _emptyValues()
+                "AAA", address(0), aliceMemberId, address(0), DistributorMode.NoCallback, _emptyData()
             )
         );
         require(!ok && _selector(data) == ILaunchErrors.InvalidAddress.selector, "distributor before parent");
@@ -1298,8 +1260,7 @@ contract LaunchTest {
         uint256 memberId,
         address distributorAddress,
         DistributorMode distributorMode,
-        bytes32[] memory keys,
-        bytes[] memory values
+        bytes[] memory data
     ) private pure returns (bytes memory) {
         return abi.encodeWithSelector(
             ILaunch.launchToken.selector,
@@ -1308,16 +1269,11 @@ contract LaunchTest {
             memberId,
             distributorAddress,
             distributorMode,
-            keys,
-            values
+            data
         );
     }
 
-    function _emptyKeys() private pure returns (bytes32[] memory) {
-        return new bytes32[](0);
-    }
-
-    function _emptyValues() private pure returns (bytes[] memory) {
+    function _emptyData() private pure returns (bytes[] memory) {
         return new bytes[](0);
     }
 
@@ -1345,8 +1301,7 @@ contract LaunchTest {
                 memberId,
                 SUB_DISTRIBUTOR,
                 DistributorMode.NoCallback,
-                _emptyKeys(),
-                _emptyValues()
+                _emptyData()
             )
         );
     }
