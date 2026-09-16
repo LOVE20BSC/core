@@ -2,6 +2,7 @@
 pragma solidity =0.8.37;
 
 import {IERC721Enumerable} from "../../lib/openzeppelin-contracts/contracts/token/ERC721/extensions/IERC721Enumerable.sol";
+import {IERC721Metadata} from "../../lib/openzeppelin-contracts/contracts/token/ERC721/extensions/IERC721Metadata.sol";
 
 interface IMemberNFTEvents {
     event Mint(
@@ -26,7 +27,7 @@ interface IMemberNFTErrors {
     error FeeTransferFailed();
 }
 
-interface IMemberNFT is IERC721Enumerable, IMemberNFTEvents, IMemberNFTErrors {
+interface IMemberNFT is IERC721Metadata, IERC721Enumerable, IMemberNFTEvents, IMemberNFTErrors {
     function LOVE20_TOKEN_ADDRESS() external view returns (address);
 
     function BASE_DIVISOR() external view returns (uint256);
