@@ -68,6 +68,7 @@ contract Launch is ILaunch {
         if (params.launchRatio == 0) revert ZeroAmount("launchRatio");
         if (params.maxLaunchCount == 0) revert ZeroAmount("maxLaunchCount");
         if (params.tokenSymbolLength == 0) revert ZeroAmount("tokenSymbolLength");
+        if (params.launchAmount == 0) revert ZeroAmount("launchAmount");
         if (params.launchAmount > params.maxSupply) revert InvalidAmount();
 
         initialized = true;

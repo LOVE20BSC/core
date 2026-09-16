@@ -7,18 +7,12 @@ import {IERC20Metadata} from "../../lib/openzeppelin-contracts/contracts/token/E
 interface ILOVE20TokenEvents {
     event TokenMint(address indexed to, uint256 amount);
     event TokenBurn(address indexed from, uint256 amount);
-    event BurnForParentToken(
-        address indexed burner,
-        uint256 burnAmount,
-        uint256 parentTokenAmount
-    );
 }
 
 interface ILOVE20TokenErrors {
     error InvalidAddress();
     error NotMinter();
     error ExceedsMaxSupply();
-    error InsufficientBalance();
     error InvalidSupply();
 }
 
@@ -34,13 +28,7 @@ interface ILOVE20Token is
 
     function parentTokenAddress() external view returns (address);
 
-    function parentPool() external view returns (uint256);
-
     function mint(address to, uint256 amount) external;
 
     function burn(uint256 amount) external;
-
-    function burnForParentToken(
-        uint256 amount
-    ) external returns (uint256 parentTokenAmount);
 }

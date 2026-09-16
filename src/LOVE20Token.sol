@@ -3,20 +3,21 @@ pragma solidity =0.8.37;
 
 import {ERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
-import {ReentrancyGuard} from "../lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title LOVE20Token
  * @notice Implementation of the LOVE20 token with burning and minting capabilities
- * @dev Implements ILOVE20Token interface with enhanced security features
+ * @dev Implements ILOVE20Token on top of OpenZeppelin ERC20
  */
-contract LOVE20Token is ERC20, ILOVE20Token, ReentrancyGuard {
+contract LOVE20Token is ERC20, ILOVE20Token {
     // State variables
     uint256 public immutable maxSupply;
     address public minter;
     address public parentTokenAddress;
     /**
      * @notice Contract constructor
+     * @dev `initialSupply` must be greater than zero and at most `maxSupply_`, so a deployed token
+     *      never starts with a zero total supply.
      * @param name Token name
      * @param symbol Token symbol
      * @param initialSupply Initial token supply
@@ -34,7 +35,7 @@ contract LOVE20Token is ERC20, ILOVE20Token, ReentrancyGuard {
         address minter_,
         address parentTokenAddress_
     ) ERC20(name, symbol) {
-        if (maxSupply_ < initialSupply) revert InvalidSupply();
+        if (initialSupply == 0 || maxSupply_ < initialSupply) revert InvalidSupply();
         if (distributor == address(0) || minter_ == address(0) || parentTokenAddress_ == address(0)) {
             revert InvalidAddress();
         }
@@ -54,13 +55,6 @@ contract LOVE20Token is ERC20, ILOVE20Token, ReentrancyGuard {
     /**
      * @inheritdoc ILOVE20Token
      */
-    function parentPool() public view returns (uint256) {
-        return ERC20(parentTokenAddress).balanceOf(address(this));
-    }
-
-    /**
-     * @inheritdoc ILOVE20Token
-     */
     function mint(address to, uint256 amount) external override onlyMinter {
         if (totalSupply() + amount > maxSupply) revert ExceedsMaxSupply();
         _mint(to, amount);
@@ -73,28 +67,5 @@ contract LOVE20Token is ERC20, ILOVE20Token, ReentrancyGuard {
     function burn(uint256 amount) external override {
         _burn(msg.sender, amount);
         emit TokenBurn({from: msg.sender, amount: amount});
-    }
-
-    /**
-     * @inheritdoc ILOVE20Token
-     */
-    function burnForParentToken(
-        uint256 amount
-    ) external override nonReentrant returns (uint256 parentTokenAmount) {
-        if (amount > balanceOf(msg.sender)) revert InsufficientBalance();
-
-        parentTokenAmount = (parentPool() * amount) / totalSupply();
-
-        _burn(msg.sender, amount);
-
-        require(ERC20(parentTokenAddress).transfer(msg.sender, parentTokenAmount), "parent transfer failed");
-        // Emit this event only after the parent-token transfer succeeds; a failure reverts the whole transaction.
-        // forge-lint: disable-next-item(reentrancy-events)
-        emit BurnForParentToken({
-            burner: msg.sender,
-            burnAmount: amount,
-            parentTokenAmount: parentTokenAmount
-        });
-        return parentTokenAmount;
     }
 }

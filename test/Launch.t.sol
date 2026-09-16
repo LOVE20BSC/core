@@ -307,6 +307,12 @@ contract LaunchTest {
         data = _initRevertData(params, "zero symbol length expected");
         require(_selector(data) == ILaunchErrors.ZeroAmount.selector, "symbol length selector");
         require(keccak256(bytes(_argString(data))) == keccak256("tokenSymbolLength"), "symbol length parameter name");
+
+        params = _freshParams();
+        params.launchAmount = 0;
+        data = _initRevertData(params, "zero launch amount expected");
+        require(_selector(data) == ILaunchErrors.ZeroAmount.selector, "launch amount selector");
+        require(keccak256(bytes(_argString(data))) == keccak256("launchAmount"), "launch amount parameter name");
     }
 
     function testInitRejectsLaunchAmountAboveMaxSupply() public {
@@ -315,20 +321,14 @@ contract LaunchTest {
         _requireInitRevert(params, ILaunchErrors.InvalidAmount.selector, "amount above supply");
     }
 
-    function testInitAcceptsZeroAndEqualSupplySettings() public {
-        // launchAmount 与 maxSupply 可以相等
+    function testInitAcceptsEqualSupplySettings() public {
+        // launchAmount 与 maxSupply 相等是合法配置；零值由 testInitRejectsZeroAmountParameters 覆盖
         MemberNFT equalMember = _newMember();
         Launch equalLaunch = new Launch();
         equalLaunch.init(_params(address(equalMember), MAX_SUPPLY, MAX_SUPPLY, "LOVE"));
-        require(LOVE20Token(equalMember.LOVE20_TOKEN_ADDRESS()).totalSupply() == MAX_SUPPLY, "equal supply");
-
-        // 两者可以同时为零
-        MemberNFT zeroMember = _newMember();
-        Launch zeroLaunch = new Launch();
-        zeroLaunch.init(_params(address(zeroMember), 0, 0, "LOVE"));
-        LOVE20Token zeroToken = LOVE20Token(zeroMember.LOVE20_TOKEN_ADDRESS());
-        require(zeroToken.totalSupply() == 0, "zero supply");
-        require(zeroToken.maxSupply() == 0, "zero max supply");
+        LOVE20Token equalToken = LOVE20Token(equalMember.LOVE20_TOKEN_ADDRESS());
+        require(equalToken.totalSupply() == MAX_SUPPLY, "equal supply");
+        require(equalToken.maxSupply() == MAX_SUPPLY, "equal max supply");
     }
 
     function testInitRejectsEmptyFirstTokenNameOrSymbol() public {

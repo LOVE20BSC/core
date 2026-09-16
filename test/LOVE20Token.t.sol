@@ -4,21 +4,6 @@ pragma solidity =0.8.37;
 import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {ILOVE20TokenErrors} from "../src/interfaces/ILOVE20Token.sol";
 
-contract MockParentToken {
-    mapping(address => uint256) public balanceOf;
-
-    function mint(address to, uint256 amount) external {
-        balanceOf[to] += amount;
-    }
-
-    function transfer(address to, uint256 amount) external returns (bool) {
-        require(balanceOf[msg.sender] >= amount, "balance");
-        balanceOf[msg.sender] -= amount;
-        balanceOf[to] += amount;
-        return true;
-    }
-}
-
 contract TokenCaller {
     function mint(LOVE20Token token, address to, uint256 amount) external {
         token.mint(to, amount);
@@ -26,10 +11,6 @@ contract TokenCaller {
 
     function burn(LOVE20Token token, uint256 amount) external {
         token.burn(amount);
-    }
-
-    function burnForParentToken(LOVE20Token token, uint256 amount) external returns (uint256) {
-        return token.burnForParentToken(amount);
     }
 
     function callMint(LOVE20Token token, address to, uint256 amount)
@@ -40,19 +21,14 @@ contract TokenCaller {
     }
 }
 
-interface Vm {
-    function expectRevert(bytes4 revertData) external;
-}
-
 contract LOVE20TokenTest {
-    Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
-    MockParentToken private parent;
+    /// 父币地址只作为构造参数保存，代币本体不再与父币发生任何转账
+    address private constant PARENT = address(0xBEEF);
     LOVE20Token private token;
     TokenCaller private minter;
     TokenCaller private holder;
 
     function setUp() public {
-        parent = new MockParentToken();
         minter = new TokenCaller();
         holder = new TokenCaller();
         token = new LOVE20Token(
@@ -62,7 +38,7 @@ contract LOVE20TokenTest {
             150 ether,
             address(this),
             address(minter),
-            address(parent)
+            PARENT
         );
     }
 
@@ -73,7 +49,7 @@ contract LOVE20TokenTest {
         require(token.balanceOf(address(this)) == 100 ether, "distributor");
         require(token.maxSupply() == 150 ether, "max supply");
         require(token.minter() == address(minter), "minter");
-        require(token.parentTokenAddress() == address(parent), "parent");
+        require(token.parentTokenAddress() == PARENT, "parent");
     }
 
     function testMinterCanMintUpToMaxSupply() public {
@@ -98,65 +74,78 @@ contract LOVE20TokenTest {
         require(token.totalSupply() == 93 ether, "supply");
     }
 
-    function testBurnForParentTokenUsesPoolRatio() public {
-        require(token.transfer(address(holder), 20 ether), "transfer");
-        parent.mint(address(token), 200 ether);
-
-        uint256 received = holder.burnForParentToken(token, 10 ether);
-        require(received == 20 ether, "parent amount");
-        require(token.balanceOf(address(holder)) == 10 ether, "token balance");
-        require(parent.balanceOf(address(holder)) == 20 ether, "parent balance");
-        require(token.parentPool() == 180 ether, "pool");
-    }
-
     function testConstructorRejectsInvalidSupply() public {
-        parent = new MockParentToken();
-        vm.expectRevert(ILOVE20TokenErrors.InvalidSupply.selector);
-        new LOVE20Token(
-            "LOVE20",
-            "LOVE",
-            101 ether,
-            100 ether,
-            address(this),
-            address(this),
-            address(parent)
+        // initialSupply 大于 maxSupply
+        require(
+            _selector(_deployRevert(_tokenCode(101 ether, 100 ether, address(this), address(this), PARENT)))
+                == ILOVE20TokenErrors.InvalidSupply.selector,
+            "above max supply"
         );
+
+        // initialSupply 为零：零供应代币不可创建
+        require(
+            _selector(_deployRevert(_tokenCode(0, 100 ether, address(this), address(this), PARENT)))
+                == ILOVE20TokenErrors.InvalidSupply.selector,
+            "zero initial supply"
+        );
+
+        // 两者相等合法
+        require(_deploys(_tokenCode(100 ether, 100 ether, address(this), address(this), PARENT)), "equal supply");
     }
 
     function testConstructorRejectsZeroAddresses() public {
-        parent = new MockParentToken();
-        vm.expectRevert(ILOVE20TokenErrors.InvalidAddress.selector);
-        new LOVE20Token(
-            "LOVE20",
-            "LOVE",
-            1 ether,
-            1 ether,
-            address(0),
-            address(this),
-            address(parent)
+        require(
+            _selector(_deployRevert(_tokenCode(1 ether, 1 ether, address(0), address(this), PARENT)))
+                == ILOVE20TokenErrors.InvalidAddress.selector,
+            "zero distributor"
         );
+        require(
+            _selector(_deployRevert(_tokenCode(1 ether, 1 ether, address(this), address(0), PARENT)))
+                == ILOVE20TokenErrors.InvalidAddress.selector,
+            "zero minter"
+        );
+        require(
+            _selector(_deployRevert(_tokenCode(1 ether, 1 ether, address(this), address(this), address(0))))
+                == ILOVE20TokenErrors.InvalidAddress.selector,
+            "zero parent"
+        );
+    }
 
-        vm.expectRevert(ILOVE20TokenErrors.InvalidAddress.selector);
-        new LOVE20Token(
-            "LOVE20",
-            "LOVE",
-            1 ether,
-            1 ether,
-            address(this),
-            address(0),
-            address(parent)
+    function _tokenCode(
+        uint256 initialSupply,
+        uint256 maxSupply,
+        address distributor,
+        address minterAddress,
+        address parentAddress
+    ) private pure returns (bytes memory) {
+        return abi.encodePacked(
+            type(LOVE20Token).creationCode,
+            abi.encode("LOVE20", "LOVE", initialSupply, maxSupply, distributor, minterAddress, parentAddress)
         );
+    }
 
-        vm.expectRevert(ILOVE20TokenErrors.InvalidAddress.selector);
-        new LOVE20Token(
-            "LOVE20",
-            "LOVE",
-            1 ether,
-            1 ether,
-            address(this),
-            address(this),
-            address(0)
-        );
+    function _deploys(bytes memory bytecode) private returns (bool) {
+        address deployed;
+        assembly {
+            deployed := create(0, add(bytecode, 32), mload(bytecode))
+        }
+        return deployed != address(0);
+    }
+
+    /// 构造回滚必须用 assembly `create`：`vm.expectRevert` 与 `new` 混用时，真回滚会终止整个
+    /// 用例并判 PASS，使其后的断言全部变成死代码。create 还会保留 revert data 供 selector 断言。
+    function _deployRevert(bytes memory bytecode) private returns (bytes memory data) {
+        address deployed;
+        uint256 size;
+        assembly {
+            deployed := create(0, add(bytecode, 32), mload(bytecode))
+            size := returndatasize()
+        }
+        require(deployed == address(0), "deploy should revert");
+        data = new bytes(size);
+        assembly {
+            returndatacopy(add(data, 32), 0, size)
+        }
     }
 
     function _selector(bytes memory data) private pure returns (bytes4 selector) {
