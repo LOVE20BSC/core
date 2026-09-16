@@ -7,18 +7,13 @@ import {ERC721} from "../lib/openzeppelin-contracts/contracts/token/ERC721/ERC72
 import {
     ERC721Enumerable
 } from "../lib/openzeppelin-contracts/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
-import {
-    SafeERC20,
-    IERC20
-} from "../lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title MemberNFT
  * @notice ERC721-based Member identity system for LOVE20 ecosystem
  */
 contract MemberNFT is ERC721Enumerable, IMemberNFT {
-    using SafeERC20 for IERC20;
-
     // ============ Fixed Parameters ============
 
     address public LOVE20_TOKEN_ADDRESS;
@@ -89,21 +84,19 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     ) external returns (uint256 id, uint256 mintCost) {
         string memory name_ = _addTestPrefixIfNeeded(name);
 
-        _validateName(name_);
+        string memory normalizedName = _validateName(name_);
 
         mintCost = calculateMintCost(name_);
-        id = _mintMember(msg.sender, name_, mintCost);
+        id = _mintMember(msg.sender, name_, normalizedName, mintCost);
         return (id, mintCost);
     }
 
     function _mintMember(
         address memberOwner,
         string memory name,
+        string memory normalizedName,
         uint256 mintCost
     ) internal returns (uint256 id) {
-        // Use normalized (lowercase) name for storage
-        string memory normalizedName = _toLowerCase(name);
-
         id = _nextTokenId++;
         _names[id] = name;
         _normalizedNameToTokenId[normalizedName] = id;
@@ -111,8 +104,9 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         if (mintCost > 0) {
             totalBurnedForMint += mintCost;
 
-            IERC20 token = IERC20(LOVE20_TOKEN_ADDRESS);
-            token.safeTransferFrom(memberOwner, address(this), mintCost);
+            if (!IERC20(LOVE20_TOKEN_ADDRESS).transferFrom(memberOwner, address(this), mintCost)) {
+                revert FeeTransferFailed();
+            }
             ILOVE20Token(LOVE20_TOKEN_ADDRESS).burn(mintCost);
         }
 
@@ -314,8 +308,9 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     /**
      * @dev Validate member name and revert with specific error
      * @param name The member name to validate
+     * @return normalizedName The ASCII-lowercased name, reused as the uniqueness mapping key
      */
-    function _validateName(string memory name) internal view {
+    function _validateName(string memory name) internal view returns (string memory normalizedName) {
         bytes memory nameBytes = bytes(name);
         uint256 len = nameBytes.length;
 
@@ -326,7 +321,7 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
             revert NameInvalidCharacters();
 
         // Check uniqueness (case-insensitive)
-        string memory normalizedName = _toLowerCase(name);
+        normalizedName = _toLowerCase(name);
         uint256 existingTokenId = _normalizedNameToTokenId[normalizedName];
         if (existingTokenId != 0) {
             revert NameAlreadyExists(existingTokenId);

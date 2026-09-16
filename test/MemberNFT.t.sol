@@ -17,6 +17,28 @@ interface Vm {
     function getRecordedLogs() external returns (Log[] memory logs);
 }
 
+/// 只实现 `MemberNFT` 铸造路径会用到的那部分成员；`transferFrom` 返回 `false` 而不回滚，
+/// 用于隔离费用扣款失败的回滚分支。
+contract FalseReturningToken {
+    function maxSupply() external pure returns (uint256) {
+        return 1 ether;
+    }
+
+    function totalSupply() external pure returns (uint256) {
+        return 0;
+    }
+
+    function symbol() external pure returns (string memory) {
+        return "LOVE";
+    }
+
+    function transferFrom(address, address, uint256) external pure returns (bool) {
+        return false;
+    }
+
+    function burn(uint256) external pure {}
+}
+
 contract MemberCaller {
     function approveToken(address token, address spender, uint256 amount) external {
         IERC20(token).approve(spender, amount);
@@ -211,6 +233,19 @@ contract MemberNFTTest {
         (bool ok, ) = dave.callMint(nft, "dave");
         require(!ok, "mint without allowance");
         require(nft.totalSupply() == 0, "nothing minted");
+    }
+
+    /// `FeeTransferFailed` 只在「费用代币扣款返回 false 却不回滚」时可达；
+    /// 标准 ERC20 扣款失败会直接回滚，所以这里用返回 false 的假代币隔离该分支。
+    function testMintRevertsWhenFeeTransferReturnsFalse() public {
+        FalseReturningToken fakeToken = new FalseReturningToken();
+        MemberNFT fresh = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH);
+        fresh.init(address(fakeToken));
+        require(fresh.calculateMintCost("abc") > 0, "non-zero quote");
+
+        bytes memory data = _revertData(address(fresh), _mintCall("abc"), "false fee transfer expected");
+        require(_selector(data) == IMemberNFTErrors.FeeTransferFailed.selector, "fee transfer failed");
+        require(fresh.totalSupply() == 0, "nothing minted");
     }
 
     function testMintRejectsEmptyAndTooLongNames() public {
