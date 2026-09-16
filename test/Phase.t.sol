@@ -40,6 +40,16 @@ contract PhaseTest {
         require(start == origin && length == PHASE_BLOCKS);
     }
 
+    function testConstructorRejectsZeroParameters() external {
+        uint256 origin = block.number + 1;
+        require(_deploys(origin, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT), "valid parameters");
+        require(!_deploys(0, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT), "zero origin blocks");
+        require(!_deploys(origin, 0, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT), "zero phase blocks");
+        require(!_deploys(origin, PHASE_BLOCKS, 0, THRESHOLD, OBSERVATION_LIMIT), "zero target days");
+        require(!_deploys(origin, PHASE_BLOCKS, TARGET_DAYS, 0, OBSERVATION_LIMIT), "zero threshold");
+        require(!_deploys(origin, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, 0), "zero observation limit");
+    }
+
     function testSyncBeforeOriginReverts() external {
         Phase phase = new Phase(block.number + 10, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT);
         (bool ok, bytes memory data) = address(phase).call(abi.encodeWithSelector(IPhase.sync.selector));
@@ -202,6 +212,27 @@ contract PhaseTest {
     function _observationsCount(Phase phase) private view returns (uint256) {
         (,, uint256 totalCount) = phase.syncObservations(0, 0, false);
         return totalCount;
+    }
+
+    /// 用裸 CREATE 的返回值判定构造是否成功：成功返回非零地址，回滚返回 address(0)。
+    /// 不使用 vm.expectRevert：`new` 构造一旦回滚，测试函数会在此终止并被判 PASS，
+    /// 其后语句全部成为死代码。
+    function _deploys(
+        uint256 originBlocks,
+        uint256 originPhaseBlocks,
+        uint256 targetDays,
+        uint256 adjustThreshold,
+        uint256 observationLimit
+    ) private returns (bool) {
+        bytes memory bytecode = abi.encodePacked(
+            type(Phase).creationCode,
+            abi.encode(originBlocks, originPhaseBlocks, targetDays, adjustThreshold, observationLimit)
+        );
+        address deployed;
+        assembly {
+            deployed := create(0, add(bytecode, 32), mload(bytecode))
+        }
+        return deployed != address(0);
     }
 
     function _selector(bytes memory data) private pure returns (bytes4 selector) {
