@@ -54,7 +54,7 @@ contract Launch is ILaunch {
     /**
      * @notice Bind dependencies, create and register the first token, and initialize MemberNFT
      * @dev The initialization state check runs before parameter checks. The first token does not consume a
-     *      launch count, does not receive Launch KV and always uses NoCallback.
+     *      launch count, carries no distributor data and always uses NoCallback.
      * @param params Dependencies, launch settings, token supply settings and first-token metadata
      */
     function init(LaunchInitParams calldata params) external {
