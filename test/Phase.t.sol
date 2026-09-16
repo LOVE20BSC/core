@@ -15,16 +15,16 @@ interface Vm {
 contract PhaseTest {
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
     uint256 private constant PHASE_BLOCKS = 100;
-    uint256 private constant TARGET_DAYS = 1;
+    uint256 private constant TARGET_SECONDS = 86400;
     uint256 private constant THRESHOLD = 2e17;
     uint256 private constant OBSERVATION_LIMIT = 10;
 
     function testConstructorAndStartupBoundaries() external {
         uint256 origin = block.number + 10;
-        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT);
+        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT);
         require(phase.ORIGIN_BLOCKS() == origin);
         require(phase.ORIGIN_PHASE_BLOCKS() == PHASE_BLOCKS);
-        require(phase.TARGET_SECONDS() == TARGET_DAYS * 86400);
+        require(phase.TARGET_SECONDS() == TARGET_SECONDS);
         require(phase.ADJUST_THRESHOLD() == THRESHOLD);
         require(phase.SYNC_OBSERVATION_LIMIT() == OBSERVATION_LIMIT);
         require(phase.phaseAtBlock(origin - 1) == 0);
@@ -42,16 +42,16 @@ contract PhaseTest {
 
     function testConstructorRejectsZeroParameters() external {
         uint256 origin = block.number + 1;
-        require(_deploys(origin, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT), "valid parameters");
-        require(!_deploys(0, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT), "zero origin blocks");
-        require(!_deploys(origin, 0, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT), "zero phase blocks");
-        require(!_deploys(origin, PHASE_BLOCKS, 0, THRESHOLD, OBSERVATION_LIMIT), "zero target days");
-        require(!_deploys(origin, PHASE_BLOCKS, TARGET_DAYS, 0, OBSERVATION_LIMIT), "zero threshold");
-        require(!_deploys(origin, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, 0), "zero observation limit");
+        require(_deploys(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT), "valid parameters");
+        require(!_deploys(0, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT), "zero origin blocks");
+        require(!_deploys(origin, 0, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT), "zero phase blocks");
+        require(!_deploys(origin, PHASE_BLOCKS, 0, THRESHOLD, OBSERVATION_LIMIT), "zero target seconds");
+        require(!_deploys(origin, PHASE_BLOCKS, TARGET_SECONDS, 0, OBSERVATION_LIMIT), "zero threshold");
+        require(!_deploys(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, 0), "zero observation limit");
     }
 
     function testSyncBeforeOriginReverts() external {
-        Phase phase = new Phase(block.number + 10, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT);
+        Phase phase = new Phase(block.number + 10, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT);
         (bool ok, bytes memory data) = address(phase).call(abi.encodeWithSelector(IPhase.sync.selector));
         require(!ok && _selector(data) == IPhaseErrors.InvalidPhase.selector);
         require(_observationsCount(phase) == 0);
@@ -59,7 +59,7 @@ contract PhaseTest {
 
     function testSyncRecordsOncePerPhaseAndAdjustsNextPhase() external {
         uint256 origin = block.number + 1;
-        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT);
+        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT);
         uint256 timestamp = block.timestamp + 1000;
         vm.roll(origin);
         vm.warp(timestamp);
@@ -85,7 +85,7 @@ contract PhaseTest {
 
     function testThresholdCanSuppressAdjustment() external {
         uint256 origin = block.number + 1;
-        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_DAYS, 100e18, OBSERVATION_LIMIT);
+        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_SECONDS, 100e18, OBSERVATION_LIMIT);
         uint256 timestamp = block.timestamp + 1000;
         vm.roll(origin);
         vm.warp(timestamp);
@@ -100,7 +100,7 @@ contract PhaseTest {
 
     function testObservationFallbackUsesOrderedIndex() external {
         uint256 origin = block.number + 1;
-        Phase phase = new Phase(origin, 10, TARGET_DAYS, THRESHOLD, 1);
+        Phase phase = new Phase(origin, 10, TARGET_SECONDS, THRESHOLD, 1);
         vm.roll(origin);
         vm.warp(block.timestamp + 1000);
         phase.sync();
@@ -116,7 +116,7 @@ contract PhaseTest {
 
     function testStrictObservationBoundaryDoesNotAdjust() external {
         uint256 origin = block.number + 1;
-        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT);
+        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT);
         vm.roll(origin);
         vm.warp(block.timestamp + 1000);
         phase.sync();
@@ -128,7 +128,7 @@ contract PhaseTest {
 
     function testZeroElapsedSecondsDoesNotAdjust() external {
         uint256 origin = block.number + 1;
-        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT);
+        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT);
         uint256 timestamp = block.timestamp + 1000;
         vm.roll(origin);
         vm.warp(timestamp);
@@ -141,7 +141,7 @@ contract PhaseTest {
 
     function testEqualThresholdDoesNotAdjust() external {
         uint256 origin = block.number + 1;
-        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT);
+        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT);
         uint256 timestamp = block.timestamp + 1000;
         vm.roll(origin);
         vm.warp(timestamp);
@@ -154,7 +154,7 @@ contract PhaseTest {
 
     function testCrossesEmptyPhasesWithoutRewritingHistory() external {
         uint256 origin = block.number + 1;
-        Phase phase = new Phase(origin, 10, TARGET_DAYS, type(uint256).max, OBSERVATION_LIMIT);
+        Phase phase = new Phase(origin, 10, TARGET_SECONDS, type(uint256).max, OBSERVATION_LIMIT);
         vm.roll(origin);
         vm.warp(block.timestamp + 1000);
         phase.sync();
@@ -169,7 +169,7 @@ contract PhaseTest {
 
     function testDuplicateSyncEmitsNoEvent() external {
         uint256 origin = block.number + 1;
-        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT);
+        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT);
         vm.roll(origin);
         vm.warp(block.timestamp + 1000);
         vm.recordLogs();
@@ -182,7 +182,7 @@ contract PhaseTest {
 
     function testObservationPaginationBounds() external {
         uint256 origin = block.number + 1;
-        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_DAYS, THRESHOLD, OBSERVATION_LIMIT);
+        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT);
 
         // Empty history: empty page with the true count.
         (uint256[] memory blockNumbers, uint256[] memory blockTimestamps, uint256 totalCount) =
@@ -220,13 +220,13 @@ contract PhaseTest {
     function _deploys(
         uint256 originBlocks,
         uint256 originPhaseBlocks,
-        uint256 targetDays,
+        uint256 targetSeconds,
         uint256 adjustThreshold,
         uint256 observationLimit
     ) private returns (bool) {
         bytes memory bytecode = abi.encodePacked(
             type(Phase).creationCode,
-            abi.encode(originBlocks, originPhaseBlocks, targetDays, adjustThreshold, observationLimit)
+            abi.encode(originBlocks, originPhaseBlocks, targetSeconds, adjustThreshold, observationLimit)
         );
         address deployed;
         assembly {
