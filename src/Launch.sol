@@ -5,11 +5,12 @@ import {ILaunch, DistributorMode, LaunchInitParams} from "./interfaces/ILaunch.s
 import {ILaunchDistributor} from "./interfaces/ILaunchDistributor.sol";
 import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
+import {IPairFactory} from "./interfaces/IPairFactory.sol";
 import {LOVE20Token} from "./LOVE20Token.sol";
 
 /**
  * @title Launch
- * @notice First token bootstrap, launch count ledger, count merging and sub-token launching
+ * @notice First token bootstrap, launch count ledger, count merging, sub-token launching and pair creation
  */
 contract Launch is ILaunch {
     // ============ Fixed Parameters ============
@@ -20,6 +21,8 @@ contract Launch is ILaunch {
     address public memberNFTAddress;
     // the root parent token, WBNB on BSC
     address public rootParentTokenAddress;
+    // the Uniswap V2 compatible factory every launched token gets its pair from
+    address public pairFactoryAddress;
 
     // sub-token symbol length
     uint256 public TOKEN_SYMBOL_LENGTH;
@@ -61,7 +64,8 @@ contract Launch is ILaunch {
         if (initialized) revert AlreadyInitialized();
         if (
             params.mintAddress == address(0) || params.memberNFTAddress == address(0)
-                || params.rootParentTokenAddress == address(0) || params.distributor == address(0)
+                || params.rootParentTokenAddress == address(0) || params.pairFactoryAddress == address(0)
+                || params.distributor == address(0)
         ) {
             revert InvalidAddress();
         }
@@ -75,6 +79,7 @@ contract Launch is ILaunch {
         mintAddress = params.mintAddress;
         memberNFTAddress = params.memberNFTAddress;
         rootParentTokenAddress = params.rootParentTokenAddress;
+        pairFactoryAddress = params.pairFactoryAddress;
         LAUNCH_RATIO = params.launchRatio;
         MAX_LAUNCH_COUNT = params.maxLaunchCount;
         TOKEN_SYMBOL_LENGTH = params.tokenSymbolLength;
@@ -328,6 +333,17 @@ contract Launch is ILaunch {
         tokenAddress = address(
             new LOVE20Token(name, symbol, LAUNCH_AMOUNT, MAX_SUPPLY, distributor, mintAddress, parentTokenAddress)
         );
+
+        // Every launched token gets its pair in the same transaction, so staking a community never depends
+        // on a step outside the protocol. The address is not stored here: Stake reads it from the factory
+        // on its first stake. A factory returning the zero address is rejected instead of leaving the
+        // community un-stakable without a trace.
+        // No reentrancy guard: the factory only deploys the pair and calls back into nothing that can reach
+        // Launch, and the caller registers the token right after this returns.
+        // forge-lint: disable-next-line(reentrancy-no-eth)
+        if (IPairFactory(pairFactoryAddress).createPair(tokenAddress, parentTokenAddress) == address(0)) {
+            revert InvalidAddress();
+        }
     }
 
     /**

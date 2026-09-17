@@ -10,6 +10,7 @@ struct LaunchInitParams {
     address mintAddress;
     address memberNFTAddress;
     address rootParentTokenAddress;
+    address pairFactoryAddress;
     address distributor;
     uint256 launchRatio;
     uint256 maxLaunchCount;
@@ -58,6 +59,7 @@ interface ILaunch is ILaunchErrors, ILaunchEvents {
     function mintAddress() external view returns (address);
     function memberNFTAddress() external view returns (address);
     function rootParentTokenAddress() external view returns (address);
+    function pairFactoryAddress() external view returns (address);
     function TOKEN_SYMBOL_LENGTH() external view returns (uint256);
     function LAUNCH_RATIO() external view returns (uint256);
     function MAX_LAUNCH_COUNT() external view returns (uint256);

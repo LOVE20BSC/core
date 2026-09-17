@@ -114,6 +114,28 @@ contract FakeToken {
     }
 }
 
+/// 最小 Pair Factory：只提供 Launch 建池所需的两个入口，并记录每次创建以便断言
+contract PairFactoryMock {
+    mapping(address => mapping(address => address)) private _pairByTokens;
+    address[] public createdPairs;
+
+    function getPair(address tokenA, address tokenB) external view returns (address pair) {
+        return _pairByTokens[tokenA][tokenB];
+    }
+
+    function createPair(address tokenA, address tokenB) external returns (address pair) {
+        require(tokenA != address(0) && tokenB != address(0), "zero token");
+        pair = address(uint160(uint256(keccak256(abi.encodePacked(tokenA, tokenB)))));
+        _pairByTokens[tokenA][tokenB] = pair;
+        _pairByTokens[tokenB][tokenA] = pair;
+        createdPairs.push(pair);
+    }
+
+    function createdPairCount() external view returns (uint256) {
+        return createdPairs.length;
+    }
+}
+
 contract LaunchTest {
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -141,6 +163,7 @@ contract LaunchTest {
     Caller private bob;
     Caller private carol;
     CallbackDistributor private distributor;
+    PairFactoryMock private pairFactory;
 
     uint256 private aliceMemberId;
     uint256 private bobMemberId;
@@ -154,6 +177,7 @@ contract LaunchTest {
         bob = new Caller();
         carol = new Caller();
         distributor = new CallbackDistributor();
+        pairFactory = new PairFactoryMock();
 
         launch.init(_validParams());
         firstToken = LOVE20Token(member.LOVE20_TOKEN_ADDRESS());
@@ -202,6 +226,11 @@ contract LaunchTest {
         require(firstToken.maxSupply() == MAX_SUPPLY, "token max supply");
         require(firstToken.minter() == address(mintAccount), "token minter");
         require(firstToken.parentTokenAddress() == ROOT, "token parent");
+
+        // 首币的 Pair 在同一个 init 交易内创建
+        require(launch.pairFactoryAddress() == address(pairFactory), "pair factory");
+        require(pairFactory.createdPairCount() == 1, "first token pair created");
+        require(pairFactory.getPair(address(firstToken), ROOT) == pairFactory.createdPairs(0), "first token pair wired");
     }
 
     function testInitIsPermissionless() public {
@@ -450,6 +479,13 @@ contract LaunchTest {
         require(total == 2 && list[1] == tokenAddress, "appended to token list");
         (list, total) = launch.childTokens(address(firstToken), 0, 10, false);
         require(total == 1 && list[0] == tokenAddress, "child list");
+
+        // 子币的 Pair 也在同一笔发射内创建
+        require(pairFactory.createdPairCount() == 2, "sub-token pair created");
+        require(
+            pairFactory.getPair(tokenAddress, address(firstToken)) == pairFactory.createdPairs(1),
+            "sub-token pair wired"
+        );
     }
 
     function testLaunchTokenEmitsTokenLaunched() public {
@@ -1224,6 +1260,7 @@ contract LaunchTest {
             mintAddress: address(mintAccount),
             memberNFTAddress: memberNFTAddress,
             rootParentTokenAddress: ROOT,
+            pairFactoryAddress: address(pairFactory),
             distributor: address(this),
             launchRatio: LAUNCH_RATIO,
             maxLaunchCount: MAX_LAUNCH_COUNT,
