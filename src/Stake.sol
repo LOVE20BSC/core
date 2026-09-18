@@ -7,9 +7,9 @@ import {RoundHistoryUint256} from "../lib/libs/src/RoundHistoryUint256.sol";
 import {IPhase} from "./interfaces/IPhase.sol";
 import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
-import {IPair} from "./interfaces/IPair.sol";
-import {IPairFactory} from "./interfaces/IPairFactory.sol";
-import {IRouter} from "./interfaces/IRouter.sol";
+import {IUniswapV2Pair} from "./interfaces/UniswapV2/IUniswapV2Pair.sol";
+import {IUniswapV2Factory} from "./interfaces/UniswapV2/IUniswapV2Factory.sol";
+import {IUniswapV2Router02} from "./interfaces/UniswapV2/IUniswapV2Router02.sol";
 import {IVote} from "./interfaces/IVote.sol";
 import {IStake, MemberStake, GlobalStake} from "./interfaces/IStake.sol";
 
@@ -454,7 +454,7 @@ contract Stake is IStake {
     function _pairFor(address tokenAddress) private returns (address pair) {
         pair = _pairAddress[tokenAddress];
         if (pair == address(0)) {
-            pair = IPairFactory(pairFactoryAddress).getPair(tokenAddress, ILOVE20Token(tokenAddress).parentTokenAddress());
+            pair = IUniswapV2Factory(pairFactoryAddress).getPair(tokenAddress, ILOVE20Token(tokenAddress).parentTokenAddress());
             if (pair == address(0)) revert InvalidTokenAddress();
             _pairAddress[tokenAddress] = pair;
         }
@@ -571,7 +571,7 @@ contract Stake is IStake {
         _push(tokenAddress, pair, added.tokenAmount);
         _push(parentTokenAddress, pair, added.parentTokenAmount);
 
-        added.lpMinted = IPair(pair).mint(address(this));
+        added.lpMinted = IUniswapV2Pair(pair).mint(address(this));
         if (added.lpMinted == 0) revert ZeroAmount("lpMinted");
     }
 
@@ -580,7 +580,7 @@ contract Stake is IStake {
         view
         returns (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply)
     {
-        IPair pairContract = IPair(pair);
+        IUniswapV2Pair pairContract = IUniswapV2Pair(pair);
         // The pair's cached timestamp is not part of the LP accounting, only the two reserves are.
         // forge-lint: disable-next-line(unused-return)
         (uint112 reserve0, uint112 reserve1, ) = pairContract.getReserves();
@@ -668,14 +668,14 @@ contract Stake is IStake {
         global.lastWithdrawableLp -= lpAmount;
         global.totalLiquidityShares -= liquidityShares;
 
-        IPair pairContract = IPair(pair);
+        IUniswapV2Pair pairContract = IUniswapV2Pair(pair);
         _push(pair, pair, lpAmount);
         (tokenAmount, parentTokenAmount) = _burnLp(pairContract, tokenAddress, msg.sender);
 
         _updateSqrtKBaseline(global, pair, tokenAddress);
     }
 
-    function _burnLp(IPair pairContract, address tokenAddress, address to)
+    function _burnLp(IUniswapV2Pair pairContract, address tokenAddress, address to)
         private
         returns (uint256 tokenAmount, uint256 parentTokenAmount)
     {
@@ -743,7 +743,7 @@ contract Stake is IStake {
             return;
         }
         GlobalStake storage global = _globalStake[tokenAddress];
-        IPair pairContract = IPair(pair);
+        IUniswapV2Pair pairContract = IUniswapV2Pair(pair);
         _lastSettlePhase[tokenAddress] = _currentRound();
 
         _push(pair, pair, processedFeeLp);
@@ -787,7 +787,7 @@ contract Stake is IStake {
         path[1] = tokenAddress;
 
         // the accepted minimum is derived from the reserves in this same transaction, never from the caller
-        uint256[] memory amounts = IRouter(routerAddress).getAmountsOut(parentTokenAmount, path);
+        uint256[] memory amounts = IUniswapV2Router02(routerAddress).getAmountsOut(parentTokenAmount, path);
         uint256 amountOutMin = amounts[amounts.length - 1];
 
         // No reentrancy guard: the fee was already taken out of the ledger and the swap only converts the
@@ -795,7 +795,7 @@ contract Stake is IStake {
         // forge-lint: disable-next-line(reentrancy-no-eth)
         require(IERC20(parentTokenAddress).approve(routerAddress, parentTokenAmount));
         // forge-lint: disable-next-item(reentrancy-no-eth)
-        amounts = IRouter(routerAddress).swapExactTokensForTokens(
+        amounts = IUniswapV2Router02(routerAddress).swapExactTokensForTokens(
             parentTokenAmount, amountOutMin, path, address(this), block.timestamp
         );
         tokenAmountOut = amounts[amounts.length - 1];

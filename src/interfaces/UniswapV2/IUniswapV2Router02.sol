@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.37;
 
-interface IRouter {
+interface IUniswapV2Router02 {
     function getAmountsOut(uint256 amountIn, address[] calldata path)
         external
         view

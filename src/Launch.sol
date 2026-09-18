@@ -5,7 +5,7 @@ import {ILaunch, DistributorMode, LaunchInitParams} from "./interfaces/ILaunch.s
 import {ILaunchDistributor} from "./interfaces/ILaunchDistributor.sol";
 import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
-import {IPairFactory} from "./interfaces/IPairFactory.sol";
+import {IUniswapV2Factory} from "./interfaces/UniswapV2/IUniswapV2Factory.sol";
 import {LOVE20Token} from "./LOVE20Token.sol";
 
 /**
@@ -341,7 +341,7 @@ contract Launch is ILaunch {
         // No reentrancy guard: the factory only deploys the pair and calls back into nothing that can reach
         // Launch, and the caller registers the token right after this returns.
         // forge-lint: disable-next-line(reentrancy-no-eth)
-        if (IPairFactory(pairFactoryAddress).createPair(tokenAddress, parentTokenAddress) == address(0)) {
+        if (IUniswapV2Factory(pairFactoryAddress).createPair(tokenAddress, parentTokenAddress) == address(0)) {
             revert InvalidAddress();
         }
     }

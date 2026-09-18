@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.37;
 
-interface IPair {
+interface IUniswapV2Pair {
     // `token1()` is not declared: every caller identifies the community token by `token0()` and treats the
     // other reserve as the parent side. LP transfers go through the ERC20 interface, so `transfer` is not
     // declared here either.
