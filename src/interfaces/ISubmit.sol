@@ -1,139 +1,136 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.37;
 
-import {IPhase} from "./IPhase.sol";
+enum TargetMode { NoCallback, Callback }
 
-struct ActionHead {
+struct ProposalHead {
     // managed by contract
     uint256 id;
-    address author;
+    uint256 author;
     uint256 createAtBlock;
 }
 
-struct ActionBody {
-    // action parameters
-    uint256 minStake;
-    uint256 maxRandomAccounts;
-    address whiteListAddress;
-    // action content
+struct ProposalBody {
     string title;
-    string verificationRule;
-    // extra verification info
-    string[] verificationKeys;
-    string[] verificationInfoGuides;
+    string details;
+    address target;
+    TargetMode targetMode;
+    bytes[] targetData;
 }
 
-struct ActionInfo {
-    ActionHead head;
-    ActionBody body;
+struct ProposalInfo {
+    ProposalHead head;
+    ProposalBody body;
 }
 
-struct ActionSubmitInfo {
-    address submitter;
-    uint256 actionId;
+struct SubmitInfo {
+    uint256 submitterId;
+    uint256 proposalId;
 }
-interface ILOVE20SubmitErrors {
+interface ISubmitErrors {
     error AlreadyInitialized();
+    error InvalidAddress();
+    error InvalidTargetMode();
+    error NotMemberOwner(uint256 memberId);
+    error EmptyString(string parameter);
+    error ZeroAmount(string parameter);
+    error InvalidAmount();
+    error RoundNotStarted();
+    error ProposalNotFound(uint256 proposalId);
     error CannotSubmitAction();
-    error ActionIdNotExist();
-    error MinStakeZero();
-    error MaxRandomAccountsZero();
-    error TitleEmpty();
-    error VerificationRuleEmpty();
-    error VerificationKeyLengthExceeded();
     error AlreadySubmitted();
     error OnlyOneSubmitPerRound();
 }
-interface ILOVE20SubmitEvents {
+interface ISubmitEvents {
     // Events
-    event ActionCreate(
+    event ProposalCreated(
         address indexed tokenAddress,
-        uint256 round,
-        address indexed author,
-        uint256 indexed actionId,
-        ActionBody actionBody
+        uint256 indexed proposalId,
+        uint256 indexed author,
+        string title,
+        string details,
+        address target,
+        TargetMode targetMode
     );
 
-    event ActionSubmit(
+    event ProposalSubmitted(
         address indexed tokenAddress,
         uint256 round,
-        address indexed submitter,
-        uint256 indexed actionId
+        uint256 indexed submitterId,
+        uint256 indexed proposalId
     );
 }
 
-interface ILOVE20Submit is ILOVE20SubmitErrors, ILOVE20SubmitEvents, IPhase {
+interface ISubmit is ISubmitErrors, ISubmitEvents {
     function stakeAddress() external view returns (address);
+    function phaseAddress() external view returns (address);
+    function memberNFTAddress() external view returns (address);
 
     function SUBMIT_MIN_PER_THOUSAND() external view returns (uint256);
-    function MAX_VERIFICATION_KEY_LENGTH() external view returns (uint256);
+
+    function initialized() external view returns (bool);
+
+    function init(
+        address phaseAddress,
+        address stakeAddress,
+        address memberNFTAddress,
+        uint256 submitMinPerThousand
+    ) external;
+
+    function currentRound() external view returns (uint256);
 
     function canSubmit(
         address tokenAddress,
-        address account
+        uint256 memberId
     ) external view returns (bool);
 
-    function submitNewAction(
+    function submitNewProposal(
         address tokenAddress,
-        ActionBody calldata actionBody
-    ) external returns (uint256 actionId);
+        uint256 memberId,
+        ProposalBody calldata body
+    ) external returns (uint256 proposalId);
 
-    function submit(address tokenAddress, uint256 actionId) external;
+    function submit(address tokenAddress, uint256 memberId, uint256 proposalId) external;
 
     function isSubmitted(
         address tokenAddress,
         uint256 round,
-        uint256 actionId
+        uint256 proposalId
     ) external view returns (bool);
 
-    function canJoin(
-        address tokenAddress,
-        uint256 actionId,
-        address account
-    ) external view returns (bool);
+    function proposalIds(address tokenAddress, uint256 offset, uint256 limit, bool reverse)
+        external view returns (uint256[] memory proposalIdList, uint256 totalCount);
 
-    function actionsCount(address tokenAddress) external view returns (uint256);
-    function actionsAtIndex(
+    function proposalIdsByAuthor(
         address tokenAddress,
-        uint256 index
-    ) external view returns (ActionInfo memory);
+        uint256 author,
+        uint256 offset,
+        uint256 limit,
+        bool reverse
+    ) external view returns (uint256[] memory proposalIdList, uint256 totalCount);
 
-    function actionInfo(
+    function proposalInfosByIds(
         address tokenAddress,
-        uint256 actionId
-    ) external view returns (ActionInfo memory);
+        uint256[] calldata proposalIds
+    ) external view returns (ProposalInfo[] memory);
 
-    function actionSubmitsCount(
-        address tokenAddress,
-        uint256 round
-    ) external view returns (uint256);
-
-    function actionSubmitsAtIndex(
+    function submitInfos(
         address tokenAddress,
         uint256 round,
-        uint256 index
-    ) external view returns (ActionSubmitInfo memory);
+        uint256 offset,
+        uint256 limit,
+        bool reverse
+    ) external view returns (SubmitInfo[] memory submitInfoList, uint256 totalCount);
 
-    function submitInfo(
+    function proposalIdBySubmitter(
         address tokenAddress,
         uint256 round,
-        uint256 actionId
-    ) external view returns (ActionSubmitInfo memory);
+        uint256 submitterId
+    ) external view returns (uint256 proposalId);
 
-    function submitInfoBySubmitter(
+    function submitterIdByProposalId(
         address tokenAddress,
         uint256 round,
-        address submitter
-    ) external view returns (ActionSubmitInfo memory);
-
-    function authorActionIdsCount(
-        address tokenAddress,
-        address author
-    ) external view returns (uint256);
-
-    function authorActionIdsAtIndex(
-        address tokenAddress,
-        address author,
-        uint256 index
-    ) external view returns (uint256);
+        uint256 proposalId
+    ) external view returns (uint256 submitterId);
 }

@@ -3,28 +3,31 @@ pragma solidity =0.8.37;
 
 import {Phase} from "./Phase.sol";
 import {IStake} from "./interfaces/IStake.sol";
-import {ILOVE20Submit, ActionHead, ActionBody, ActionInfo, ActionSubmitInfo} from "./interfaces/ILOVE20Submit.sol";
+import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
+import {ISubmit, ProposalHead, ProposalBody, ProposalInfo, SubmitInfo, TargetMode} from "./interfaces/ISubmit.sol";
+import {IProposalTarget} from "./interfaces/IProposalTarget.sol";
 
-contract LOVE20Submit is Phase, ILOVE20Submit {
+contract Submit is Phase, ISubmit {
     bool public initialized;
+    address public phaseAddress;
     address public stakeAddress;
+    address public memberNFTAddress;
     uint256 public SUBMIT_MIN_PER_THOUSAND;
-    uint256 public MAX_VERIFICATION_KEY_LENGTH;
 
-    // tokenAddress => ActionInfo[]
-    mapping(address => ActionInfo[]) internal _actions;
+    // tokenAddress => ProposalInfo[]
+    mapping(address => ProposalInfo[]) internal _proposals;
 
-    // tokenAddress => author => actionId[]
-    mapping(address => mapping(address => uint256[])) internal _authorActionIds;
-    // tokenAddress => round => ActionSubmitInfo[]
-    mapping(address => mapping(uint256 => ActionSubmitInfo[]))
-        internal _actionSubmits;
-    // tokenAddress => round => actionId => ActionSubmitInfo
-    mapping(address => mapping(uint256 => mapping(uint256 => ActionSubmitInfo)))
-        internal _actionSubmitInfoByActionId;
-    // tokenAddress => round => submitter => ActionSubmitInfo
-    mapping(address => mapping(uint256 => mapping(address => ActionSubmitInfo)))
-        internal _actionSubmitInfoBySubmitter;
+    // tokenAddress => author => proposalId[]
+    mapping(address => mapping(uint256 => uint256[])) internal _authorProposalIds;
+    // tokenAddress => round => SubmitInfo[]
+    mapping(address => mapping(uint256 => SubmitInfo[]))
+        internal _submits;
+    // tokenAddress => round => proposalId => SubmitInfo
+    mapping(address => mapping(uint256 => mapping(uint256 => SubmitInfo)))
+        internal _submitInfoByProposalId;
+    // tokenAddress => round => submitterId => SubmitInfo
+    mapping(address => mapping(uint256 => mapping(uint256 => SubmitInfo)))
+        internal _submitInfoBySubmitterId;
 
     constructor(
         uint256 originBlocks,
@@ -34,34 +37,46 @@ contract LOVE20Submit is Phase, ILOVE20Submit {
         uint256 syncObservationLimit
     ) Phase(originBlocks, phaseBlocks, targetSeconds, adjustThreshold, syncObservationLimit) {}
 
-    function currentRound() internal view returns (uint256) {
+    function currentRound() public view returns (uint256) {
         return currentPhase();
     }
 
-    function initialize(
+    function init(
+        address phaseAddress_,
         address stakeAddress_,
-        uint256 submitMinPerThousand,
-        uint256 maxVerificationKeyLength
+        address memberNFTAddress_,
+        uint256 submitMinPerThousand
     ) external {
         if (initialized) {
             revert AlreadyInitialized();
         }
+        if (phaseAddress_ == address(0) || stakeAddress_ == address(0) || memberNFTAddress_ == address(0)) {
+            revert InvalidAddress();
+        }
+        if (submitMinPerThousand == 0) {
+            revert ZeroAmount("submitMinPerThousand");
+        }
+        if (submitMinPerThousand > 1000) {
+            revert InvalidAmount();
+        }
         initialized = true;
+        phaseAddress = phaseAddress_;
         stakeAddress = stakeAddress_;
+        memberNFTAddress = memberNFTAddress_;
         SUBMIT_MIN_PER_THOUSAND = submitMinPerThousand;
-        MAX_VERIFICATION_KEY_LENGTH = maxVerificationKeyLength;
     }
 
     function canSubmit(
         address tokenAddress,
-        address account
+        uint256 memberId
     ) public view returns (bool) {
         IStake stake = IStake(stakeAddress);
-        // Note: IStake.validGovVotes takes memberId (uint256), but old code used address
-        // Casting address to uint256 as temporary measure for baseline compilation
-        uint256 validVotes = stake.validGovVotes(tokenAddress, uint256(uint160(account)));
+        uint256 validVotes = stake.validGovVotes(tokenAddress, memberId);
         uint256 total = stake.globalGovVotes(tokenAddress);
 
+        if (total == 0) {
+            return false;
+        }
         if (validVotes == 0) {
             return false;
         }
@@ -69,181 +84,226 @@ contract LOVE20Submit is Phase, ILOVE20Submit {
         return ((validVotes * 1000) / total) >= SUBMIT_MIN_PER_THOUSAND;
     }
 
-    function submitNewAction(
+    function submitNewProposal(
         address tokenAddress,
-        ActionBody calldata actionBody
-    ) external returns (uint256 actionId) {
-        if (!canSubmit(tokenAddress, msg.sender)) revert CannotSubmitAction();
+        uint256 memberId,
+        ProposalBody calldata proposalBody
+    ) external returns (uint256 proposalId) {
+        IMemberNFT memberNFT = IMemberNFT(memberNFTAddress);
+        if (memberNFT.ownerOf(memberId) != msg.sender) {
+            revert NotMemberOwner(memberId);
+        }
+        if (!canSubmit(tokenAddress, memberId)) revert CannotSubmitAction();
 
-        actionId = _createAction(tokenAddress, actionBody);
+        proposalId = _createProposal(tokenAddress, memberId, proposalBody);
 
-        _submitByActionId(tokenAddress, actionId);
-        return actionId;
+        _submitByProposalId(tokenAddress, memberId, proposalId);
+        return proposalId;
     }
 
-    function submit(address tokenAddress, uint256 actionId) external {
-        if (!canSubmit(tokenAddress, msg.sender)) revert CannotSubmitAction();
+    function submit(address tokenAddress, uint256 memberId, uint256 proposalId) external {
+        IMemberNFT memberNFT = IMemberNFT(memberNFTAddress);
+        if (memberNFT.ownerOf(memberId) != msg.sender) {
+            revert NotMemberOwner(memberId);
+        }
+        if (!canSubmit(tokenAddress, memberId)) revert CannotSubmitAction();
 
-        _submitByActionId(tokenAddress, actionId);
+        _submitByProposalId(tokenAddress, memberId, proposalId);
     }
 
     function isSubmitted(
         address tokenAddress,
         uint256 round,
-        uint256 actionId
+        uint256 proposalId
     ) public view returns (bool) {
         return
-            _actionSubmitInfoByActionId[tokenAddress][round][actionId]
-                .submitter != address(0);
+            _submitInfoByProposalId[tokenAddress][round][proposalId]
+                .submitterId != 0;
     }
 
-    function canJoin(
+    function proposalIds(address tokenAddress, uint256 offset, uint256 limit, bool reverse)
+        external view returns (uint256[] memory proposalIdList, uint256 totalCount) {
+        totalCount = _proposals[tokenAddress].length;
+        if (offset >= totalCount || limit == 0) {
+            return (new uint256[](0), totalCount);
+        }
+        uint256 remaining = totalCount - offset;
+        uint256 count = remaining < limit ? remaining : limit;
+        proposalIdList = new uint256[](count);
+        for (uint256 i = 0; i < count; i++) {
+            uint256 index = reverse ? (totalCount - 1 - offset - i) : (offset + i);
+            proposalIdList[i] = _proposals[tokenAddress][index].head.id;
+        }
+    }
+
+    function proposalIdsByAuthor(
         address tokenAddress,
-        uint256 actionId,
-        address account
-    ) external view returns (bool) {
-        address whiteListAddress = actionInfo(tokenAddress, actionId)
-            .body
-            .whiteListAddress;
-        return whiteListAddress == address(0) || whiteListAddress == account;
+        uint256 author,
+        uint256 offset,
+        uint256 limit,
+        bool reverse
+    ) external view returns (uint256[] memory proposalIdList, uint256 totalCount) {
+        totalCount = _authorProposalIds[tokenAddress][author].length;
+        if (offset >= totalCount || limit == 0) {
+            return (new uint256[](0), totalCount);
+        }
+        uint256 remaining = totalCount - offset;
+        uint256 count = remaining < limit ? remaining : limit;
+        proposalIdList = new uint256[](count);
+        for (uint256 i = 0; i < count; i++) {
+            uint256 index = reverse ? (totalCount - 1 - offset - i) : (offset + i);
+            proposalIdList[i] = _authorProposalIds[tokenAddress][author][index];
+        }
     }
 
-    function actionsCount(address tokenAddress) public view returns (uint256) {
-        return _actions[tokenAddress].length;
-    }
-    function actionsAtIndex(
+    function proposalInfosByIds(
         address tokenAddress,
-        uint256 index
-    ) public view returns (ActionInfo memory) {
-        return _actions[tokenAddress][index];
+        uint256[] calldata ids
+    ) external view returns (ProposalInfo[] memory) {
+        ProposalInfo[] memory infos = new ProposalInfo[](ids.length);
+        for (uint256 i = 0; i < ids.length; i++) {
+            if (ids[i] >= _proposals[tokenAddress].length) {
+                // forge-lint: disable-next-line(require-revert-in-loop)
+                revert ProposalNotFound(ids[i]);
+            }
+            infos[i] = _proposals[tokenAddress][ids[i]];
+        }
+        return infos;
     }
 
-    function actionInfo(
-        address tokenAddress,
-        uint256 actionId
-    ) public view returns (ActionInfo memory) {
-        if (actionId >= _actions[tokenAddress].length)
-            revert ActionIdNotExist();
-        return _actions[tokenAddress][actionId];
-    }
-
-    function actionSubmitsCount(
-        address tokenAddress,
-        uint256 round
-    ) external view returns (uint256) {
-        return _actionSubmits[tokenAddress][round].length;
-    }
-
-    function actionSubmitsAtIndex(
-        address tokenAddress,
-        uint256 round,
-        uint256 index
-    ) external view returns (ActionSubmitInfo memory) {
-        return _actionSubmits[tokenAddress][round][index];
-    }
-
-    function submitInfo(
-        address tokenAddress,
-        uint256 round,
-        uint256 actionId
-    ) external view returns (ActionSubmitInfo memory) {
-        return _actionSubmitInfoByActionId[tokenAddress][round][actionId];
-    }
-
-    function submitInfoBySubmitter(
+    function submitInfos(
         address tokenAddress,
         uint256 round,
-        address submitter
-    ) external view returns (ActionSubmitInfo memory) {
-        return _actionSubmitInfoBySubmitter[tokenAddress][round][submitter];
+        uint256 offset,
+        uint256 limit,
+        bool reverse
+    ) external view returns (SubmitInfo[] memory submitInfoList, uint256 totalCount) {
+        totalCount = _submits[tokenAddress][round].length;
+        if (offset >= totalCount || limit == 0) {
+            return (new SubmitInfo[](0), totalCount);
+        }
+        uint256 remaining = totalCount - offset;
+        uint256 count = remaining < limit ? remaining : limit;
+        submitInfoList = new SubmitInfo[](count);
+        for (uint256 i = 0; i < count; i++) {
+            uint256 index = reverse ? (totalCount - 1 - offset - i) : (offset + i);
+            submitInfoList[i] = _submits[tokenAddress][round][index];
+        }
     }
 
-    function authorActionIdsCount(
+    function proposalIdBySubmitter(
         address tokenAddress,
-        address author
-    ) external view returns (uint256) {
-        return _authorActionIds[tokenAddress][author].length;
+        uint256 round,
+        uint256 submitterId
+    ) external view returns (uint256 proposalId) {
+        return _submitInfoBySubmitterId[tokenAddress][round][submitterId].proposalId;
     }
 
-    function authorActionIdsAtIndex(
+    function submitterIdByProposalId(
         address tokenAddress,
-        address author,
-        uint256 index
-    ) external view returns (uint256) {
-        return _authorActionIds[tokenAddress][author][index];
+        uint256 round,
+        uint256 proposalId
+    ) external view returns (uint256 submitterId) {
+        return _submitInfoByProposalId[tokenAddress][round][proposalId].submitterId;
     }
 
-    function _createAction(
+    function _createProposal(
         address tokenAddress,
-        ActionBody memory actionBody
-    ) internal returns (uint256 actionId) {
-        if (actionBody.minStake == 0) revert MinStakeZero();
-        if (actionBody.maxRandomAccounts == 0) revert MaxRandomAccountsZero();
-        if (bytes(actionBody.title).length == 0) revert TitleEmpty();
-        if (bytes(actionBody.verificationRule).length == 0)
-            revert VerificationRuleEmpty();
-        for (uint256 i = 0; i < actionBody.verificationKeys.length; i++) {
-            if (
-                bytes(actionBody.verificationKeys[i]).length >
-                MAX_VERIFICATION_KEY_LENGTH
-            ) revert VerificationKeyLengthExceeded();
+        uint256 memberId,
+        ProposalBody memory proposalBody
+    ) internal returns (uint256 proposalId) {
+        if (bytes(proposalBody.title).length == 0) revert EmptyString("title");
+        if (proposalBody.target == address(0)) revert InvalidAddress();
+        if (proposalBody.targetMode == TargetMode.Callback && proposalBody.target.code.length == 0) {
+            revert InvalidTargetMode();
         }
 
-        actionId = _actions[tokenAddress].length;
-        ActionHead memory head = ActionHead({
-            id: actionId,
-            author: msg.sender,
+        proposalId = _proposals[tokenAddress].length;
+        ProposalHead memory head = ProposalHead({
+            id: proposalId,
+            author: memberId,
             createAtBlock: block.number
         });
 
-        _actions[tokenAddress].push(ActionInfo({head: head, body: actionBody}));
-        _authorActionIds[tokenAddress][msg.sender].push(actionId);
+        _proposals[tokenAddress].push(ProposalInfo({head: head, body: proposalBody}));
+        _authorProposalIds[tokenAddress][memberId].push(proposalId);
 
-        emit ActionCreate({
+        emit ProposalCreated({
             tokenAddress: tokenAddress,
-            round: currentRound(),
-            author: msg.sender,
-            actionId: actionId,
-            actionBody: actionBody
+            proposalId: proposalId,
+            author: memberId,
+            title: proposalBody.title,
+            details: proposalBody.details,
+            target: proposalBody.target,
+            targetMode: proposalBody.targetMode
         });
 
-        return actionId;
+        if (proposalBody.targetMode == TargetMode.Callback) {
+            IProposalTarget(proposalBody.target).onProposalCreated(
+                tokenAddress,
+                proposalId,
+                proposalBody.targetData
+            );
+        }
+
+        return proposalId;
     }
 
-    function _submitByActionId(
+    function _submitByProposalId(
         address tokenAddress,
-        uint256 actionId
+        uint256 memberId,
+        uint256 proposalId
     ) internal {
-        if (actionId >= _actions[tokenAddress].length)
-            revert ActionIdNotExist();
+        // Checks
+        if (proposalId >= _proposals[tokenAddress].length)
+            revert ProposalNotFound(proposalId);
 
         uint256 round = currentRound();
-        // check if actionId is already submitted in current round
-        if (isSubmitted(tokenAddress, round, actionId))
+        if (isSubmitted(tokenAddress, round, proposalId))
             revert AlreadySubmitted();
         if (
-            _actionSubmitInfoBySubmitter[tokenAddress][round][msg.sender]
-                .submitter != address(0)
+            _submitInfoBySubmitterId[tokenAddress][round][memberId]
+                .submitterId != 0
         ) revert OnlyOneSubmitPerRound();
 
-        ActionSubmitInfo memory actionSubmitInfo = ActionSubmitInfo(
-            msg.sender,
-            actionId
+        // Effects
+        SubmitInfo memory submitInfo = SubmitInfo(
+            memberId,
+            proposalId
         );
 
-        _actionSubmits[tokenAddress][round].push(actionSubmitInfo);
-        _actionSubmitInfoByActionId[tokenAddress][round][
-            actionId
-        ] = actionSubmitInfo;
-        _actionSubmitInfoBySubmitter[tokenAddress][round][
-            msg.sender
-        ] = actionSubmitInfo;
+        _submits[tokenAddress][round].push(submitInfo);
+        _submitInfoByProposalId[tokenAddress][round][
+            proposalId
+        ] = submitInfo;
+        _submitInfoBySubmitterId[tokenAddress][round][
+            memberId
+        ] = submitInfo;
 
-        emit ActionSubmit({
+        bool isFirstSubmit = _submits[tokenAddress][round].length == 1;
+
+        // forge-lint: disable-next-item(reentrancy-events)
+        emit ProposalSubmitted({
             tokenAddress: tokenAddress,
             round: round,
-            submitter: msg.sender,
-            actionId: actionId
+            submitterId: memberId,
+            proposalId: proposalId
         });
+
+        // Interactions
+        if (isFirstSubmit) {
+            // forge-lint: disable-next-line(unused-return)
+            Phase(phaseAddress).sync();
+        }
+
+        ProposalBody memory body = _proposals[tokenAddress][proposalId].body;
+        if (body.targetMode == TargetMode.Callback) {
+            IProposalTarget(body.target).onProposalSubmitted(
+                tokenAddress,
+                proposalId,
+                memberId,
+                body.targetData
+            );
+        }
     }
 }
