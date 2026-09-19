@@ -3,6 +3,7 @@ pragma solidity =0.8.37;
 
 import {IPhase} from "./interfaces/IPhase.sol";
 import {OrderedHistoryIndex} from "../lib/libs/src/OrderedHistoryIndex.sol";
+import {Pagination} from "../lib/libs/src/Pagination.sol";
 import {Math} from "../lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
 
 contract Phase is IPhase {
@@ -68,22 +69,13 @@ contract Phase is IPhase {
         external view returns (uint256[] memory blockNumbers, uint256[] memory blockTimestamps, uint256 totalCount)
     {
         totalCount = _observationBlocks.length;
-        if (offset >= totalCount) {
-            return (new uint256[](0), new uint256[](0), totalCount);
+        uint256[] memory indices = Pagination.paginateIndices(totalCount, offset, limit, reverse);
+        blockNumbers = new uint256[](indices.length);
+        blockTimestamps = new uint256[](indices.length);
+        for (uint256 i = 0; i < indices.length; i++) {
+            blockNumbers[i] = _observationBlocks[indices[i]];
+            blockTimestamps[i] = _observationTimestamps[indices[i]];
         }
-
-        uint256 remaining = totalCount - offset;
-        uint256 resultSize = remaining < limit ? remaining : limit;
-        blockNumbers = new uint256[](resultSize);
-        blockTimestamps = new uint256[](resultSize);
-
-        for (uint256 i = 0; i < resultSize; i++) {
-            uint256 index = reverse ? (totalCount - 1 - offset - i) : (offset + i);
-            blockNumbers[i] = _observationBlocks[index];
-            blockTimestamps[i] = _observationTimestamps[index];
-        }
-
-        return (blockNumbers, blockTimestamps, totalCount);
     }
 
     function sync() external returns (bool adjusted, uint256 newPhaseBlocks) {

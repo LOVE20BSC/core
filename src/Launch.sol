@@ -7,12 +7,14 @@ import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
 import {IUniswapV2Factory} from "./interfaces/UniswapV2/IUniswapV2Factory.sol";
 import {LOVE20Token} from "./LOVE20Token.sol";
+import {Pagination} from "../lib/libs/src/Pagination.sol";
 
 /**
  * @title Launch
  * @notice First token bootstrap, launch count ledger, count merging, sub-token launching and pair creation
  */
 contract Launch is ILaunch {
+    using Pagination for address[];
     // ============ Fixed Parameters ============
 
     // used for the launch count permission
@@ -282,7 +284,7 @@ contract Launch is ILaunch {
         view
         returns (address[] memory tokenList, uint256 totalCount)
     {
-        return _page(_tokens, offset, limit, reverse);
+        return _tokens.paginate(offset, limit, reverse);
     }
 
     /**
@@ -301,7 +303,7 @@ contract Launch is ILaunch {
         view
         returns (address[] memory tokenList, uint256 totalCount)
     {
-        return _page(_childTokens[parentTokenAddress], offset, limit, reverse);
+        return _childTokens[parentTokenAddress].paginate(offset, limit, reverse);
     }
 
     /**
@@ -344,32 +346,6 @@ contract Launch is ILaunch {
         if (IUniswapV2Factory(pairFactoryAddress).createPair(tokenAddress, parentTokenAddress) == address(0)) {
             revert InvalidAddress();
         }
-    }
-
-    /**
-     * @dev Shared pagination for the launch lists: an out-of-range offset yields an empty page with
-     *      the true total count, and a limit above the remaining entries is clamped.
-     */
-    function _page(address[] storage list, uint256 offset, uint256 limit, bool reverse)
-        private
-        view
-        returns (address[] memory tokenList, uint256 totalCount)
-    {
-        totalCount = list.length;
-        if (offset >= totalCount) {
-            return (new address[](0), totalCount);
-        }
-
-        uint256 remaining = totalCount - offset;
-        uint256 pageSize = remaining < limit ? remaining : limit;
-        tokenList = new address[](pageSize);
-
-        for (uint256 i = 0; i < pageSize; i++) {
-            uint256 index = reverse ? (totalCount - 1 - offset - i) : (offset + i);
-            tokenList[i] = list[index];
-        }
-
-        return (tokenList, totalCount);
     }
 
     /**

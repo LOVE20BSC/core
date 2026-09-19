@@ -8,12 +8,14 @@ import {
     ERC721Enumerable
 } from "../lib/openzeppelin-contracts/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {Pagination} from "../lib/libs/src/Pagination.sol";
 
 /**
  * @title MemberNFT
  * @notice ERC721-based Member identity system for LOVE20 ecosystem
  */
 contract MemberNFT is ERC721Enumerable, IMemberNFT {
+    using Pagination for address[];
     // ============ Fixed Parameters ============
 
     address public LOVE20_TOKEN_ADDRESS;
@@ -207,21 +209,7 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     function holders(uint256 offset, uint256 limit, bool reverse)
         external view returns (address[] memory holderList, uint256 totalCount)
     {
-        totalCount = _allHolders.length;
-        if (offset >= totalCount) {
-            return (new address[](0), totalCount);
-        }
-
-        uint256 remaining = totalCount - offset;
-        uint256 pageSize = remaining < limit ? remaining : limit;
-        holderList = new address[](pageSize);
-
-        for (uint256 i = 0; i < pageSize; i++) {
-            uint256 index = reverse ? (totalCount - 1 - offset - i) : (offset + i);
-            holderList[i] = _allHolders[index];
-        }
-
-        return (holderList, totalCount);
+        return _allHolders.paginate(offset, limit, reverse);
     }
 
     // ============ Internal Functions ============

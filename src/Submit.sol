@@ -7,7 +7,10 @@ import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
 import {ISubmit, ProposalHead, ProposalBody, ProposalInfo, SubmitInfo, TargetMode} from "./interfaces/ISubmit.sol";
 import {IProposalTarget} from "./interfaces/IProposalTarget.sol";
 
+import {Pagination} from "../lib/libs/src/Pagination.sol";
+
 contract Submit is ISubmit {
+    using Pagination for uint256[];
     bool public initialized;
     address public phaseAddress;
     address public stakeAddress;
@@ -116,15 +119,12 @@ contract Submit is ISubmit {
     function proposalIds(address tokenAddress, uint256 offset, uint256 limit, bool reverse)
         external view returns (uint256[] memory proposalIdList, uint256 totalCount) {
         totalCount = _proposals[tokenAddress].length;
-        if (offset >= totalCount || limit == 0) {
-            return (new uint256[](0), totalCount);
-        }
-        uint256 remaining = totalCount - offset;
-        uint256 count = remaining < limit ? remaining : limit;
-        proposalIdList = new uint256[](count);
-        for (uint256 i = 0; i < count; i++) {
-            uint256 index = reverse ? (totalCount - 1 - offset - i) : (offset + i);
-            proposalIdList[i] = _proposals[tokenAddress][index].head.id;
+        // Proposal records carry bodies, so only their ids belong on a page; bodies come from
+        // proposalInfosByIds.
+        uint256[] memory indices = Pagination.paginateIndices(totalCount, offset, limit, reverse);
+        proposalIdList = new uint256[](indices.length);
+        for (uint256 i = 0; i < indices.length; i++) {
+            proposalIdList[i] = _proposals[tokenAddress][indices[i]].head.id;
         }
     }
 
@@ -135,17 +135,7 @@ contract Submit is ISubmit {
         uint256 limit,
         bool reverse
     ) external view returns (uint256[] memory proposalIdList, uint256 totalCount) {
-        totalCount = _authorProposalIds[tokenAddress][author].length;
-        if (offset >= totalCount || limit == 0) {
-            return (new uint256[](0), totalCount);
-        }
-        uint256 remaining = totalCount - offset;
-        uint256 count = remaining < limit ? remaining : limit;
-        proposalIdList = new uint256[](count);
-        for (uint256 i = 0; i < count; i++) {
-            uint256 index = reverse ? (totalCount - 1 - offset - i) : (offset + i);
-            proposalIdList[i] = _authorProposalIds[tokenAddress][author][index];
-        }
+        return _authorProposalIds[tokenAddress][author].paginate(offset, limit, reverse);
     }
 
     function proposalInfosByIds(
@@ -171,15 +161,10 @@ contract Submit is ISubmit {
         bool reverse
     ) external view returns (SubmitInfo[] memory submitInfoList, uint256 totalCount) {
         totalCount = _submits[tokenAddress][round].length;
-        if (offset >= totalCount || limit == 0) {
-            return (new SubmitInfo[](0), totalCount);
-        }
-        uint256 remaining = totalCount - offset;
-        uint256 count = remaining < limit ? remaining : limit;
-        submitInfoList = new SubmitInfo[](count);
-        for (uint256 i = 0; i < count; i++) {
-            uint256 index = reverse ? (totalCount - 1 - offset - i) : (offset + i);
-            submitInfoList[i] = _submits[tokenAddress][round][index];
+        uint256[] memory indices = Pagination.paginateIndices(totalCount, offset, limit, reverse);
+        submitInfoList = new SubmitInfo[](indices.length);
+        for (uint256 i = 0; i < indices.length; i++) {
+            submitInfoList[i] = _submits[tokenAddress][round][indices[i]];
         }
     }
 

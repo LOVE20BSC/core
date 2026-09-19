@@ -4,6 +4,7 @@ pragma solidity =0.8.37;
 import {Math} from "../lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {RoundHistoryUint256} from "../lib/libs/src/RoundHistoryUint256.sol";
+import {Pagination} from "../lib/libs/src/Pagination.sol";
 import {IPhase} from "./interfaces/IPhase.sol";
 import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
@@ -27,6 +28,7 @@ struct AddedLiquidity {
 
 contract Stake is IStake {
     using RoundHistoryUint256 for RoundHistoryUint256.History;
+    using Pagination for uint256[];
 
     uint256 private constant SLIPPAGE_PRECISION = 1e18;
 
@@ -382,7 +384,7 @@ contract Stake is IStake {
         view
         returns (uint256[] memory rounds, uint256 totalCount)
     {
-        return _paginateRounds(_globalBoostHistory[tokenAddress].index.keys, offset, limit, reverse);
+        return _globalBoostHistory[tokenAddress].index.keys.paginate(offset, limit, reverse);
     }
 
     function boostUpdatedRounds(address tokenAddress, uint256 memberId, uint256 offset, uint256 limit, bool reverse)
@@ -390,24 +392,7 @@ contract Stake is IStake {
         view
         returns (uint256[] memory rounds, uint256 totalCount)
     {
-        return _paginateRounds(_boostHistoryByMember[tokenAddress][memberId].index.keys, offset, limit, reverse);
-    }
-
-    function _paginateRounds(uint256[] storage keys, uint256 offset, uint256 limit, bool reverse)
-        private
-        view
-        returns (uint256[] memory rounds, uint256 totalCount)
-    {
-        totalCount = keys.length;
-        if (offset >= totalCount) {
-            return (new uint256[](0), totalCount);
-        }
-        uint256 remaining = totalCount - offset;
-        uint256 resultSize = remaining < limit ? remaining : limit;
-        rounds = new uint256[](resultSize);
-        for (uint256 i = 0; i < resultSize; i++) {
-            rounds[i] = keys[reverse ? (totalCount - 1 - offset - i) : (offset + i)];
-        }
+        return _boostHistoryByMember[tokenAddress][memberId].index.keys.paginate(offset, limit, reverse);
     }
 
     function _currentRound() private view returns (uint256) {
