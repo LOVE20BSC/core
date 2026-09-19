@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.37;
 
-import {Phase} from "./Phase.sol";
+import {IPhase} from "./interfaces/IPhase.sol";
 import {IStake} from "./interfaces/IStake.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
 import {ISubmit, ProposalHead, ProposalBody, ProposalInfo, SubmitInfo, TargetMode} from "./interfaces/ISubmit.sol";
 import {IProposalTarget} from "./interfaces/IProposalTarget.sol";
 
-contract Submit is Phase, ISubmit {
+contract Submit is ISubmit {
     bool public initialized;
     address public phaseAddress;
     address public stakeAddress;
@@ -29,16 +29,8 @@ contract Submit is Phase, ISubmit {
     mapping(address => mapping(uint256 => mapping(uint256 => SubmitInfo)))
         internal _submitInfoBySubmitterId;
 
-    constructor(
-        uint256 originBlocks,
-        uint256 phaseBlocks,
-        uint256 targetSeconds,
-        uint256 adjustThreshold,
-        uint256 syncObservationLimit
-    ) Phase(originBlocks, phaseBlocks, targetSeconds, adjustThreshold, syncObservationLimit) {}
-
     function currentRound() public view returns (uint256) {
-        return currentPhase();
+        return IPhase(phaseAddress).currentPhase();
     }
 
     function init(
@@ -162,11 +154,11 @@ contract Submit is Phase, ISubmit {
     ) external view returns (ProposalInfo[] memory) {
         ProposalInfo[] memory infos = new ProposalInfo[](ids.length);
         for (uint256 i = 0; i < ids.length; i++) {
-            if (ids[i] >= _proposals[tokenAddress].length) {
+            if (ids[i] == 0 || ids[i] > _proposals[tokenAddress].length) {
                 // forge-lint: disable-next-line(require-revert-in-loop)
                 revert ProposalNotFound(ids[i]);
             }
-            infos[i] = _proposals[tokenAddress][ids[i]];
+            infos[i] = _proposals[tokenAddress][ids[i] - 1];
         }
         return infos;
     }
@@ -218,7 +210,7 @@ contract Submit is Phase, ISubmit {
             revert InvalidTargetMode();
         }
 
-        proposalId = _proposals[tokenAddress].length;
+        proposalId = _proposals[tokenAddress].length + 1;
         ProposalHead memory head = ProposalHead({
             id: proposalId,
             author: memberId,
@@ -255,7 +247,7 @@ contract Submit is Phase, ISubmit {
         uint256 proposalId
     ) internal {
         // Checks
-        if (proposalId >= _proposals[tokenAddress].length)
+        if (proposalId == 0 || proposalId > _proposals[tokenAddress].length)
             revert ProposalNotFound(proposalId);
 
         uint256 round = currentRound();
@@ -293,10 +285,10 @@ contract Submit is Phase, ISubmit {
         // Interactions
         if (isFirstSubmit) {
             // forge-lint: disable-next-line(unused-return)
-            Phase(phaseAddress).sync();
+            IPhase(phaseAddress).sync();
         }
 
-        ProposalBody memory body = _proposals[tokenAddress][proposalId].body;
+        ProposalBody memory body = _proposals[tokenAddress][proposalId - 1].body;
         if (body.targetMode == TargetMode.Callback) {
             IProposalTarget(body.target).onProposalSubmitted(
                 tokenAddress,
