@@ -113,6 +113,11 @@ interface ISubmit is ISubmitErrors, ISubmitEvents {
         uint256[] calldata proposalIds
     ) external view returns (ProposalInfo[] memory);
 
+    function proposalTarget(address tokenAddress, uint256 proposalId)
+        external
+        view
+        returns (address target, TargetMode targetMode);
+
     function submitInfos(
         address tokenAddress,
         uint256 round,

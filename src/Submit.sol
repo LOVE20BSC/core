@@ -138,6 +138,18 @@ contract Submit is ISubmit {
         return _authorProposalIds[tokenAddress][author].paginate(offset, limit, reverse);
     }
 
+    function proposalTarget(address tokenAddress, uint256 proposalId)
+        external
+        view
+        returns (address target, TargetMode targetMode)
+    {
+        if (proposalId == 0 || proposalId > _proposals[tokenAddress].length) {
+            revert ProposalNotFound(proposalId);
+        }
+        ProposalBody storage body = _proposals[tokenAddress][proposalId - 1].body;
+        return (body.target, body.targetMode);
+    }
+
     function proposalInfosByIds(
         address tokenAddress,
         uint256[] calldata ids

@@ -328,6 +328,44 @@ contract SubmitTest {
         }
     }
 
+    function testProposalTargetMatchesTheRecordAndRejectsUnassignedIds() external {
+        MockTarget target = new MockTarget();
+        ProposalBody memory body = ProposalBody("first", "", address(target), TargetMode.Callback, new bytes[](0));
+        require(submit.submitNewProposal(TOKEN, 1, body) == 1, "first id");
+
+        (address stored, TargetMode mode) = submit.proposalTarget(TOKEN, 1);
+        require(stored == address(target) && mode == TargetMode.Callback, "callback target");
+
+        vm.roll(200);
+        stake.setValidGovVotes(TOKEN, 2, 100);
+        memberNFT.setOwner(2, address(this));
+        ProposalBody memory noCallback =
+            ProposalBody("second", "", address(0xE1E1), TargetMode.NoCallback, new bytes[](0));
+        require(submit.submitNewProposal(TOKEN, 2, noCallback) == 2, "next id");
+        (stored, mode) = submit.proposalTarget(TOKEN, 2);
+        require(stored == address(0xE1E1) && mode == TargetMode.NoCallback, "no callback target");
+
+        uint256[] memory ids = new uint256[](2);
+        ids[0] = 2;
+        ids[1] = 1;
+        ProposalInfo[] memory infos = submit.proposalInfosByIds(TOKEN, ids);
+        for (uint256 i = 0; i < ids.length; i++) {
+            (address fromRecord, TargetMode modeFromRecord) = submit.proposalTarget(TOKEN, ids[i]);
+            require(fromRecord == infos[i].body.target, "target agrees with the record");
+            require(modeFromRecord == infos[i].body.targetMode, "mode agrees with the record");
+        }
+
+        uint256[3] memory missing;
+        missing[0] = 0;
+        missing[1] = 3;
+        missing[2] = type(uint256).max;
+        for (uint256 i = 0; i < missing.length; i++) {
+            bytes32 expected = keccak256(abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, missing[i]));
+            (bool ok, bytes memory data) = address(submit).call(abi.encodeCall(submit.proposalTarget, (TOKEN, missing[i])));
+            require(!ok && keccak256(data) == expected, "missing target");
+        }
+    }
+
     function testSubmitExistingProposal() external {
         ProposalBody memory body = ProposalBody({
             title: "Test",

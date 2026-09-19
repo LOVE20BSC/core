@@ -4,7 +4,7 @@ pragma solidity =0.8.37;
 import {IVote} from "./interfaces/IVote.sol";
 import {IPhase} from "./interfaces/IPhase.sol";
 import {IStake} from "./interfaces/IStake.sol";
-import {ISubmit, ProposalInfo, TargetMode} from "./interfaces/ISubmit.sol";
+import {ISubmit, TargetMode} from "./interfaces/ISubmit.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
 import {IProposalTarget} from "./interfaces/IProposalTarget.sol";
 import {Pagination} from "../lib/libs/src/Pagination.sol";
@@ -325,27 +325,11 @@ contract Vote is IVote {
 
         // Callback to proposal target if configured (after event emission to follow CEI pattern)
         // forge-lint: disable-next-item(calls-loop, reentrancy-events)
-        ProposalInfo memory proposal = ISubmit(_submitAddress).proposalInfosByIds(
-            tokenAddress,
-            _asSingletonArray(proposalId)
-        )[0];
+        (address target, TargetMode targetMode) = ISubmit(_submitAddress).proposalTarget(tokenAddress, proposalId);
 
-        if (proposal.body.targetMode == TargetMode.Callback && proposal.body.target != address(0)) {
+        if (targetMode == TargetMode.Callback && target != address(0)) {
             // forge-lint: disable-next-item(calls-loop, reentrancy-events)
-            IProposalTarget(proposal.body.target).onProposalVoted(
-                tokenAddress,
-                round,
-                proposalId,
-                memberId,
-                votes,
-                targetData
-            );
+            IProposalTarget(target).onProposalVoted(tokenAddress, round, proposalId, memberId, votes, targetData);
         }
-    }
-
-    function _asSingletonArray(uint256 element) private pure returns (uint256[] memory array) {
-        // forge-lint: disable-next-line(calls-loop)
-        array = new uint256[](1);
-        array[0] = element;
     }
 }
