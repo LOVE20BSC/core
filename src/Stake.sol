@@ -251,7 +251,7 @@ contract Stake is IStake {
         if (source.liquidityShares == 0) revert NoStakedLiquidity();
 
         uint256 round = _currentRound();
-        if (IVote(voteAddress).votesNumByAccount(tokenAddress, round, sourceMemberId) != 0) {
+        if (IVote(voteAddress).votesNumByMemberId(tokenAddress, round, sourceMemberId) != 0) {
             revert SourceHasVotedInCurrentRound();
         }
 

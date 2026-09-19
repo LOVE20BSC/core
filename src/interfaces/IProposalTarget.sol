@@ -14,4 +14,13 @@ interface IProposalTarget {
         uint256 submitterId,
         bytes[] calldata targetData
     ) external;
+
+    function onProposalVoted(
+        address tokenAddress,
+        uint256 round,
+        uint256 proposalId,
+        uint256 voterId,
+        uint256 votes,
+        bytes[] calldata targetData
+    ) external;
 }

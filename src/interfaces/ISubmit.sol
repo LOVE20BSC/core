@@ -35,7 +35,6 @@ interface ISubmitErrors {
     error EmptyString(string parameter);
     error ZeroAmount(string parameter);
     error InvalidAmount();
-    error RoundNotStarted();
     error ProposalNotFound(uint256 proposalId);
     error CannotSubmitAction();
     error AlreadySubmitted();

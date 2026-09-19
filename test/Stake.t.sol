@@ -28,7 +28,7 @@ contract MockPhase {
 contract MockVote {
     mapping(address => mapping(uint256 => mapping(uint256 => uint256))) private _votesNum;
 
-    function votesNumByAccount(address tokenAddress, uint256 round, uint256 memberId)
+    function votesNumByMemberId(address tokenAddress, uint256 round, uint256 memberId)
         external
         view
         returns (uint256)
