@@ -117,15 +117,26 @@ contract Vote is IVote {
         if (!canVote(tokenAddress, memberId)) {
             revert CannotVote();
         }
-        if (proposalIds.length != votes.length || proposalIds.length != targetData.length) {
+        if (proposalIds.length == 0 || proposalIds.length != votes.length) {
+            revert InvalidTargetDataLength();
+        }
+        if (targetData.length != 0 && targetData.length != proposalIds.length) {
             revert InvalidTargetDataLength();
         }
 
         uint256 round = currentRound();
         uint256 maxVotes = maxVotesNum(tokenAddress, memberId);
 
+        // An empty outer array means every callback gets empty Target Data; a supplied one lines up
+        // with the proposals, entry by entry.
+        bytes[] memory noTargetData = new bytes[](0);
+
         for (uint256 i = 0; i < proposalIds.length; i++) {
-            _vote(tokenAddress, round, memberId, proposalIds[i], votes[i], maxVotes, targetData[i]);
+            bytes[] memory itemTargetData = noTargetData;
+            if (targetData.length != 0) {
+                itemTargetData = targetData[i];
+            }
+            _vote(tokenAddress, round, memberId, proposalIds[i], votes[i], maxVotes, itemTargetData);
         }
     }
 
@@ -253,7 +264,7 @@ contract Vote is IVote {
         uint256 proposalId,
         uint256 votes,
         uint256 maxVotes,
-        bytes[] calldata targetData
+        bytes[] memory targetData
     ) internal {
         // Batch voting validates each proposal individually; the call cannot be moved outside the loop.
         // forge-lint: disable-next-item(calls-loop)
