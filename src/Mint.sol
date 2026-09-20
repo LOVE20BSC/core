@@ -1,480 +1,566 @@
 // SPDX-License-Identifier: MIT
-pragma solidity =0.8.17;
+pragma solidity =0.8.37;
 
-import {ILOVE20Vote} from "./interfaces/ILOVE20Vote.sol";
-import {ILOVE20Verify} from "./interfaces/ILOVE20Verify.sol";
-import {ILOVE20Stake} from "./interfaces/ILOVE20Stake.sol";
+import {Math} from "../lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
+import {IVote} from "./interfaces/IVote.sol";
+import {ISubmit} from "./interfaces/ISubmit.sol";
+import {ILaunch} from "./interfaces/ILaunch.sol";
+import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
 import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
-import {ILOVE20Mint} from "./interfaces/ILOVE20Mint.sol";
+import {IMint} from "./interfaces/IMint.sol";
 
-contract LOVE20Mint is ILOVE20Mint {
-    // ------ manage reward ------
-    // tokenAddress => reward(managed by prepareReward)
-    mapping(address => uint256) public rewardReserved;
+contract Mint is IMint {
+    // ------ 累计账本 ------
+    mapping(address => uint256) internal _rewardReserved;
+    mapping(address => uint256) internal _rewardMinted;
+    mapping(address => uint256) internal _rewardBurned;
 
-    // tokenAddress => rewardMinted (managed by _mintReward)
-    mapping(address => uint256) public rewardMinted;
+    // ------ 轮次池与准备状态 ------
+    mapping(address => mapping(uint256 => uint256)) internal _govReward;
+    mapping(address => mapping(uint256 => uint256)) internal _proposalReward;
+    mapping(address => mapping(uint256 => uint256)) internal _eligibleProposalVotes;
+    mapping(address => mapping(uint256 => bool)) internal _isRewardPrepared;
 
-    // tokenAddress => rewardBurned (managed by _burnReward)
-    mapping(address => uint256) public rewardBurned;
+    // ------ 铸造状态位 ------
+    mapping(address => mapping(uint256 => mapping(uint256 => bool))) internal _proposalMinted;
+    mapping(address => mapping(uint256 => mapping(uint256 => bool))) internal _govMinted;
 
-    // ------ variable for gov reward ------
-    // tokenAddress => account => num (managed by mintGovReward)
-    mapping(address => mapping(address => uint256))
-        public numOfMintGovRewardByAccount;
+    // ------ 发射额度账本 ------
+    mapping(address => mapping(uint256 => uint256)) internal _launchCredit;
 
-    // tokenAddress => round => reward
-    mapping(address => mapping(uint256 => uint256)) public govReward;
-
-    // tokenAddress => round => bool
-    mapping(address => mapping(uint256 => bool))
-        public boostRewardBurnCheckeded;
-
-    // tokenAddress => round => account => mintedReward
-    mapping(address => mapping(uint256 => mapping(address => uint256)))
-        public govRewardMintedByAccount;
-
-    // ------ variable for action reward ------
-    // tokenAddress => round => reward
-    mapping(address => mapping(uint256 => uint256)) public actionReward;
-
-    // tokenAddress => round => bool
-    mapping(address => mapping(uint256 => bool)) public actionRewardBurnChecked;
-
-    // tokenAddress => round => actionId => account => mintedReward
-    mapping(address => mapping(uint256 => mapping(uint256 => mapping(address => uint256))))
-        public actionRewardMintedByAccount;
-
-    // ------ variable for init ------
+    // ------ 初始化与依赖 ------
     bool public initialized;
     address public voteAddress;
-    address public verifyAddress;
-    address public stakeAddress;
-    uint256 public ACTION_REWARD_MIN_VOTE_PER_THOUSAND;
+    address public submitAddress;
+    address public launchAddress;
+    address public memberNFTAddress;
+    uint256 public PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND;
     uint256 public ROUND_REWARD_GOV_PER_THOUSAND;
-    uint256 public ROUND_REWARD_ACTION_PER_THOUSAND;
+    uint256 public ROUND_REWARD_PROPOSAL_PER_THOUSAND;
     uint256 public MAX_GOV_BOOST_REWARD_MULTIPLIER;
 
-    function initialize(
+    // ------ 显式 getter ------
+    function rewardReserved(address tokenAddress) external view returns (uint256) {
+        return _rewardReserved[tokenAddress];
+    }
+
+    function rewardMinted(address tokenAddress) external view returns (uint256) {
+        return _rewardMinted[tokenAddress];
+    }
+
+    function rewardBurned(address tokenAddress) external view returns (uint256) {
+        return _rewardBurned[tokenAddress];
+    }
+
+    function govReward(address tokenAddress, uint256 round) external view returns (uint256) {
+        return _govReward[tokenAddress][round];
+    }
+
+    function proposalReward(address tokenAddress, uint256 round) external view returns (uint256) {
+        return _proposalReward[tokenAddress][round];
+    }
+
+    function eligibleProposalVotes(address tokenAddress, uint256 round) external view returns (uint256) {
+        return _eligibleProposalVotes[tokenAddress][round];
+    }
+
+    function isRewardPrepared(address tokenAddress, uint256 round) external view returns (bool) {
+        return _isRewardPrepared[tokenAddress][round];
+    }
+
+    function launchCredit(address tokenAddress, uint256 memberId) external view returns (uint256) {
+        return _launchCredit[tokenAddress][memberId];
+    }
+
+    function init(
         address voteAddress_,
-        address verifyAddress_,
-        address stakeAddress_,
-        uint256 actionRewardMinVotePerThousand,
-        uint256 roundRewardGovPerThousand,
-        uint256 roundRewardActionPerThousand,
-        uint256 maxGovBoostRewardMultiplier
+        address submitAddress_,
+        address launchAddress_,
+        address memberNFTAddress_,
+        uint256 proposalRewardMinVotePerThousand_,
+        uint256 roundRewardGovPerThousand_,
+        uint256 roundRewardProposalPerThousand_,
+        uint256 maxGovBoostRewardMultiplier_
     ) external {
         if (initialized) {
             revert AlreadyInitialized();
         }
         initialized = true;
-        voteAddress = voteAddress_;
-        verifyAddress = verifyAddress_;
-        stakeAddress = stakeAddress_;
-        ACTION_REWARD_MIN_VOTE_PER_THOUSAND = actionRewardMinVotePerThousand;
-        ROUND_REWARD_GOV_PER_THOUSAND = roundRewardGovPerThousand;
-        ROUND_REWARD_ACTION_PER_THOUSAND = roundRewardActionPerThousand;
-        MAX_GOV_BOOST_REWARD_MULTIPLIER = maxGovBoostRewardMultiplier;
-    }
-
-    function isActionIdWithReward(
-        address tokenAddress,
-        uint256 round,
-        uint256 actionId
-    ) public view returns (bool) {
-        ILOVE20Vote vote = ILOVE20Vote(voteAddress);
-        uint256 minVotesWithReward = (ACTION_REWARD_MIN_VOTE_PER_THOUSAND *
-            vote.votesNum(tokenAddress, round)) / 1000;
-        return
-            vote.votesNumByActionId(tokenAddress, round, actionId) >=
-            minVotesWithReward;
-    }
-
-    function prepareRewardIfNeeded(address tokenAddress) external {
-        uint256 round = ILOVE20Verify(verifyAddress).currentRound();
-
-        if (isRewardPrepared(tokenAddress, round)) {
-            // already prepared
-            return;
-        }
-
-        uint256 govRewardAmount = calculateRoundGovReward(tokenAddress);
-        govReward[tokenAddress][round] = govRewardAmount;
-
-        uint256 actionRewardAmount = calculateRoundActionReward(tokenAddress);
-        actionReward[tokenAddress][round] = actionRewardAmount;
-
-        rewardReserved[tokenAddress] += govRewardAmount + actionRewardAmount;
-
-        emit PrepareReward({
-            tokenAddress: tokenAddress,
-            round: round,
-            govRewardAmount: govRewardAmount,
-            actionRewardAmount: actionRewardAmount
-        });
-    }
-
-    function mintGovReward(
-        address tokenAddress,
-        uint256 round
-    )
-        external
-        returns (uint256 verifyReward, uint256 boostReward, uint256 burnReward)
-    {
-        if (ILOVE20Verify(verifyAddress).currentRound() <= round) {
-            revert RoundNotReadyToMint();
-        }
-
-        _burnBoostRewardIfNeeded(tokenAddress, round);
-        _burnActionRewardIfNeeded(tokenAddress, round);
-
-        bool isMinted;
-        (verifyReward, boostReward, burnReward, isMinted) = govRewardByAccount(
-            tokenAddress,
-            round,
-            msg.sender
-        );
-        if (isMinted) {
-            revert AlreadyMinted();
-        }
-
-        if (verifyReward + boostReward + burnReward == 0) {
-            revert NoRewardAvailable();
-        }
-
-        uint256 mintAmount = verifyReward + boostReward;
-
-        govRewardMintedByAccount[tokenAddress][round][msg.sender] = mintAmount;
-        numOfMintGovRewardByAccount[tokenAddress][msg.sender]++;
-
-        _mintReward(tokenAddress, mintAmount);
-        _burnReward(tokenAddress, burnReward);
-
-        emit MintGovReward({
-            tokenAddress: tokenAddress,
-            round: round,
-            account: msg.sender,
-            verifyReward: verifyReward,
-            boostReward: boostReward,
-            burnReward: burnReward
-        });
-
-        return (verifyReward, boostReward, burnReward);
-    }
-
-    function _burnBoostRewardIfNeeded(
-        address tokenAddress,
-        uint256 round
-    ) internal {
-        if (boostRewardBurnCheckeded[tokenAddress][round]) {
-            return;
-        }
-        boostRewardBurnCheckeded[tokenAddress][round] = true;
 
         if (
-            ILOVE20Verify(verifyAddress).stakedAmountOfVerifiers(
-                tokenAddress,
-                round
-            ) > 0
+            voteAddress_ == address(0) ||
+            submitAddress_ == address(0) ||
+            launchAddress_ == address(0) ||
+            memberNFTAddress_ == address(0)
         ) {
-            return;
+            revert InvalidAddress();
         }
 
-        uint256 burnReward = govBoostReward(tokenAddress, round);
+        if (roundRewardGovPerThousand_ + roundRewardProposalPerThousand_ > 1000) {
+            revert InvalidAmount();
+        }
 
-        _burnReward(tokenAddress, burnReward);
+        if (maxGovBoostRewardMultiplier_ == 0 || maxGovBoostRewardMultiplier_ > 1000) {
+            revert InvalidAmount();
+        }
 
-        emit BurnBoostReward({
-            tokenAddress: tokenAddress,
-            round: round,
-            burnReward: burnReward
-        });
+        voteAddress = voteAddress_;
+        submitAddress = submitAddress_;
+        launchAddress = launchAddress_;
+        memberNFTAddress = memberNFTAddress_;
+        PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND = proposalRewardMinVotePerThousand_;
+        ROUND_REWARD_GOV_PER_THOUSAND = roundRewardGovPerThousand_;
+        ROUND_REWARD_PROPOSAL_PER_THOUSAND = roundRewardProposalPerThousand_;
+        MAX_GOV_BOOST_REWARD_MULTIPLIER = maxGovBoostRewardMultiplier_;
     }
 
-    function _burnActionRewardIfNeeded(
-        address tokenAddress,
-        uint256 round
-    ) internal {
-        if (actionRewardBurnChecked[tokenAddress][round]) {
-            return;
-        }
-        actionRewardBurnChecked[tokenAddress][round] = true;
-
-        uint256 totalActionReward = actionReward[tokenAddress][round];
-        if (totalActionReward == 0) {
+    function prepareRewardIfNeeded(address tokenAddress, uint256 round) external {
+        if (_isRewardPrepared[tokenAddress][round]) {
             return;
         }
 
-        uint256 abstentionScore = ILOVE20Verify(verifyAddress)
-            .abstentionScoreWithReward(tokenAddress, round);
-        uint256 totalScore = ILOVE20Verify(verifyAddress).scoreWithReward(
-            tokenAddress,
-            round
-        );
-
-        if (totalScore != abstentionScore) {
-            return;
-        }
-
-        _burnReward(tokenAddress, totalActionReward);
-
-        emit BurnActionReward({
-            tokenAddress: tokenAddress,
-            round: round,
-            burnReward: totalActionReward
-        });
-    }
-
-    function mintActionReward(
-        address tokenAddress,
-        uint256 round,
-        uint256 actionId
-    ) external returns (uint256) {
-        if (ILOVE20Verify(verifyAddress).currentRound() <= round) {
+        if (!IVote(voteAddress).isRoundEnded(round)) {
             revert RoundNotReadyToMint();
         }
 
-        (uint256 reward, bool isMinted) = actionRewardByActionIdByAccount(
+        uint256 totalVotes = IVote(voteAddress).votesNum(tokenAddress, round);
+
+        if (totalVotes == 0) {
+            _govReward[tokenAddress][round] = 0;
+            _proposalReward[tokenAddress][round] = 0;
+            _eligibleProposalVotes[tokenAddress][round] = 0;
+            _isRewardPrepared[tokenAddress][round] = true;
+            emit RewardPrepared(
+                tokenAddress, round, 0, 0, 0, _rewardReserved[tokenAddress], _rewardBurned[tokenAddress]
+            );
+            return;
+        }
+
+        uint256 minVotes = _minProposalVotes(totalVotes);
+        uint256 eligibleVotes = _calculateEligibleProposalVotes(tokenAddress, round, minVotes);
+
+        uint256 available = rewardAvailable(tokenAddress);
+        uint256 govRewardAmount = (available * ROUND_REWARD_GOV_PER_THOUSAND) / 1000;
+        uint256 proposalRewardAmount = (available * ROUND_REWARD_PROPOSAL_PER_THOUSAND) / 1000;
+
+        _rewardReserved[tokenAddress] += govRewardAmount + proposalRewardAmount;
+        _govReward[tokenAddress][round] = govRewardAmount;
+        _proposalReward[tokenAddress][round] = proposalRewardAmount;
+        _eligibleProposalVotes[tokenAddress][round] = eligibleVotes;
+        _isRewardPrepared[tokenAddress][round] = true;
+
+        uint256 totalBoost = IVote(voteAddress).stakedAmountOfVoters(tokenAddress, round);
+
+        if (totalBoost == 0) {
+            uint256 boostPoolAmount = govRewardAmount - (govRewardAmount / 2);
+            _rewardBurned[tokenAddress] += boostPoolAmount;
+            if (boostPoolAmount > 0) {
+                emit RewardBurned(
+                    tokenAddress,
+                    round,
+                    boostPoolAmount,
+                    keccak256("boostPoolCancelled")
+                );
+            }
+        }
+
+        if (eligibleVotes == 0) {
+            _rewardBurned[tokenAddress] += proposalRewardAmount;
+            if (proposalRewardAmount > 0) {
+                emit RewardBurned(
+                    tokenAddress,
+                    round,
+                    proposalRewardAmount,
+                    keccak256("proposalPoolCancelled")
+                );
+            }
+        }
+
+        uint256 finalRewardReserved = _rewardReserved[tokenAddress];
+        uint256 finalRewardBurned = _rewardBurned[tokenAddress];
+
+        emit RewardPrepared(
             tokenAddress,
             round,
-            actionId,
-            msg.sender
+            govRewardAmount,
+            proposalRewardAmount,
+            eligibleVotes,
+            finalRewardReserved,
+            finalRewardBurned
         );
+    }
 
-        if (reward == 0) {
-            revert NoRewardAvailable();
+    function mintProposalReward(
+        address tokenAddress,
+        uint256 round,
+        uint256 proposalId
+    ) external returns (uint256 amount) {
+        // Target mode governs Vote callbacks, not Mint authorization.
+        // forge-lint: disable-next-line(unused-return)
+        (address target, ) = ISubmit(submitAddress).proposalTarget(tokenAddress, proposalId);
+
+        if (msg.sender != target) {
+            revert UnauthorizedCaller();
         }
-        if (isMinted) {
+
+        if (!IVote(voteAddress).isRoundEnded(round)) {
+            revert RoundNotReadyToMint();
+        }
+
+        if (!_isRewardPrepared[tokenAddress][round]) {
+            revert RoundNotReadyToMint();
+        }
+
+        if (_proposalMinted[tokenAddress][round][proposalId]) {
             revert AlreadyMinted();
         }
 
-        actionRewardMintedByAccount[tokenAddress][round][actionId][
-            msg.sender
-        ] = reward;
+        // Existence already verified above; skip redundant check in query.
+        (amount, ) = _proposalRewardCalculation(tokenAddress, round, proposalId);
+        if (amount == 0) {
+            revert NoRewardAvailable();
+        }
 
-        _mintReward(tokenAddress, reward);
+        _proposalMinted[tokenAddress][round][proposalId] = true;
+        _rewardMinted[tokenAddress] += amount;
 
-        emit MintActionReward({
-            tokenAddress: tokenAddress,
-            round: round,
-            actionId: actionId,
-            account: msg.sender,
-            reward: reward
-        });
+        ILOVE20Token(tokenAddress).mint(target, amount);
 
-        return reward;
+        // LOVE20Token.mint has no callbacks; report only after it succeeds.
+        // forge-lint: disable-next-line(reentrancy-events)
+        emit ProposalRewardMinted(tokenAddress, round, proposalId, target, amount);
+
+        return amount;
     }
 
-    // ------ reward management ------
-    function isRewardPrepared(
+    // Batch settlement repeats all checks and interactions per round; any failure reverts the batch.
+    // forge-lint: disable-next-item(calls-loop, require-revert-in-loop)
+    function mintGovReward(
         address tokenAddress,
+        uint256 memberId,
         uint256 round
-    ) public view returns (bool) {
-        return govReward[tokenAddress][round] > 0;
+    ) public returns (uint256 voteReward, uint256 boostReward, uint256 burnReward) {
+        if (IMemberNFT(memberNFTAddress).ownerOf(memberId) != msg.sender) {
+            revert NotMemberOwner(memberId);
+        }
+
+        if (!IVote(voteAddress).isRoundEnded(round)) {
+            revert RoundNotReadyToMint();
+        }
+
+        if (!_isRewardPrepared[tokenAddress][round]) {
+            revert RoundNotReadyToMint();
+        }
+
+        if (_govMinted[tokenAddress][round][memberId]) {
+            revert AlreadyMinted();
+        }
+
+        // Existence already verified above; skip redundant check in query.
+        (voteReward, boostReward, burnReward, ) = _govRewardCalculation(tokenAddress, round, memberId);
+
+        if (voteReward + boostReward + burnReward == 0) {
+            revert NoRewardAvailable();
+        }
+
+        // GovernanceRewardMinted below records this member/round settlement.
+        // forge-lint: disable-next-line(missing-events-access-control)
+        _govMinted[tokenAddress][round][memberId] = true;
+
+        uint256 mintAmount = voteReward + boostReward;
+        _rewardMinted[tokenAddress] += mintAmount;
+        // Positive burns emit RewardBurned below; a zero burn changes nothing.
+        // forge-lint: disable-next-line(missing-events-access-control)
+        _rewardBurned[tokenAddress] += burnReward;
+
+        if (mintAmount > 0) {
+            ILOVE20Token(tokenAddress).mint(msg.sender, mintAmount);
+            _updateLaunchCredit(tokenAddress, memberId, mintAmount);
+        }
+
+        if (burnReward > 0) {
+            // Token minting and Launch.addLaunchCount have no callbacks; all changes are atomic.
+            // forge-lint: disable-next-line(reentrancy-events)
+            emit RewardBurned(tokenAddress, round, burnReward, keccak256("boostOverflow"));
+        }
+
+        // Report settlement after the callback-free Token and Launch interactions succeed.
+        // forge-lint: disable-next-line(reentrancy-events)
+        emit GovernanceRewardMinted(tokenAddress, round, memberId, voteReward, boostReward, burnReward);
+
+        return (voteReward, boostReward, burnReward);
     }
 
-    function rewardAvailable(
-        address tokenAddress
-    ) public view returns (uint256) {
+    function mintGovRewards(
+        address tokenAddress,
+        uint256 memberId,
+        uint256[] calldata rounds
+    ) external returns (
+        uint256[] memory voteRewards,
+        uint256[] memory boostRewards,
+        uint256[] memory burnRewards
+    ) {
+        uint256 length = rounds.length;
+        voteRewards = new uint256[](length);
+        boostRewards = new uint256[](length);
+        burnRewards = new uint256[](length);
+
+        for (uint256 i = 0; i < length; i++) {
+            (voteRewards[i], boostRewards[i], burnRewards[i]) =
+                mintGovReward(tokenAddress, memberId, rounds[i]);
+        }
+
+        return (voteRewards, boostRewards, burnRewards);
+    }
+
+    function _calculateEligibleProposalVotes(
+        address tokenAddress,
+        uint256 round,
+        uint256 minVotes
+    ) internal view returns (uint256 eligibleVotes) {
+        (uint256[] memory proposalIds, uint256 totalProposalCount) = IVote(voteAddress).votedProposalIds(
+            tokenAddress,
+            round,
+            0,
+            0,
+            false
+        );
+
+        if (totalProposalCount > 0) {
+            // forge-lint: disable-next-item(unused-return)
+            (proposalIds, ) = IVote(voteAddress).votedProposalIds(
+                tokenAddress,
+                round,
+                0,
+                totalProposalCount,
+                false
+            );
+
+            for (uint256 i = 0; i < proposalIds.length; i++) {
+                // forge-lint: disable-next-item(calls-loop)
+                uint256 votes = IVote(voteAddress).votesNumByProposalId(
+                    tokenAddress,
+                    round,
+                    proposalIds[i]
+                );
+                if (votes > 0 && votes >= minVotes) {
+                    eligibleVotes += votes;
+                }
+            }
+        }
+
+        return eligibleVotes;
+    }
+
+    function _proposalRewardCalculation(
+        address tokenAddress,
+        uint256 round,
+        uint256 proposalId
+    ) internal view returns (uint256 amount, bool minted) {
+        minted = _proposalMinted[tokenAddress][round][proposalId];
+
+        uint256 proposalVotes = IVote(voteAddress).votesNumByProposalId(tokenAddress, round, proposalId);
+        uint256 totalVotes = IVote(voteAddress).votesNum(tokenAddress, round);
+
+        if (totalVotes == 0 || proposalVotes == 0) {
+            return (0, minted);
+        }
+
+        uint256 minVotes = _minProposalVotes(totalVotes);
+        if (proposalVotes < minVotes) {
+            return (0, minted);
+        }
+
+        // Calculate or read proposal pool
+        uint256 proposalRewardAmount;
+        uint256 eligibleVotes;
+
+        if (_isRewardPrepared[tokenAddress][round]) {
+            // Read cached values
+            proposalRewardAmount = _proposalReward[tokenAddress][round];
+            eligibleVotes = _eligibleProposalVotes[tokenAddress][round];
+        } else {
+            // Real-time calculation: scan all proposals
+            uint256 available = rewardAvailable(tokenAddress);
+            proposalRewardAmount = (available * ROUND_REWARD_PROPOSAL_PER_THOUSAND) / 1000;
+            eligibleVotes = _calculateEligibleProposalVotes(tokenAddress, round, minVotes);
+        }
+
+        if (eligibleVotes == 0) {
+            return (0, minted);
+        }
+
+        // Proportional distribution rounds down; dust stays in the pool.
+        // forge-lint: disable-next-line(divide-before-multiply)
+        amount = (proposalRewardAmount * proposalVotes) / eligibleVotes;
+
+        return (amount, minted);
+    }
+
+    function proposalRewardByProposalId(
+        address tokenAddress,
+        uint256 round,
+        uint256 proposalId
+    ) external view returns (uint256 amount, bool minted) {
+        // This read is only an existence check; Submit reverts for an invalid proposal ID.
+        // forge-lint: disable-next-line(unused-return)
+        ISubmit(submitAddress).proposalTarget(tokenAddress, proposalId);
+
+        return _proposalRewardCalculation(tokenAddress, round, proposalId);
+    }
+
+    // Each batch round has its own frozen votes and boost weights; these reads cannot be hoisted.
+    // forge-lint: disable-next-item(calls-loop)
+    function _govRewardCalculation(
+        address tokenAddress,
+        uint256 round,
+        uint256 memberId
+    ) internal view returns (
+        uint256 voteReward,
+        uint256 boostReward,
+        uint256 burnReward,
+        bool minted
+    ) {
+        minted = _govMinted[tokenAddress][round][memberId];
+
+        uint256 memberVotes = IVote(voteAddress).votesNumByMemberId(tokenAddress, round, memberId);
+        if (memberVotes == 0) {
+            return (0, 0, 0, minted);
+        }
+
+        uint256 totalVotes = IVote(voteAddress).votesNum(tokenAddress, round);
+        if (totalVotes == 0) {
+            return (0, 0, 0, minted);
+        }
+
+        // Calculate or read governance pool
+        uint256 govRewardAmount;
+        if (_isRewardPrepared[tokenAddress][round]) {
+            govRewardAmount = _govReward[tokenAddress][round];
+        } else {
+            uint256 available = rewardAvailable(tokenAddress);
+            govRewardAmount = (available * ROUND_REWARD_GOV_PER_THOUSAND) / 1000;
+        }
+
+        uint256 votePoolAmount = govRewardAmount / 2;
+        uint256 boostPoolAmount = govRewardAmount - votePoolAmount;
+
+        // The spec floors the vote half before distributing it; odd units belong to boost.
+        // forge-lint: disable-next-line(divide-before-multiply)
+        voteReward = (votePoolAmount * memberVotes) / totalVotes;
+
+        uint256 totalBoost = IVote(voteAddress).stakedAmountOfVoters(tokenAddress, round);
+        if (totalBoost == 0) {
+            boostReward = 0;
+            burnReward = 0;
+        } else {
+            uint256 memberBoost = IVote(voteAddress).stakedAmountOfVotersByMemberId(
+                tokenAddress,
+                round,
+                memberId
+            );
+            uint256 theoreticalBoost = (boostPoolAmount * memberBoost) / totalBoost;
+            // The cap is based on the already-rounded vote reward, not its fractional value.
+            // forge-lint: disable-next-line(divide-before-multiply)
+            uint256 maxBoostReward = voteReward * MAX_GOV_BOOST_REWARD_MULTIPLIER;
+            boostReward = theoreticalBoost > maxBoostReward ? maxBoostReward : theoreticalBoost;
+            burnReward = theoreticalBoost - boostReward;
+        }
+
+        return (voteReward, boostReward, burnReward, minted);
+    }
+
+    function govRewardByMemberId(
+        address tokenAddress,
+        uint256 round,
+        uint256 memberId
+    ) external view returns (
+        uint256 voteReward,
+        uint256 boostReward,
+        uint256 burnReward,
+        bool minted
+    ) {
+        // Only existence is needed here; ownerOf reverts for a nonexistent member.
+        // forge-lint: disable-next-line(unused-return)
+        IMemberNFT(memberNFTAddress).ownerOf(memberId);
+
+        return _govRewardCalculation(tokenAddress, round, memberId);
+    }
+
+    function isProposalIdWithReward(
+        address tokenAddress,
+        uint256 round,
+        uint256 proposalId
+    ) external view returns (bool) {
+        // Prepared: use cached eligibleVotes for fast rejection (whole-round optimization).
+        if (_isRewardPrepared[tokenAddress][round]) {
+            uint256 eligibleVotes = _eligibleProposalVotes[tokenAddress][round];
+            if (eligibleVotes == 0) {
+                return false;
+            }
+        }
+
+        // Prepared or unprepared: read real-time Vote data to determine eligibility.
+        uint256 proposalVotes = IVote(voteAddress).votesNumByProposalId(tokenAddress, round, proposalId);
+        uint256 totalVotes = IVote(voteAddress).votesNum(tokenAddress, round);
+        uint256 minVotes = _minProposalVotes(totalVotes);
+
+        return proposalVotes > 0 && proposalVotes >= minVotes;
+    }
+
+    function _minProposalVotes(uint256 totalVotes) internal view returns (uint256) {
+        return Math.mulDiv(totalVotes, PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND, 1000, Math.Rounding.Ceil);
+    }
+
+    function rewardAvailable(address tokenAddress) public view returns (uint256) {
         ILOVE20Token token = ILOVE20Token(tokenAddress);
-
-        return
-            (token.maxSupply() - token.totalSupply()) -
-            reservedAvailable(tokenAddress);
+        // Each batch round calls this; supply changes cannot be hoisted.
+        // forge-lint: disable-next-line(calls-loop)
+        return (token.maxSupply() - token.totalSupply()) - reservedAvailable(tokenAddress);
     }
 
-    function reservedAvailable(
-        address tokenAddress
-    ) public view returns (uint256) {
-        return
-            rewardReserved[tokenAddress] -
-            rewardMinted[tokenAddress] -
-            rewardBurned[tokenAddress];
+    function reservedAvailable(address tokenAddress) public view returns (uint256) {
+        return _rewardReserved[tokenAddress] - _rewardMinted[tokenAddress] - _rewardBurned[tokenAddress];
     }
 
-    // ------ gov reward ------
-    function calculateRoundGovReward(
-        address tokenAddress
-    ) public view returns (uint256) {
-        return
-            (rewardAvailable(tokenAddress) * ROUND_REWARD_GOV_PER_THOUSAND) /
-            1000;
-    }
-    function govVerifyReward(
+    // Earlier rounds change supply, credit and issued count; each batch round must reread them.
+    // forge-lint: disable-next-item(calls-loop)
+    function _updateLaunchCredit(
         address tokenAddress,
-        uint256 round
-    ) public view returns (uint256) {
-        return (govReward[tokenAddress][round] / 2);
-    }
-
-    function govBoostReward(
-        address tokenAddress,
-        uint256 round
-    ) public view returns (uint256) {
-        return (govReward[tokenAddress][round] / 2);
-    }
-
-    function _govRewardByAccount(
-        address tokenAddress,
-        uint256 round,
-        address account
-    )
-        internal
-        view
-        returns (uint256 verifyReward, uint256 boostReward, uint256 burnReward)
-    {
-        uint256 totalGovVerifyReward = govVerifyReward(tokenAddress, round);
-        if (totalGovVerifyReward == 0) {
-            return (0, 0, 0);
+        uint256 memberId,
+        uint256 mintedAmount
+    ) internal {
+        ILaunch launch = ILaunch(launchAddress);
+        uint256 issuedCount = launch.issuedLaunchCount(tokenAddress);
+        uint256 maxCount = launch.MAX_LAUNCH_COUNT();
+        if (issuedCount >= maxCount) {
+            return;
         }
-
-        uint256 scores = ILOVE20Verify(verifyAddress).scoreByVerifier(
-            tokenAddress,
-            round,
-            account
-        );
-
-        if (scores == 0) {
-            return (0, 0, 0);
-        }
-
-        uint256 totalScores = ILOVE20Verify(verifyAddress).score(
-            tokenAddress,
-            round
-        );
-
-        // first half reward based on verification scores
-        verifyReward = (totalGovVerifyReward * scores) / totalScores;
-
-        // second half reward based on staked amount
-        uint256 totalGovBoostReward = govBoostReward(tokenAddress, round);
-        uint256 totalStakedAmount = ILOVE20Verify(verifyAddress)
-            .stakedAmountOfVerifiers(tokenAddress, round);
-        if (totalStakedAmount != 0) {
-            uint256 stakedAmount = ILOVE20Stake(stakeAddress)
-                .cumulatedTokenAmountByAccount(tokenAddress, round, account);
-            uint256 maxBoostReward = (totalGovBoostReward * stakedAmount) /
-                totalStakedAmount;
-            boostReward = maxBoostReward >
-                verifyReward * MAX_GOV_BOOST_REWARD_MULTIPLIER
-                ? verifyReward * MAX_GOV_BOOST_REWARD_MULTIPLIER
-                : maxBoostReward;
-
-            burnReward = maxBoostReward - boostReward;
-        }
-
-        return (verifyReward, boostReward, burnReward);
-    }
-
-    // gov reward
-    function govRewardByAccount(
-        address tokenAddress,
-        uint256 round,
-        address account
-    )
-        public
-        view
-        returns (
-            uint256 verifyReward,
-            uint256 boostReward,
-            uint256 burnReward,
-            bool isMinted
-        )
-    {
-        (verifyReward, boostReward, burnReward) = _govRewardByAccount(
-            tokenAddress,
-            round,
-            account
-        );
-
-        isMinted = govRewardMintedByAccount[tokenAddress][round][account] > 0;
-
-        return (verifyReward, boostReward, burnReward, isMinted);
-    }
-
-    // ------ action reward ------
-    function calculateRoundActionReward(
-        address tokenAddress
-    ) public view returns (uint256) {
-        return
-            (rewardAvailable(tokenAddress) * ROUND_REWARD_ACTION_PER_THOUSAND) /
-            1000;
-    }
-
-    function _actionRewardByActionIdByAccount(
-        address tokenAddress,
-        uint256 round,
-        uint256 actionId,
-        address account
-    ) internal view returns (uint256 reward) {
-        uint256 totalActionReward = actionReward[tokenAddress][round];
-        if (totalActionReward == 0) {
-            return 0;
-        }
-
-        if (!isActionIdWithReward(tokenAddress, round, actionId)) {
-            return 0;
-        }
-
-        uint256 score = ILOVE20Verify(verifyAddress).scoreByActionIdByAccount(
-            tokenAddress,
-            round,
-            actionId,
-            account
-        );
-        if (score == 0) {
-            return 0;
-        }
-
-        uint256 totalScore = ILOVE20Verify(verifyAddress).scoreWithReward(
-            tokenAddress,
-            round
-        );
-
-        uint256 totalAbstentionScore = ILOVE20Verify(verifyAddress)
-            .abstentionScoreWithReward(tokenAddress, round);
-
-        return
-            (totalActionReward * score) / (totalScore - totalAbstentionScore);
-    }
-
-    function actionRewardByActionIdByAccount(
-        address tokenAddress,
-        uint256 round,
-        uint256 actionId,
-        address account
-    ) public view returns (uint256 reward, bool isMinted) {
-        reward = _actionRewardByActionIdByAccount(
-            tokenAddress,
-            round,
-            actionId,
-            account
-        );
-        isMinted =
-            actionRewardMintedByAccount[tokenAddress][round][actionId][
-                account
-            ] >
-            0;
-
-        return (reward, isMinted);
-    }
-
-    function _mintReward(address tokenAddress, uint256 amount) internal {
-        if (reservedAvailable(tokenAddress) < amount) {
-            revert NotEnoughReward();
-        }
-
-        rewardMinted[tokenAddress] += amount;
 
         ILOVE20Token token = ILOVE20Token(tokenAddress);
-        token.mint(msg.sender, amount);
-    }
-
-    function _burnReward(address tokenAddress, uint256 amount) internal {
-        if (reservedAvailable(tokenAddress) < amount) {
-            revert NotEnoughRewardToBurn();
+        uint256 totalSupplyBeforeMint = token.totalSupply() - mintedAmount;
+        uint256 threshold = Math.mulDiv(
+            token.maxSupply() - totalSupplyBeforeMint, launch.LAUNCH_RATIO(), 1e18, Math.Rounding.Ceil
+        );
+        if (threshold == 0) {
+            return;
         }
 
-        rewardBurned[tokenAddress] += amount;
+        // GovernanceRewardMinted records this credit increment; Launch emits converted counts.
+        // forge-lint: disable-next-line(missing-events-access-control)
+        _launchCredit[tokenAddress][memberId] += mintedAmount;
+
+        uint256 maxNewCount = maxCount - issuedCount;
+        uint256 count = _launchCredit[tokenAddress][memberId] / threshold;
+        if (count > maxNewCount) {
+            count = maxNewCount;
+        }
+
+        if (count > 0) {
+            // Remove only the whole thresholds converted, preserving fractional credit.
+            // forge-lint: disable-next-line(divide-before-multiply)
+            _launchCredit[tokenAddress][memberId] -= count * threshold;
+            launch.addLaunchCount(tokenAddress, memberId, count);
+        }
     }
 }
