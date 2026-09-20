@@ -338,6 +338,221 @@ contract MintRealIntegrationTest {
                    "Proposal with >5% votes should be eligible");
     }
 
+    /// @notice Test multiple rounds progression with batch claiming
+    /// @dev Verifies real Phase contract round advancement and batch reward claiming across rounds 1→2→3
+    function testRealIntegration_MultipleRoundsProgression() public {
+        // ========== Setup: Advance past round 0 ==========
+        vm.roll(block.number + 200);
+
+        // ========== Round 1: Full governance flow ==========
+        uint256 round1 = phase.currentPhase();
+        assertEq(round1, 1, "Should start at round 1");
+
+        // Members stake liquidity for round 1
+        _stakeLiquidityForMembers();
+
+        // Submit proposal for round 1
+        address proposalTarget1 = address(0x2001);
+        vm.prank(member1);
+        uint256 proposalId1 = submit.submitNewProposal(
+            address(token),
+            1,      // memberId
+            ProposalBody({
+                title: "Test Proposal Round 1",
+                details: "Description for round 1",
+                target: proposalTarget1,
+                targetMode: TargetMode.NoCallback,
+                targetData: new bytes[](0)
+            })
+        );
+
+        // Members vote in round 1
+        _voteInRound(round1, proposalId1);
+
+        // Advance to round 2
+        vm.roll(block.number + 1000);
+        uint256 round2 = phase.currentPhase();
+        assertEq(round2, 2, "Phase should advance to round 2");
+
+        // Prepare rewards for round 1
+        mint.prepareRewardIfNeeded(address(token), round1);
+        assertTrue(mint.isRewardPrepared(address(token), round1), "Round 1 rewards should be prepared");
+
+        // ========== Round 2: Full governance flow ==========
+
+        // Submit proposal for round 2
+        address proposalTarget2 = address(0x2002);
+        vm.prank(member1);
+        uint256 proposalId2 = submit.submitNewProposal(
+            address(token),
+            1,      // memberId
+            ProposalBody({
+                title: "Test Proposal Round 2",
+                details: "Description for round 2",
+                target: proposalTarget2,
+                targetMode: TargetMode.NoCallback,
+                targetData: new bytes[](0)
+            })
+        );
+
+        // Members vote in round 2
+        _voteInRound(round2, proposalId2);
+
+        // Advance to round 3
+        vm.roll(block.number + 1000);
+        uint256 round3 = phase.currentPhase();
+        assertEq(round3, 3, "Phase should advance to round 3");
+
+        // Prepare rewards for round 2
+        mint.prepareRewardIfNeeded(address(token), round2);
+        assertTrue(mint.isRewardPrepared(address(token), round2), "Round 2 rewards should be prepared");
+
+        // ========== Round 3: Full governance flow ==========
+
+        // Submit proposal for round 3
+        address proposalTarget3 = address(0x2003);
+        vm.prank(member1);
+        uint256 proposalId3 = submit.submitNewProposal(
+            address(token),
+            1,      // memberId
+            ProposalBody({
+                title: "Test Proposal Round 3",
+                details: "Description for round 3",
+                target: proposalTarget3,
+                targetMode: TargetMode.NoCallback,
+                targetData: new bytes[](0)
+            })
+        );
+
+        // Members vote in round 3
+        _voteInRound(round3, proposalId3);
+
+        // Advance to round 4
+        vm.roll(block.number + 1000);
+        uint256 round4 = phase.currentPhase();
+        assertEq(round4, 4, "Phase should advance to round 4");
+
+        // Prepare rewards for round 3
+        mint.prepareRewardIfNeeded(address(token), round3);
+        assertTrue(mint.isRewardPrepared(address(token), round3), "Round 3 rewards should be prepared");
+
+        // ========== Batch claiming across rounds 1, 2, 3 ==========
+
+        _batchClaimAndVerify(round1, round2, round3);
+
+        // ========== Verify proposal rewards for each round ==========
+
+        // Round 1 proposal reward
+        vm.prank(proposalTarget1);
+        uint256 claimed1 = mint.mintProposalReward(address(token), round1, proposalId1);
+        assertTrue(claimed1 > 0, "Round 1 proposal should have rewards");
+
+        // Round 2 proposal reward
+        vm.prank(proposalTarget2);
+        uint256 claimed2 = mint.mintProposalReward(address(token), round2, proposalId2);
+        assertTrue(claimed2 > 0, "Round 2 proposal should have rewards");
+
+        // Round 3 proposal reward
+        vm.prank(proposalTarget3);
+        uint256 claimed3 = mint.mintProposalReward(address(token), round3, proposalId3);
+        assertTrue(claimed3 > 0, "Round 3 proposal should have rewards");
+    }
+
+    function _batchClaimAndVerify(uint256 round1, uint256 round2, uint256 round3) internal {
+        // Member1 batch claims governance rewards from rounds 1, 2, 3
+        uint256[] memory rounds = new uint256[](3);
+        rounds[0] = round1;
+        rounds[1] = round2;
+        rounds[2] = round3;
+
+        uint256 balanceBefore1 = token.balanceOf(member1);
+        vm.prank(member1);
+        mint.mintGovRewards(address(token), 1, rounds);
+        uint256 balanceAfter1 = token.balanceOf(member1);
+
+        uint256 totalRewards1 = balanceAfter1 - balanceBefore1;
+        assertTrue(totalRewards1 > 0, "Member1 should receive batch rewards from 3 rounds");
+
+        // Verify each round's reward was calculated
+        (uint256 r1Vote1, uint256 r1Boost1,,) = mint.govRewardByMemberId(address(token), round1, 1);
+        (uint256 r2Vote1, uint256 r2Boost1,,) = mint.govRewardByMemberId(address(token), round2, 1);
+        (uint256 r3Vote1, uint256 r3Boost1,,) = mint.govRewardByMemberId(address(token), round3, 1);
+
+        uint256 expectedTotal1 = r1Vote1 + r1Boost1 + r2Vote1 + r2Boost1 + r3Vote1 + r3Boost1;
+        assertEq(totalRewards1, expectedTotal1, "Batch rewards should equal sum of individual round rewards");
+
+        // Member2 batch claims governance rewards from rounds 1, 2, 3
+        uint256 balanceBefore2 = token.balanceOf(member2);
+        vm.prank(member2);
+        mint.mintGovRewards(address(token), 2, rounds);
+        uint256 balanceAfter2 = token.balanceOf(member2);
+
+        uint256 totalRewards2 = balanceAfter2 - balanceBefore2;
+        assertTrue(totalRewards2 > 0, "Member2 should receive batch rewards from 3 rounds");
+
+        // Verify member1 got more than member2 (voted 100 vs 60 each round)
+        assertTrue(totalRewards1 > totalRewards2, "Member1 should get more total rewards than Member2");
+    }
+
+    function _stakeLiquidityForMembers() internal {
+        // Member1 stakes liquidity
+        uint256 amount1 = 5000;
+        rootToken.transfer(member1, amount1);
+
+        vm.startPrank(member1);
+        rootToken.approve(address(router), amount1);
+        token.approve(address(router), amount1);
+        token.approve(address(stake), 10000);
+        rootToken.approve(address(stake), 10000);
+        stake.stakeLiquidity(
+            address(token),
+            amount1,
+            amount1,
+            1e18,  // slippage: 100%
+            1,     // promisedWaitingPhases
+            1      // memberId
+        );
+        vm.stopPrank();
+
+        // Member2 stakes liquidity
+        uint256 amount2 = 3000;
+        rootToken.transfer(member2, amount2);
+
+        vm.startPrank(member2);
+        rootToken.approve(address(router), amount2);
+        token.approve(address(router), amount2);
+        token.approve(address(stake), 10000);
+        rootToken.approve(address(stake), 10000);
+        stake.stakeLiquidity(
+            address(token),
+            amount2,
+            amount2,
+            1e18,  // slippage: 100%
+            1,     // promisedWaitingPhases
+            2      // memberId
+        );
+        vm.stopPrank();
+    }
+
+    function _voteInRound(uint256 /* round */, uint256 proposalId) internal {
+        uint256[] memory proposalIds = new uint256[](1);
+        proposalIds[0] = proposalId;
+
+        // Member1 votes 100
+        uint256[] memory amounts1 = new uint256[](1);
+        amounts1[0] = 100;
+
+        vm.prank(member1);
+        vote.vote(address(token), 1, proposalIds, amounts1, new bytes[][](0));
+
+        // Member2 votes 60
+        uint256[] memory amounts2 = new uint256[](1);
+        amounts2[0] = 60;
+
+        vm.prank(member2);
+        vote.vote(address(token), 2, proposalIds, amounts2, new bytes[][](0));
+    }
+
     // Helper functions
     function assertTrue(bool condition, string memory message) internal pure {
         require(condition, message);
