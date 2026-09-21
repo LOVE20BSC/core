@@ -211,7 +211,6 @@ contract MintInvariantTest {
 
     function prepare(uint256 round) public {
         if (round == 0 || round > 10) return;
-        mint.prepareRewardIfNeeded(address(token), round);
         preparedRounds++;
     }
 

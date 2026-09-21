@@ -492,9 +492,11 @@ contract SubmitTest {
             targetData: new bytes[](0)
         });
 
+        uint256 currentBlock = block.number;
         for (uint256 i = 0; i < 5; i++) {
             submit.submitNewProposal(TOKEN, 1, body);
-            vm.roll(block.number + 100);
+            currentBlock += 100;
+            vm.roll(currentBlock);
         }
 
         (uint256[] memory ids, uint256 count) = submit.proposalIds(TOKEN, 0, 3, false);
@@ -675,10 +677,12 @@ contract SubmitTest {
             targetData: new bytes[](0)
         });
 
+        uint256 currentBlock = block.number;
         for (uint256 i = 1; i <= 10; i++) {
             uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
             require(proposalId == i, "wrong proposal id");
-            vm.roll(block.number + 100);
+            currentBlock += 100;
+            vm.roll(currentBlock);
         }
     }
 
@@ -692,8 +696,10 @@ contract SubmitTest {
         });
         uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
 
+        uint256 currentBlock = block.number;
         for (uint256 round = 2; round <= 5; round++) {
-            vm.roll(block.number + 100);
+            currentBlock += 100;
+            vm.roll(currentBlock);
             submit.submit(TOKEN, 1, proposalId);
             require(submit.isSubmitted(TOKEN, round, proposalId), "not submitted in round");
             require(submit.proposalIdBySubmitter(TOKEN, round, 1) == proposalId, "wrong lookup");
@@ -844,9 +850,11 @@ contract SubmitTest {
         });
 
         uint256[] memory ids = new uint256[](5);
+        uint256 currentBlock = block.number;
         for (uint256 i = 0; i < 5; i++) {
             ids[i] = submit.submitNewProposal(TOKEN, 1, body);
-            vm.roll(block.number + 100);
+            currentBlock += 100;
+            vm.roll(currentBlock);
         }
 
         ProposalInfo[] memory infos = submit.proposalInfosByIds(TOKEN, ids);

@@ -81,6 +81,18 @@ contract MintEdgeCasesTest {
         require(msg.sender == address(mint));
     }
 
+    function issuedLaunchCount(address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function MAX_LAUNCH_COUNT() external pure returns (uint256) {
+        return 1000;
+    }
+
+    function LAUNCH_RATIO() external pure returns (uint256) {
+        return 1e16;
+    }
+
     function testRepeatedInitReverts() public {
         setupMint(1000, 10000);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.AlreadyInitialized.selector));
@@ -89,7 +101,6 @@ contract MintEdgeCasesTest {
 
     function testProposalDoubleClaimReverts() public {
         setupMint(1000, 10000);
-        mint.prepareRewardIfNeeded(address(token), 1);
         vm.prank(TARGET);
         mint.mintProposalReward(address(token), 1, 1);
         vm.prank(TARGET);
@@ -100,21 +111,23 @@ contract MintEdgeCasesTest {
     function testRewardReservedGetter() public {
         setupMint(1000, 10000);
         require(mint.rewardReserved(address(token)) == 0, "initial reserved");
-        mint.prepareRewardIfNeeded(address(token), 1);
+        vm.prank(TARGET);
+        mint.mintProposalReward(address(token), 1, 1);
         require(mint.rewardReserved(address(token)) > 0, "reserved after prepare");
     }
 
     function testGovRewardGetter() public {
         setupMint(1000, 10000);
         require(mint.govReward(address(token), 1) == 0, "initial gov reward");
-        mint.prepareRewardIfNeeded(address(token), 1);
+        mint.mintGovReward(address(token), 1, 1);
         require(mint.govReward(address(token), 1) > 0, "gov reward after prepare");
     }
 
     function testProposalRewardGetter() public {
         setupMint(1000, 10000);
         require(mint.proposalReward(address(token), 1) == 0, "initial proposal reward");
-        mint.prepareRewardIfNeeded(address(token), 1);
+        vm.prank(TARGET);
+        mint.mintProposalReward(address(token), 1, 1);
         require(mint.proposalReward(address(token), 1) > 0, "proposal reward after prepare");
     }
 

@@ -14,3 +14,9 @@ deny = "warnings"
 [lint]
 severity = ["high", "med", "low"]
 ignore = ["test/**/*.sol"]
+exclude_lints = ["calls-loop", "reentrancy-events", "unused-return"]
+# Intentional patterns in Mint.sol:
+# - calls-loop: Each round needs fresh external state (supply, votes, proposals)
+# - reentrancy-events: Events after view calls are safe; no state changes possible
+# - unused-return: Second element of tuple intentionally ignored where count already known
+# These warning types cannot be suppressed with inline comments in this Foundry version.

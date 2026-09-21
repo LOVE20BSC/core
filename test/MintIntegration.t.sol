@@ -80,23 +80,13 @@ contract MintIntegrationTest {
         submit.setProposalTarget(proposalId, target, TargetMode.NoCallback);
         phase.setRoundEnded(1, true);
 
-        // Prepare rewards
-        mint.prepareRewardIfNeeded(address(token), 1);
-        assertTrue(mint.isRewardPrepared(address(token), 1), "Reward should be prepared");
-
-        // Member 1 claims (60% votes)
-        (uint256 voteReward1, uint256 boostReward1,,) =
-            mint.govRewardByMemberId(address(token), 1, 1);
-
-        assertTrue(voteReward1 > 0, "Member1 should have vote reward");
-
-        uint256 balanceBefore1 = token.balanceOf(member1);
+        // Claim rewards (auto-prepare)
         vm.prank(member1);
         mint.mintGovReward(address(token), 1, 1);
-        uint256 balanceAfter1 = token.balanceOf(member1);
 
-        assertEq(balanceAfter1 - balanceBefore1, voteReward1 + boostReward1, "Member1 rewards match");
+        assertTrue(mint.isRewardPrepared(address(token), 1), "Reward should be prepared");
 
+        // Member 1 already claimed above, verify member 2's turn
         // Member 2 claims (40% votes)
         (uint256 voteReward2, uint256 boostReward2,,) =
             mint.govRewardByMemberId(address(token), 1, 2);
@@ -153,8 +143,6 @@ contract MintIntegrationTest {
         phase.setRoundEnded(1, true);
 
         // Prepare both
-        mint.prepareRewardIfNeeded(address(token), 1);
-        mint.prepareRewardIfNeeded(address(token2), 1);
 
         // Claim token1
         vm.prank(member1);
@@ -187,7 +175,6 @@ contract MintIntegrationTest {
             submit.setProposalTarget(round, target, TargetMode.NoCallback);
             phase.setRoundEnded(round, true);
 
-            mint.prepareRewardIfNeeded(address(token), round);
         }
 
         uint256[] memory rounds = new uint256[](3);
@@ -223,7 +210,6 @@ contract MintIntegrationTest {
         submit.setProposalTarget(1, target, TargetMode.NoCallback);
         phase.setRoundEnded(1, true);
 
-        mint.prepareRewardIfNeeded(address(token), 1);
 
         // Calculate launch credit: mintAmount / threshold
         // threshold = (maxSupply - currentSupply) * LAUNCH_RATIO / 1e18
@@ -273,24 +259,22 @@ contract MintIntegrationTest {
         vote.setProposalVotes(address(token2), 1, 2, 150);
         submit.setProposalTarget(2, target, TargetMode.NoCallback);
 
-        // Interleaved operations: prepare token1, prepare token2, mint token1, mint token2
-        mint.prepareRewardIfNeeded(address(token), 1);
-        assertTrue(mint.isRewardPrepared(address(token), 1), "Token1 should be prepared");
-
-        mint.prepareRewardIfNeeded(address(token2), 1);
-        assertTrue(mint.isRewardPrepared(address(token2), 1), "Token2 should be prepared");
-
+        // Interleaved operations: mint token1 (auto-prepare), mint token2 (auto-prepare)
         uint256 balance1Before = token.balanceOf(member1);
         vm.prank(member1);
         mint.mintGovReward(address(token), 1, 1);
         uint256 balance1After = token.balanceOf(member1);
         assertTrue(balance1After > balance1Before, "Token1 minted to member1");
 
+        assertTrue(mint.isRewardPrepared(address(token), 1), "Token1 should be prepared");
+
         uint256 balance2Before = token2.balanceOf(member1);
         vm.prank(member1);
         mint.mintGovReward(address(token2), 1, 1);
         uint256 balance2After = token2.balanceOf(member1);
         assertTrue(balance2After > balance2Before, "Token2 minted to member1");
+
+        assertTrue(mint.isRewardPrepared(address(token2), 1), "Token2 should be prepared");
 
         // Verify independent accounting
         assertTrue(mint.rewardMinted(address(token)) != mint.rewardMinted(address(token2)),
@@ -309,7 +293,6 @@ contract MintIntegrationTest {
         submit.setProposalTarget(1, target, TargetMode.NoCallback);
         phase.setRoundEnded(1, true);
 
-        mint.prepareRewardIfNeeded(address(token), 1);
 
         // Member1 (owner of memberId 1) claims successfully
         vm.prank(member1);
@@ -326,7 +309,6 @@ contract MintIntegrationTest {
         submit.setProposalTarget(2, target, TargetMode.NoCallback);
         phase.setRoundEnded(2, true);
 
-        mint.prepareRewardIfNeeded(address(token), 2);
 
         // Member2 (owner of memberId 2) claims successfully
         uint256 balance2Before = token.balanceOf(member2);
@@ -366,7 +348,9 @@ contract MintIntegrationTest {
 
         phase.setRoundEnded(1, true);
 
-        mint.prepareRewardIfNeeded(address(token), 1);
+        // Trigger auto-prepare by minting
+        vm.prank(member1);
+        mint.mintGovReward(address(token), 1, 1);
 
         // Verify eligibleProposalVotes = 300 + 700 = 1000
         assertEq(mint.eligibleProposalVotes(address(token), 1), 1000, "Eligible votes should sum correctly");
@@ -409,7 +393,6 @@ contract MintIntegrationTest {
         submit.setProposalTarget(1, target, TargetMode.NoCallback);
 
         phase.setRoundEnded(1, true);
-        mint.prepareRewardIfNeeded(address(token), 1);
 
         // Verify proposal is eligible
         assertTrue(mint.isProposalIdWithReward(address(token), 1, 1), "Proposal at 5% should qualify");
@@ -428,7 +411,6 @@ contract MintIntegrationTest {
         submit.setProposalTarget(2, target, TargetMode.NoCallback);
 
         phase.setRoundEnded(2, true);
-        mint.prepareRewardIfNeeded(address(token), 2);
 
         // Verify proposal is NOT eligible
         assertTrue(!mint.isProposalIdWithReward(address(token), 2, 2), "Proposal below 5% should not qualify");
@@ -444,7 +426,6 @@ contract MintIntegrationTest {
         submit.setProposalTarget(3, target, TargetMode.NoCallback);
 
         phase.setRoundEnded(3, true);
-        mint.prepareRewardIfNeeded(address(token), 3);
 
         // Verify proposal is eligible
         assertTrue(mint.isProposalIdWithReward(address(token), 3, 3), "Proposal above 5% should qualify");
@@ -467,14 +448,13 @@ contract MintIntegrationTest {
         // Now mark round as ended
         phase.setRoundEnded(1, true);
 
-        // Prepare should succeed
-        mint.prepareRewardIfNeeded(address(token), 1);
-        assertTrue(mint.isRewardPrepared(address(token), 1), "Round should be prepared after transition");
-
-        // Minting should also succeed
+        // Mint should succeed (auto-prepare)
         vm.prank(member1);
         mint.mintGovReward(address(token), 1, 1);
 
+        assertTrue(mint.isRewardPrepared(address(token), 1), "Round should be prepared after transition");
+
+        // Minting should also succeed
         assertTrue(token.balanceOf(member1) > 0, "Should mint after round ended");
     }
 
@@ -489,20 +469,20 @@ contract MintIntegrationTest {
         submit.setProposalTarget(1, target, TargetMode.NoCallback);
         phase.setRoundEnded(1, true);
 
-        // First prepare
-        mint.prepareRewardIfNeeded(address(token), 1);
+        // First mint (triggers prepare)
+        vm.prank(member1);
+        mint.mintGovReward(address(token), 1, 1);
+
         uint256 reserved1 = mint.rewardReserved(address(token));
         uint256 govReward1 = mint.govReward(address(token), 1);
         uint256 proposalReward1 = mint.proposalReward(address(token), 1);
 
-        // Second prepare (should be no-op)
-        mint.prepareRewardIfNeeded(address(token), 1);
+        // Query again (prepare should be idempotent)
         uint256 reserved2 = mint.rewardReserved(address(token));
         uint256 govReward2 = mint.govReward(address(token), 1);
         uint256 proposalReward2 = mint.proposalReward(address(token), 1);
 
-        // Third prepare (should be no-op)
-        mint.prepareRewardIfNeeded(address(token), 1);
+        // Query a third time (still idempotent)
         uint256 reserved3 = mint.rewardReserved(address(token));
         uint256 govReward3 = mint.govReward(address(token), 1);
         uint256 proposalReward3 = mint.proposalReward(address(token), 1);

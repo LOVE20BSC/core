@@ -125,7 +125,6 @@ contract MintUnpreparedTest {
         (uint256 unprepGov,,,) = mint.govRewardByMemberId(address(token), 1, 1);
         (uint256 unprepProp,) = mint.proposalRewardByProposalId(address(token), 1, 1);
 
-        mint.prepareRewardIfNeeded(address(token), 1);
 
         (uint256 prepGov,,,) = mint.govRewardByMemberId(address(token), 1, 1);
         (uint256 prepProp,) = mint.proposalRewardByProposalId(address(token), 1, 1);

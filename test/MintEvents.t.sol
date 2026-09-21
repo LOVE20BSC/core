@@ -153,7 +153,7 @@ contract MintEventsTest {
             0
         );
 
-        mint.prepareRewardIfNeeded(address(token), round);
+        mint.mintGovReward(address(token), 1, round);
     }
 
     /// @notice Verify GovernanceRewardMinted event with exact amounts
@@ -161,7 +161,6 @@ contract MintEventsTest {
         uint256 round = 1;
         uint256 memberId = 1;
 
-        mint.prepareRewardIfNeeded(address(token), round);
 
         (uint256 voteReward, uint256 boostReward, uint256 burnReward,) =
             mint.govRewardByMemberId(address(token), round, memberId);
@@ -194,7 +193,6 @@ contract MintEventsTest {
         uint256 round = 1;
         uint256 proposalId = 1;
 
-        mint.prepareRewardIfNeeded(address(token), round);
 
         (uint256 amount,) = mint.proposalRewardByProposalId(address(token), round, proposalId);
 
@@ -229,7 +227,6 @@ contract MintEventsTest {
 
         LOVE20Token token2 = new LOVE20Token("Test2", "TS2", 10000, 1000000, address(this), address(mint2), address(1));
 
-        mint2.prepareRewardIfNeeded(address(token2), 1);
 
         (uint256 voteReward, uint256 boostReward, uint256 burnReward,) = mint2.govRewardByMemberId(address(token2), 1, 1);
 
@@ -283,7 +280,6 @@ contract MintEventsTest {
         rounds[2] = 3;
 
         for (uint256 i = 0; i < rounds.length; i++) {
-            mint.prepareRewardIfNeeded(address(token), rounds[i]);
         }
 
         // Verify first event
