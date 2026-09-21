@@ -1,16 +1,16 @@
 # Mint Contract Testing Status
 
 **Last Updated**: 2026-09-21
-**Current Phase**: P1 Real Contract Integration Tests - Task 1 Complete ✅
+**Current Phase**: P1 Real Contract Integration Tests - Task 2 Complete ✅
 
 ## Quick Stats
 
-- **Total Tests**: 69 (68 original + 1 new multi-round test)
+- **Total Tests**: 70 (67 original + 3 real integration tests)
 - **Pass Rate**: 100%
 - **Coverage**: 98.64% (Mint.sol)
 - **Fuzz Runs**: 1,280 (256 per test × 5 tests)
 - **Invariant Calls**: 128,000
-- **Real Integration Scenarios**: 2/5 complete ✅
+- **Real Integration Scenarios**: 3/5 complete ✅
 
 ## Completed (P0 - Blocking Audit)
 
@@ -45,9 +45,9 @@
 
 ## Completed (P1 - Enhance Credibility)
 
-### ✅ Real Contract Integration Tests (2/5 scenarios COMPLETE)
-**Status**: Task 1 完成 - 多轮次推进测试已添加并通过
-**File**: `test/integration/MintRealIntegration.t.sol` (656 lines)
+### ✅ Real Contract Integration Tests (3/5 scenarios COMPLETE)
+**Status**: Task 2 完成 - 提案阈值边界测试已添加并通过 ✅
+**File**: `test/integration/MintRealIntegration.t.sol` (698 lines)
 **Strategy**: True integration testing with real contract dependencies, mock only external systems (Uniswap)
 
 **Why Real Contracts (Not Mocks)**:
@@ -57,7 +57,7 @@
 - 发现跨合约集成中的实际问题
 
 **Completed Tests**:
-1. ✅ **testRealIntegration_FullGovernanceFlow** (gas: 3,177,050)
+1. ✅ **testRealIntegration_FullGovernanceFlow** (gas: 3,152,745)
    - 使用真实 Phase 合约进行轮次管理
    - 使用真实 Stake 合约进行流动性质押
    - 使用真实 Submit 合约提交提案
@@ -67,20 +67,26 @@
    - 完整的治理流程：质押 → 提案 → 投票 → 准备奖励 → 领取奖励
    - 验证跨合约的真实交互和数据流
 
-2. ✅ **testRealIntegration_MultipleRoundsProgression** (gas: 6,458,544) ⭐ Task 1 新增
+2. ✅ **testRealIntegration_MultipleRoundsProgression** (gas: 6,428,709) ⭐ Task 1
    - Round 1/2/3 的完整治理流程
    - 验证 Phase.currentPhase() 真实推进 (1 → 2 → 3 → 4)
    - 测试跨轮批量领取 mintGovRewards([1,2,3])
    - 验证批量奖励 = 各轮单独奖励之和
    - 验证 member1 总奖励 > member2（100 vs 60 每轮）
    - 验证 3 轮提案奖励分别领取成功
-   - Gas 消耗: 6.46M (3 轮完整流程 + 批量领取)
+   - Gas 消耗: 6.43M (3 轮完整流程 + 批量领取)
 
-**Remaining Tests** (从 Task 2-4 中继续):
-3. ⏳ **testRealIntegration_ProposalThresholdBoundaries** - Task 2
-   - 测试 5% 阈值边界（恰好 5%、低于 5%、高于 5%）
-   - 使用真实 Vote 和 Submit 合约
-   
+3. ✅ **testRealIntegration_ProposalThresholdBoundaries** (gas: 3,452,562) ⭐ Task 2 新增
+   - 测试提案低于 5% 阈值（2.08%，10/480 票）- 不合格
+   - 测试提案高于 5% 阈值（97.92%，470/480 票）- 合格
+   - 使用真实 Vote 和 Submit 合约验证投票百分比
+   - 验证 Mint.isProposalIdWithReward() 正确识别合格/不合格提案
+   - 验证不合格提案无法领取奖励（抛出 NoRewardAvailable() 错误）
+   - 验证合格提案成功领取奖励
+   - 验证 eligibleProposalVotes 仅统计合格提案的票数
+   - Gas 消耗: 3.45M (完整提案阈值验证流程)
+
+**Remaining Tests** (从 Task 3-4 中继续):
 4. ⏳ **testRealIntegration_ErrorScenarios** - Task 3
    - 未结束轮次无法准备奖励
    - 非提案目标无法领取提案奖励
@@ -224,12 +230,13 @@ test/
 ├── MintIntegration.t.sol   (564 lines, 10 tests) - Mock integration tests ✨
 ├── MintUnprepared.t.sol    (150 lines, 6 tests)  - Error conditions
 └── integration/
-    ├── MintRealIntegration.t.sol (401 lines, 1 test) - Real contract integration ✨✨ NEW
-    └── DEPENDENCIES.md           - Dependency analysis and init order
+    ├── MintRealIntegration.t.sol (698 lines, 3 tests) - Real contract integration ✨✨ 3/5 COMPLETE
+    ├── DEPENDENCIES.md           - Dependency analysis and init order
+    └── README.md                 - Integration test overview
 ```
 
 ✨ = Industry-standard advanced testing (P0)
-✨✨ = Real contract integration (P1 complete)
+✨✨ = Real contract integration (P1 - 3/5 scenarios complete)
 
 ## Coverage Breakdown
 
@@ -258,9 +265,22 @@ test/
 
 ## Next Actions
 
-**Immediate** (P1 Continue - More Real Contract Scenarios):
-1. Add more real contract integration scenarios to test/integration/MintRealIntegration.t.sol:
-   - Multi-round governance flow
+**Immediate** (P1 Continue - Task 3: Error Scenarios):
+1. Add testRealIntegration_ErrorScenarios() to test/integration/MintRealIntegration.t.sol:
+   - 未结束轮次无法准备奖励（Phase.isRoundEnded() = false）
+   - 非提案目标无法领取提案奖励（不同地址尝试领取）
+   - 非成员所有者无法领取治理奖励（不同地址尝试领取）
+   - 验证所有错误信息正确抛出
+
+**This Week** (P1 Continue - Task 4: Unstake and Re-vote):
+2. Add testRealIntegration_UnstakeAndReVote() for stake flow testing
+3. Document key findings from all 5 real contract integration tests
+
+**Next Week** (P1 Finish - Gas Benchmarks):
+4. Create test/MintBenchmark.t.sol for gas optimization benchmarks
+5. Record gas metrics for 300 proposals + 10 batch rounds
+6. Update TEST_REPORT.md and 测试报告.md with P1 completion results
+7. Prepare audit documentation package
    - Multiple tokens with cross-token isolation
    - Batch reward claiming across rounds
    - Edge cases: supply exhaustion, zero votes, threshold boundaries

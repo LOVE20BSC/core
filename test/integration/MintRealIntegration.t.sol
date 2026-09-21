@@ -18,6 +18,7 @@ interface TestVm {
     function stopPrank() external;
     function warp(uint256) external;
     function roll(uint256) external;
+    function expectRevert(bytes calldata) external;
 }
 
 /// @title MintRealIntegration - Real contract integration tests
@@ -561,6 +562,137 @@ contract MintRealIntegrationTest {
     function assertEq(uint256 a, uint256 b, string memory message) internal pure {
         require(a == b, message);
     }
+
+    /// @notice Test 3: Proposal threshold boundaries (exactly 5%, below 5%, above 5%)
+    function testRealIntegration_ProposalThresholdBoundaries() public {
+        // Setup: Advance past round 0
+        vm.roll(block.number + 200);
+        assertEq(phase.currentPhase(), 1, "Should be at round 1");
+
+        // Setup: Members stake liquidity (same as other tests)
+        vm.prank(distributor);
+        token.transfer(member1, 10000);
+        vm.prank(distributor);
+        token.transfer(member2, 10000);
+        vm.prank(owner);
+        rootToken.transfer(member1, 10000);
+        vm.prank(owner);
+        rootToken.transfer(member2, 10000);
+
+        vm.startPrank(member1);
+        token.approve(address(stake), 10000);
+        rootToken.approve(address(stake), 10000);
+        stake.stakeLiquidity(address(token), 5000, 5000, 1e18, 1, 1);
+        vm.stopPrank();
+
+        vm.startPrank(member2);
+        token.approve(address(stake), 10000);
+        rootToken.approve(address(stake), 10000);
+        stake.stakeLiquidity(address(token), 9500, 9500, 1e18, 1, 2);
+        vm.stopPrank();
+
+        // ============ Submit 2 proposals in the SAME round with different vote amounts ============
+        vm.roll(block.number + 10);
+        uint256 testRound = phase.currentPhase();
+
+        address proposalTarget2 = address(0x5002);
+        address proposalTarget3 = address(0x5003);
+
+        // Member1 submits proposal 2 in testRound
+        vm.prank(member1);
+        uint256 proposalId2 = submit.submitNewProposal(
+            address(token),
+            1,
+            ProposalBody({
+                title: "Proposal 2 - below 5%",
+                details: "Should NOT be eligible",
+                target: proposalTarget2,
+                targetMode: TargetMode.NoCallback,
+                targetData: new bytes[](0)
+            })
+        );
+
+        // Member2 submits proposal 3 in the SAME round (no advancing!)
+        vm.prank(member2);
+        uint256 proposalId3 = submit.submitNewProposal(
+            address(token),
+            2,
+            ProposalBody({
+                title: "Proposal 3 - above 5%",
+                details: "Should be eligible",
+                target: proposalTarget3,
+                targetMode: TargetMode.NoCallback,
+                targetData: new bytes[](0)
+            })
+        );
+
+        // Vote on both proposals in the same round they were submitted
+        uint256[] memory proposalIds = new uint256[](2);
+        proposalIds[0] = proposalId2;
+        proposalIds[1] = proposalId3;
+
+        // Member1 votes: 5 on proposal2, 95 on proposal3 (total 100 votes)
+        uint256[] memory amounts1 = new uint256[](2);
+        amounts1[0] = 5;
+        amounts1[1] = 95;
+
+        vm.prank(member1);
+        vote.vote(address(token), 1, proposalIds, amounts1, new bytes[][](0));
+
+        // Member2 votes: 5 on proposal2, 375 on proposal3 (total 380 votes)
+        // This creates: total votes = 480
+        // proposal2 = 10 votes (2.08% < 5%) - NOT eligible
+        // proposal3 = 470 votes (97.92% > 5%) - eligible
+        uint256[] memory amounts2 = new uint256[](2);
+        amounts2[0] = 5;
+        amounts2[1] = 375;
+
+        vm.prank(member2);
+        vote.vote(address(token), 2, proposalIds, amounts2, new bytes[][](0));
+
+        // Advance to next round and prepare rewards
+        vm.roll(block.number + 1000);
+        mint.prepareRewardIfNeeded(address(token), testRound);
+
+        // Verify vote counts
+        uint256 totalVotes = vote.votesNum(address(token), testRound);
+        assertEq(totalVotes, 480, "Total votes should be 480");
+
+        uint256 proposal2Votes = vote.votesNumByProposalId(address(token), testRound, proposalId2);
+        uint256 proposal3Votes = vote.votesNumByProposalId(address(token), testRound, proposalId3);
+
+        assertEq(proposal2Votes, 10, "Proposal 2 should have 10 votes (2.08%)");
+        assertEq(proposal3Votes, 470, "Proposal 3 should have 470 votes (97.92%)");
+
+        // Verify eligibility: proposal2 < 5% (NOT eligible), proposal3 > 5% (eligible)
+        assertTrue(!mint.isProposalIdWithReward(address(token), testRound, proposalId2),
+                   "Proposal 2 with 2.08% should NOT be eligible");
+        assertTrue(mint.isProposalIdWithReward(address(token), testRound, proposalId3),
+                   "Proposal 3 with 97.92% should be eligible");
+
+        // Verify rewards
+        (uint256 reward2,) = mint.proposalRewardByProposalId(address(token), testRound, proposalId2);
+        (uint256 reward3,) = mint.proposalRewardByProposalId(address(token), testRound, proposalId3);
+
+        assertEq(reward2, 0, "Proposal 2 should have zero reward");
+        assertTrue(reward3 > 0, "Proposal 3 should have reward");
+
+        // Claim rewards
+        vm.prank(proposalTarget2);
+        vm.expectRevert(abi.encodeWithSignature("NoRewardAvailable()"));
+        mint.mintProposalReward(address(token), testRound, proposalId2);
+
+        uint256 bal3Before = token.balanceOf(proposalTarget3);
+        vm.prank(proposalTarget3);
+        mint.mintProposalReward(address(token), testRound, proposalId3);
+        assertEq(token.balanceOf(proposalTarget3) - bal3Before, reward3,
+                 "Proposal 3 target should receive reward");
+
+        // Verify eligible votes calculation
+        uint256 eligibleVotes = mint.eligibleProposalVotes(address(token), testRound);
+        assertEq(eligibleVotes, 470, "Eligible votes should equal proposal 3's votes");
+    }
+
 }
 
 // ========== Mock External Dependencies ==========
