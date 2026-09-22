@@ -865,6 +865,22 @@ contract StakeTest {
         require(targetPhases == 10, "Target should inherit promised phases");
     }
 
+    function testMergeStakeRejectsMissingTargetMember() external {
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+        (uint256 sourceSharesBefore, , , , , ) = stake.stakeData(address(childToken), memberId1);
+
+        vm().prank(owner1);
+        (bool success, ) = address(stake).call(
+            abi.encodeWithSelector(Stake.mergeStake.selector, address(childToken), memberId1, 999999)
+        );
+        require(!success, "Should reject a missing target member");
+
+        (uint256 sourceSharesAfter, , , , , ) = stake.stakeData(address(childToken), memberId1);
+        (uint256 missingTargetShares, , , , , ) = stake.stakeData(address(childToken), 999999);
+        require(sourceSharesAfter == sourceSharesBefore, "Source stake must remain intact");
+        require(missingTargetShares == 0, "Missing target must not receive stake");
+    }
+
     function testMergeStakeRevertsIfSourceVoted() external {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 

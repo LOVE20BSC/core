@@ -245,6 +245,7 @@ contract Stake is IStake {
         if (sourceMemberId == targetMemberId) revert SourceAndTargetMustBeDifferent();
         _requireToken(tokenAddress);
         if (sourceMemberId == 0 || targetMemberId == 0) revert InvalidMemberId();
+        IMemberNFT(memberNFTAddress).ownerOf(targetMemberId);
         if (IMemberNFT(memberNFTAddress).ownerOf(sourceMemberId) != msg.sender) revert NotMemberOwner(sourceMemberId);
 
         MemberStake storage source = _memberStake[tokenAddress][sourceMemberId];
