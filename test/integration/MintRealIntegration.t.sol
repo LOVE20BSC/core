@@ -374,68 +374,105 @@ contract MintRealIntegrationTest {
     }
 
     /// @notice Verify governance rewards against independent mathematical model
+    struct GovRewardData {
+        uint256 totalVotes;
+        uint256 totalBoost;
+        uint256 member1Votes;
+        uint256 member2Votes;
+        uint256 member1Boost;
+        uint256 member2Boost;
+        uint256 actualVoteReward1;
+        uint256 actualBoostReward1;
+        uint256 actualBurnReward1;
+        uint256 actualVoteReward2;
+        uint256 actualBoostReward2;
+        uint256 actualBurnReward2;
+    }
+
     function _verifyGovRewardsWithMathModel(uint256 currentRound) internal {
+        GovRewardData memory data;
+
         // Read actual contract state
-        uint256 totalVotes = vote.votesNum(address(token), currentRound);
-        uint256 totalBoost = vote.stakedAmountOfVoters(address(token), currentRound);
-        uint256 member1Votes = vote.votesNumByMemberId(address(token), currentRound, 1);
-        uint256 member2Votes = vote.votesNumByMemberId(address(token), currentRound, 2);
-        uint256 member1Boost = vote.stakedAmountOfVotersByMemberId(address(token), currentRound, 1);
-        uint256 member2Boost = vote.stakedAmountOfVotersByMemberId(address(token), currentRound, 2);
+        data.totalVotes = vote.votesNum(address(token), currentRound);
+        data.totalBoost = vote.stakedAmountOfVoters(address(token), currentRound);
+        data.member1Votes = vote.votesNumByMemberId(address(token), currentRound, 1);
+        data.member2Votes = vote.votesNumByMemberId(address(token), currentRound, 2);
+        data.member1Boost = vote.stakedAmountOfVotersByMemberId(address(token), currentRound, 1);
+        data.member2Boost = vote.stakedAmountOfVotersByMemberId(address(token), currentRound, 2);
 
         // Read actual rewards from contract
-        (uint256 actualVoteReward1, uint256 actualBoostReward1, uint256 actualBurnReward1,) =
+        (data.actualVoteReward1, data.actualBoostReward1, data.actualBurnReward1,) =
             mint.govRewardByMemberId(address(token), currentRound, 1);
-        (uint256 actualVoteReward2, uint256 actualBoostReward2, uint256 actualBurnReward2,) =
+        (data.actualVoteReward2, data.actualBoostReward2, data.actualBurnReward2,) =
             mint.govRewardByMemberId(address(token), currentRound, 2);
 
-        // When totalBoost is 0, boost pool is burned and only vote rewards exist
-        if (totalBoost == 0) {
-            // Verify boost rewards are 0 when no boost exists
-            assertEq(actualBoostReward1, 0, "Member1 boost reward must be 0 when totalBoost is 0");
-            assertEq(actualBoostReward2, 0, "Member2 boost reward must be 0 when totalBoost is 0");
-            assertEq(actualBurnReward1, 0, "Member1 burn reward must be 0 when totalBoost is 0");
-            assertEq(actualBurnReward2, 0, "Member2 burn reward must be 0 when totalBoost is 0");
-
-            // Debug: Check actual vote counts
-            assertEq(member1Votes, VOTE_AMOUNT_MEMBER1, "Member1 should have 100 votes");
-            assertEq(member2Votes, VOTE_AMOUNT_MEMBER2, "Member2 should have 60 votes");
-            assertEq(totalVotes, VOTE_AMOUNT_MEMBER1 + VOTE_AMOUNT_MEMBER2, "Total should be 160 votes");
-
-            // Verify voting ratio (100:60 = 5:3) for vote rewards only
-            // Allow for 1 wei rounding error due to integer division
-            uint256 crossProduct1 = actualVoteReward1 * 3;
-            uint256 crossProduct2 = actualVoteReward2 * 5;
-            uint256 diff = crossProduct1 > crossProduct2 ? crossProduct1 - crossProduct2 : crossProduct2 - crossProduct1;
-            assertTrue(diff <= 1, "Vote rewards must match 5:3 ratio within 1 wei rounding error");
+        if (data.totalBoost == 0) {
+            _verifyRewardsWithoutBoost(data);
         } else {
-            // Calculate expected rewards using mathematical model (independent of contract)
-            uint256 available = mint.rewardAvailable(address(token));
-            uint256 govRewardAmount = (available * ROUND_REWARD_GOV_PER_THOUSAND) / 1000;
-
-            // Expected vote rewards
-            uint256 expectedVoteReward1 = _calculateExpectedVoteReward(govRewardAmount, member1Votes, totalVotes);
-            uint256 expectedVoteReward2 = _calculateExpectedVoteReward(govRewardAmount, member2Votes, totalVotes);
-
-            // Expected boost rewards
-            (uint256 expectedBoostReward1, uint256 expectedBurnReward1) =
-                _calculateExpectedBoostReward(govRewardAmount, member1Boost, totalBoost, expectedVoteReward1);
-            (uint256 expectedBoostReward2, uint256 expectedBurnReward2) =
-                _calculateExpectedBoostReward(govRewardAmount, member2Boost, totalBoost, expectedVoteReward2);
-
-            // Verify exact match with mathematical model
-            assertEq(actualVoteReward1, expectedVoteReward1, "Member1 vote reward must match math model");
-            assertEq(actualBoostReward1, expectedBoostReward1, "Member1 boost reward must match math model");
-            assertEq(actualBurnReward1, expectedBurnReward1, "Member1 burn reward must match math model");
-
-            assertEq(actualVoteReward2, expectedVoteReward2, "Member2 vote reward must match math model");
-            assertEq(actualBoostReward2, expectedBoostReward2, "Member2 boost reward must match math model");
-            assertEq(actualBurnReward2, expectedBurnReward2, "Member2 burn reward must match math model");
-
-            // Verify voting ratio (100:60 = 5:3)
-            assertEq(actualVoteReward1 * 3, actualVoteReward2 * 5, "Vote rewards must match 5:3 ratio");
+            _verifyRewardsWithBoost(currentRound, data);
         }
 
+        _claimAndVerifyTransfers(
+            currentRound,
+            data.actualVoteReward1, data.actualBoostReward1,
+            data.actualVoteReward2, data.actualBoostReward2
+        );
+    }
+
+    function _verifyRewardsWithoutBoost(GovRewardData memory data) internal pure {
+        // Verify boost rewards are 0 when no boost exists
+        assertEq(data.actualBoostReward1, 0, "Member1 boost reward must be 0 when totalBoost is 0");
+        assertEq(data.actualBoostReward2, 0, "Member2 boost reward must be 0 when totalBoost is 0");
+        assertEq(data.actualBurnReward1, 0, "Member1 burn reward must be 0 when totalBoost is 0");
+        assertEq(data.actualBurnReward2, 0, "Member2 burn reward must be 0 when totalBoost is 0");
+
+        // Debug: Check actual vote counts
+        assertEq(data.member1Votes, VOTE_AMOUNT_MEMBER1, "Member1 should have 100 votes");
+        assertEq(data.member2Votes, VOTE_AMOUNT_MEMBER2, "Member2 should have 60 votes");
+        assertEq(data.totalVotes, VOTE_AMOUNT_MEMBER1 + VOTE_AMOUNT_MEMBER2, "Total should be 160 votes");
+
+        // Verify voting ratio (100:60 = 5:3) for vote rewards only
+        uint256 crossProduct1 = data.actualVoteReward1 * 3;
+        uint256 crossProduct2 = data.actualVoteReward2 * 5;
+        uint256 diff = crossProduct1 > crossProduct2 ? crossProduct1 - crossProduct2 : crossProduct2 - crossProduct1;
+        assertTrue(diff <= 1, "Vote rewards must match 5:3 ratio within 1 wei rounding error");
+    }
+
+    function _verifyRewardsWithBoost(uint256 /* currentRound */, GovRewardData memory data) internal view {
+        // Calculate expected rewards using mathematical model
+        uint256 available = mint.rewardAvailable(address(token));
+        uint256 govRewardAmount = (available * ROUND_REWARD_GOV_PER_THOUSAND) / 1000;
+
+        // Expected vote rewards
+        uint256 expectedVoteReward1 = _calculateExpectedVoteReward(govRewardAmount, data.member1Votes, data.totalVotes);
+        uint256 expectedVoteReward2 = _calculateExpectedVoteReward(govRewardAmount, data.member2Votes, data.totalVotes);
+
+        // Expected boost rewards
+        (uint256 expectedBoostReward1, uint256 expectedBurnReward1) =
+            _calculateExpectedBoostReward(govRewardAmount, data.member1Boost, data.totalBoost, expectedVoteReward1);
+        (uint256 expectedBoostReward2, uint256 expectedBurnReward2) =
+            _calculateExpectedBoostReward(govRewardAmount, data.member2Boost, data.totalBoost, expectedVoteReward2);
+
+        // Verify exact match with mathematical model
+        assertEq(data.actualVoteReward1, expectedVoteReward1, "Member1 vote reward must match math model");
+        assertEq(data.actualBoostReward1, expectedBoostReward1, "Member1 boost reward must match math model");
+        assertEq(data.actualBurnReward1, expectedBurnReward1, "Member1 burn reward must match math model");
+
+        assertEq(data.actualVoteReward2, expectedVoteReward2, "Member2 vote reward must match math model");
+        assertEq(data.actualBoostReward2, expectedBoostReward2, "Member2 boost reward must match math model");
+        assertEq(data.actualBurnReward2, expectedBurnReward2, "Member2 burn reward must match math model");
+
+        // Verify voting ratio (100:60 = 5:3)
+        assertEq(data.actualVoteReward1 * 3, data.actualVoteReward2 * 5, "Vote rewards must match 5:3 ratio");
+    }
+
+    function _claimAndVerifyTransfers(
+        uint256 currentRound,
+        uint256 actualVoteReward1,
+        uint256 actualBoostReward1,
+        uint256 actualVoteReward2,
+        uint256 actualBoostReward2
+    ) internal {
         // Claim and verify token transfers
         uint256 balanceBefore1 = token.balanceOf(member1);
         vm.prank(member1);
@@ -603,6 +640,17 @@ contract MintRealIntegrationTest {
 
     // ==================== Test 3: Proposal Threshold Boundaries ====================
 
+    struct ThresholdTestData {
+        uint256 testRound;
+        uint256 round2;
+        uint256 proposalId1;
+        uint256 proposalId2;
+        uint256 proposalId3;
+        address proposalTarget1;
+        address proposalTarget2;
+        address proposalTarget3;
+    }
+
     /// @notice Test 3: 5% threshold boundaries with exact mathematical verification
     /// @dev Tests <5%, =5%, and >5% scenarios with independent calculations
     function testRealIntegration_ProposalThresholdBoundaries() public {
@@ -631,42 +679,50 @@ contract MintRealIntegrationTest {
         stake.stakeLiquidity(address(token), member2StakeAmount, member2StakeAmount,
                             SLIPPAGE_100_PERCENT, PROMISED_WAITING_PHASES, 2);
 
-        uint256 testRound = phase.currentPhase();
+        ThresholdTestData memory data;
+        data.testRound = phase.currentPhase();
 
         // Submit 3 proposals in the same round
-        address proposalTarget1 = address(0x5001); // Will get exactly 5%
-        address proposalTarget2 = address(0x5002); // Will get < 5%
-        address proposalTarget3 = address(0x5003); // Will get > 5%
+        data.proposalTarget1 = address(0x5001); // Will get exactly 5%
+        data.proposalTarget2 = address(0x5002); // Will get < 5%
+        data.proposalTarget3 = address(0x5003); // Will get > 5%
 
+        _setupProposalsAndVotesRound1(data);
+        _setupProposalsAndVotesRound2(data);
+        _verifyRound1Eligibility(data);
+        _verifyRound2Eligibility(data);
+        _verifyAndClaimRewards(data);
+    }
+
+    function _setupProposalsAndVotesRound1(ThresholdTestData memory data) internal {
         vm.prank(member1);
-        uint256 proposalId1 = submit.submitNewProposal(
+        data.proposalId1 = submit.submitNewProposal(
             address(token), 1,
             ProposalBody({
                 title: "Proposal 1 - exactly 5%",
                 details: "Boundary test",
-                target: proposalTarget1,
+                target: data.proposalTarget1,
                 targetMode: TargetMode.NoCallback,
                 targetData: new bytes[](0)
             })
         );
 
         vm.prank(member2);
-        uint256 proposalId2 = submit.submitNewProposal(
+        data.proposalId2 = submit.submitNewProposal(
             address(token), 2,
             ProposalBody({
                 title: "Proposal 2 - below 5%",
                 details: "Should NOT be eligible",
-                target: proposalTarget2,
+                target: data.proposalTarget2,
                 targetMode: TargetMode.NoCallback,
                 targetData: new bytes[](0)
             })
         );
 
         // Vote on proposals in round 1 (testRound) BEFORE advancing blocks
-        // Round 1: proposalId1 and proposalId2
         uint256[] memory proposalIdsRound1 = new uint256[](2);
-        proposalIdsRound1[0] = proposalId1;
-        proposalIdsRound1[1] = proposalId2;
+        proposalIdsRound1[0] = data.proposalId1;
+        proposalIdsRound1[1] = data.proposalId2;
 
         // Member1 votes in round 1: 12 to proposal1, 5 to proposal2
         uint256[] memory amounts1Round1 = new uint256[](2);
@@ -681,19 +737,21 @@ contract MintRealIntegrationTest {
         amounts2Round1[1] = 5;
         vm.prank(member2);
         vote.vote(address(token), 2, proposalIdsRound1, amounts2Round1, new bytes[][](0));
+    }
 
+    function _setupProposalsAndVotesRound2(ThresholdTestData memory data) internal {
         // Note: Cannot submit proposal3 in the same round - Submit contract allows only one proposal per member per round
         // So we advance to next round for proposal3
         vm.roll(block.number + BLOCKS_PER_ROUND);
-        uint256 round2 = phase.currentPhase();
+        data.round2 = phase.currentPhase();
 
         vm.prank(member1);
-        uint256 proposalId3 = submit.submitNewProposal(
+        data.proposalId3 = submit.submitNewProposal(
             address(token), 1,
             ProposalBody({
                 title: "Proposal 3 - above 5%",
                 details: "Should be eligible",
-                target: proposalTarget3,
+                target: data.proposalTarget3,
                 targetMode: TargetMode.NoCallback,
                 targetData: new bytes[](0)
             })
@@ -701,7 +759,7 @@ contract MintRealIntegrationTest {
 
         // Vote on proposal 3 in round 2 BEFORE advancing blocks
         uint256[] memory proposalIdsRound2 = new uint256[](1);
-        proposalIdsRound2[0] = proposalId3;
+        proposalIdsRound2[0] = data.proposalId3;
 
         // Member1 votes in round 2: 83 to proposal3
         uint256[] memory amounts1Round2 = new uint256[](1);
@@ -717,14 +775,15 @@ contract MintRealIntegrationTest {
 
         // Advance to round 3 (auto-prepare when claiming rewards)
         vm.roll(block.number + BLOCKS_PER_ROUND);
-        // Auto-prepare will happen when mintProposalReward is called
+    }
 
+    function _verifyRound1Eligibility(ThresholdTestData memory data) internal view {
         // Verify vote counts for round 1
-        uint256 totalVotesR1 = vote.votesNum(address(token), testRound);
+        uint256 totalVotesR1 = vote.votesNum(address(token), data.testRound);
         assertEq(totalVotesR1, 34, "Total votes round 1 must be 34 (12+12+5+5)");
 
-        uint256 proposal1Votes = vote.votesNumByProposalId(address(token), testRound, proposalId1);
-        uint256 proposal2Votes = vote.votesNumByProposalId(address(token), testRound, proposalId2);
+        uint256 proposal1Votes = vote.votesNumByProposalId(address(token), data.testRound, data.proposalId1);
+        uint256 proposal2Votes = vote.votesNumByProposalId(address(token), data.testRound, data.proposalId2);
 
         assertEq(proposal1Votes, 24, "Proposal 1 must have 24 votes");
         assertEq(proposal2Votes, 10, "Proposal 2 must have 10 votes");
@@ -734,16 +793,18 @@ contract MintRealIntegrationTest {
         assertEq(expectedMinVotesR1, 2, "Min votes round 1 must be 2 (ceil(34 * 0.05))");
 
         // Both proposals qualify in round 1 (24 > 2, 10 > 2)
-        assertTrue(mint.isProposalIdWithReward(address(token), testRound, proposalId1),
+        assertTrue(mint.isProposalIdWithReward(address(token), data.testRound, data.proposalId1),
                    "Proposal 1 with 24/34 (70.59%) must be eligible");
-        assertTrue(mint.isProposalIdWithReward(address(token), testRound, proposalId2),
+        assertTrue(mint.isProposalIdWithReward(address(token), data.testRound, data.proposalId2),
                    "Proposal 2 with 10/34 (29.41%) must be eligible");
+    }
 
+    function _verifyRound2Eligibility(ThresholdTestData memory data) internal view {
         // Verify vote counts for round 2
-        uint256 totalVotesR2 = vote.votesNum(address(token), round2);
+        uint256 totalVotesR2 = vote.votesNum(address(token), data.round2);
         assertEq(totalVotesR2, 446, "Total votes round 2 must be 446 (83+363)");
 
-        uint256 proposal3Votes = vote.votesNumByProposalId(address(token), round2, proposalId3);
+        uint256 proposal3Votes = vote.votesNumByProposalId(address(token), data.round2, data.proposalId3);
         assertEq(proposal3Votes, 446, "Proposal 3 must have 446 votes");
 
         // Calculate minimum votes for round 2
@@ -751,21 +812,22 @@ contract MintRealIntegrationTest {
         assertEq(expectedMinVotesR2, 23, "Min votes round 2 must be 23 (ceil(446 * 0.05))");
 
         // Proposal 3 qualifies in round 2 (446 > 23)
-        assertTrue(mint.isProposalIdWithReward(address(token), round2, proposalId3),
+        assertTrue(mint.isProposalIdWithReward(address(token), data.round2, data.proposalId3),
                    "Proposal 3 with 446/446 (100%) must be eligible");
+    }
 
-
+    function _verifyAndClaimRewards(ThresholdTestData memory data) internal {
         // Trigger auto-prepare for round 1 before querying eligibleProposalVotes
-        vm.prank(proposalTarget1);
-        uint256 claimed1 = mint.mintProposalReward(address(token), testRound, proposalId1);
+        vm.prank(data.proposalTarget1);
+        uint256 claimed1 = mint.mintProposalReward(address(token), data.testRound, data.proposalId1);
 
         // Verify rewards with mathematical model for round 1
-        uint256 eligibleVotesR1 = mint.eligibleProposalVotes(address(token), testRound);
+        uint256 eligibleVotesR1 = mint.eligibleProposalVotes(address(token), data.testRound);
 
         assertEq(eligibleVotesR1, 34, "Eligible votes round 1 must equal total votes (all eligible)");
 
-        (uint256 reward1,) = mint.proposalRewardByProposalId(address(token), testRound, proposalId1);
-        (uint256 reward2,) = mint.proposalRewardByProposalId(address(token), testRound, proposalId2);
+        (uint256 reward1,) = mint.proposalRewardByProposalId(address(token), data.testRound, data.proposalId1);
+        (uint256 reward2,) = mint.proposalRewardByProposalId(address(token), data.testRound, data.proposalId2);
 
         // Verify rewards exist
         assertTrue(reward1 > 0, "Proposal 1 must have reward");
@@ -777,20 +839,20 @@ contract MintRealIntegrationTest {
         // Verify claims for round 1 - proposal 1 already claimed earlier
         assertEq(claimed1, reward1, "Claimed amount must match stored reward");
 
-        uint256 bal2Before = token.balanceOf(proposalTarget2);
-        vm.prank(proposalTarget2);
-        uint256 claimed2 = mint.mintProposalReward(address(token), testRound, proposalId2);
-        assertEq(token.balanceOf(proposalTarget2) - bal2Before, claimed2, "Target 2 must receive exact reward");
+        uint256 bal2Before = token.balanceOf(data.proposalTarget2);
+        vm.prank(data.proposalTarget2);
+        uint256 claimed2 = mint.mintProposalReward(address(token), data.testRound, data.proposalId2);
+        assertEq(token.balanceOf(data.proposalTarget2) - bal2Before, claimed2, "Target 2 must receive exact reward");
         assertEq(claimed2, reward2, "Claimed amount must match stored reward");
 
         // Verify rewards with mathematical model for round 2
-        (uint256 reward3,) = mint.proposalRewardByProposalId(address(token), round2, proposalId3);
+        (uint256 reward3,) = mint.proposalRewardByProposalId(address(token), data.round2, data.proposalId3);
         assertTrue(reward3 > 0, "Proposal 3 must have reward");
 
-        uint256 bal3Before = token.balanceOf(proposalTarget3);
-        vm.prank(proposalTarget3);
-        uint256 claimed3 = mint.mintProposalReward(address(token), round2, proposalId3);
-        assertEq(token.balanceOf(proposalTarget3) - bal3Before, claimed3, "Target 3 must receive exact reward");
+        uint256 bal3Before = token.balanceOf(data.proposalTarget3);
+        vm.prank(data.proposalTarget3);
+        uint256 claimed3 = mint.mintProposalReward(address(token), data.round2, data.proposalId3);
+        assertEq(token.balanceOf(data.proposalTarget3) - bal3Before, claimed3, "Target 3 must receive exact reward");
     }
 
     // ==================== Test 4: Error Scenarios ====================
@@ -869,10 +931,21 @@ contract MintRealIntegrationTest {
 
     // ==================== Test 5: Unstake and Re-vote ====================
 
+    struct UnstakeTestData {
+        uint256 round1;
+        uint256 round4;
+        uint256 proposalId1;
+        uint256 proposalId2;
+        address proposalTarget1;
+        address proposalTarget2;
+    }
+
     /// @notice Test 5: Unstake and re-vote with reward verification
     function testRealIntegration_UnstakeAndReVote() public {
         vm.roll(block.number + BLOCKS_PAST_ROUND0);
-        uint256 round1 = phase.currentPhase();
+
+        UnstakeTestData memory data;
+        data.round1 = phase.currentPhase();
 
         // Setup tokens
         vm.prank(distributor);
@@ -880,20 +953,27 @@ contract MintRealIntegrationTest {
         vm.prank(owner);
         rootToken.transfer(member1, 20000);
 
+        _setupRound1StakeAndVote(data);
+        _unstakeAndAdvanceToRound4(data);
+        _restakeAndVoteRound4(data);
+        _verifyRewardsAfterRestake(data);
+    }
+
+    function _setupRound1StakeAndVote(UnstakeTestData memory data) internal {
         // Round 1: Stake 5000 tokens
         _approveBothTokens(member1, 20000);
         vm.prank(member1);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER1,
                             SLIPPAGE_100_PERCENT, PROMISED_WAITING_PHASES, 1);
 
-        address proposalTarget1 = address(0x7001);
+        data.proposalTarget1 = address(0x7001);
         vm.prank(member1);
-        uint256 proposalId1 = submit.submitNewProposal(
+        data.proposalId1 = submit.submitNewProposal(
             address(token), 1,
             ProposalBody({
                 title: "Round 1 Proposal",
                 details: "Test",
-                target: proposalTarget1,
+                target: data.proposalTarget1,
                 targetMode: TargetMode.NoCallback,
                 targetData: new bytes[](0)
             })
@@ -901,17 +981,18 @@ contract MintRealIntegrationTest {
 
         // Member1 votes in round 1
         uint256[] memory proposalIds1 = new uint256[](1);
-        proposalIds1[0] = proposalId1;
+        proposalIds1[0] = data.proposalId1;
         uint256[] memory amounts1 = new uint256[](1);
         amounts1[0] = VOTE_AMOUNT_MEMBER1;
         vm.prank(member1);
         vote.vote(address(token), 1, proposalIds1, amounts1, new bytes[][](0));
+    }
 
+    function _unstakeAndAdvanceToRound4(UnstakeTestData memory data) internal {
         // Advance to round 2
         vm.roll(block.number + BLOCKS_PER_ROUND);
         uint256 round2 = phase.currentPhase();
         assertEq(round2, 2, "Must be at round 2 after first advance");
-        // Auto-prepare when claiming rewards
 
         // Unstake all (request unstake in round 2)
         vm.prank(member1);
@@ -920,61 +1001,62 @@ contract MintRealIntegrationTest {
         // Requirement: round > unlockRequestPhase + promisedWaitingPhases
         // unlockRequestPhase = 2, promisedWaitingPhases = 1
         // Need: round > 2 + 1 = 3, so round must be at least 4
-        // Continue from block 1201, add 1000 to reach block 2201 (round 3)
         vm.roll(1201 + BLOCKS_PER_ROUND);
         uint256 round3 = phase.currentPhase();
         assertEq(round3, 3, "Must be at round 3 after second advance");
 
-        // Continue from block 2201, add 1000 to reach block 3201 (round 4)
         vm.roll(2201 + BLOCKS_PER_ROUND);
-        uint256 round4 = phase.currentPhase();
-        assertEq(round4, 4, "Must be at round 4 before withdraw");
+        data.round4 = phase.currentPhase();
+        assertEq(data.round4, 4, "Must be at round 4 before withdraw");
 
         // Withdraw liquidity
         vm.prank(member1);
         stake.withdraw(address(token), 1);
+    }
 
+    function _restakeAndVoteRound4(UnstakeTestData memory data) internal {
         // Re-stake with less (3000 instead of 5000)
         vm.prank(member1);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER2, STAKE_AMOUNT_MEMBER2,
                             SLIPPAGE_100_PERCENT, PROMISED_WAITING_PHASES, 1);
 
-        address proposalTarget2 = address(0x7002);
+        data.proposalTarget2 = address(0x7002);
         vm.prank(member1);
-        uint256 proposalId2 = submit.submitNewProposal(
+        data.proposalId2 = submit.submitNewProposal(
             address(token), 1,
             ProposalBody({
                 title: "Round 4 Proposal",
                 details: "Test",
-                target: proposalTarget2,
+                target: data.proposalTarget2,
                 targetMode: TargetMode.NoCallback,
                 targetData: new bytes[](0)
             })
         );
 
-        // Vote with less (60 instead of 100) - member2 not staked, so member1 votes alone
+        // Vote with less (60 instead of 100)
         uint256[] memory proposalIds2 = new uint256[](1);
-        proposalIds2[0] = proposalId2;
+        proposalIds2[0] = data.proposalId2;
         uint256[] memory amounts2 = new uint256[](1);
         amounts2[0] = VOTE_AMOUNT_MEMBER2;
         vm.prank(member1);
         vote.vote(address(token), 1, proposalIds2, amounts2, new bytes[][](0));
 
-        // Advance to round 5 (auto-prepare when claiming rewards)
+        // Advance to round 5
         vm.roll(3201 + BLOCKS_PER_ROUND);
         uint256 round5 = phase.currentPhase();
         assertEq(round5, 5, "Must be at round 5 before claiming rewards");
-        // Auto-prepare will happen when mintGovReward is called
+    }
 
+    function _verifyRewardsAfterRestake(UnstakeTestData memory data) internal {
         // Claim both rounds and verify mathematically
         uint256 balBefore = token.balanceOf(member1);
 
         vm.prank(member1);
-        (uint256 vr1, uint256 br1,) = mint.mintGovReward(address(token), 1, round1);
+        (uint256 vr1, uint256 br1,) = mint.mintGovReward(address(token), 1, data.round1);
         uint256 round1Reward = vr1 + br1;
 
         vm.prank(member1);
-        (uint256 vr2, uint256 br2,) = mint.mintGovReward(address(token), 1, round4);
+        (uint256 vr2, uint256 br2,) = mint.mintGovReward(address(token), 1, data.round4);
         uint256 round4Reward = vr2 + br2;
 
         uint256 balAfter = token.balanceOf(member1);
@@ -987,8 +1069,8 @@ contract MintRealIntegrationTest {
                    "Round 1 reward (5000 stake, 100 votes) must exceed Round 4 reward (3000 stake, 60 votes)");
 
         // Verify vote amounts match expected
-        uint256 r1Votes = vote.votesNumByMemberId(address(token), round1, 1);
-        uint256 r4Votes = vote.votesNumByMemberId(address(token), round4, 1);
+        uint256 r1Votes = vote.votesNumByMemberId(address(token), data.round1, 1);
+        uint256 r4Votes = vote.votesNumByMemberId(address(token), data.round4, 1);
         assertEq(r1Votes, VOTE_AMOUNT_MEMBER1, "Round 1 must have 100 votes");
         assertEq(r4Votes, VOTE_AMOUNT_MEMBER2, "Round 4 must have 60 votes");
     }
