@@ -81,7 +81,6 @@ interface IMint is IMintEvents, IMintErrors {
     function rewardReserved(address tokenAddress) external view returns (uint256);
     function rewardMinted(address tokenAddress) external view returns (uint256);
     function rewardBurned(address tokenAddress) external view returns (uint256);
-    function isRewardPrepared(address tokenAddress, uint256 round) external view returns (bool);
     function govReward(address tokenAddress, uint256 round) external view returns (uint256);
     function proposalReward(address tokenAddress, uint256 round) external view returns (uint256);
     function eligibleProposalVotes(address tokenAddress, uint256 round)

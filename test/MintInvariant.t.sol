@@ -6,21 +6,25 @@ import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {ISubmitErrors, TargetMode} from "../src/interfaces/ISubmit.sol";
 import {IERC721Errors} from "../lib/openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 
-interface MintVm {
-    function assume(bool condition) external pure;
-}
-
 /// @title MintInvariant - Invariant tests for core accounting rules
 /// @notice Verifies that critical invariants hold across any sequence of operations
 contract MintInvariantTest {
     Mint public mint;
     LOVE20Token public token;
-    address constant TARGET = address(0x1234);
+    // Test contract is the target so it can call mintProposalReward
 
     // State tracking for invariants
     uint256 public preparedRounds;
     uint256 public settledGovRewards;
     uint256 public settledProposalRewards;
+
+    // Helper to constrain fuzzer inputs to valid range
+    function bound(uint256 x, uint256 min, uint256 max) internal pure returns (uint256) {
+        if (x < min || x > max) {
+            return min + (x % (max - min + 1));
+        }
+        return x;
+    }
 
     function setUp() public {
         mint = new Mint();
@@ -35,6 +39,13 @@ contract MintInvariantTest {
             2
         );
         token = new LOVE20Token("Test", "TST", 10000, 1000000, address(this), address(mint), address(1));
+    }
+
+    // Configure fuzzer for faster runs
+    function targetContracts() public view returns (address[] memory) {
+        address[] memory targets = new address[](1);
+        targets[0] = address(this);
+        return targets;
     }
 
     // Mock interfaces
@@ -82,9 +93,21 @@ contract MintInvariantTest {
         return 500;
     }
 
-    function proposalTarget(address, uint256 id) external pure returns (address, TargetMode) {
+    function proposalTarget(address, uint256 id) external view returns (address, TargetMode) {
         if (id == 0 || id > 5) revert ISubmitErrors.ProposalNotFound(id);
-        return (TARGET, TargetMode.NoCallback);
+        return (address(this), TargetMode.NoCallback);
+    }
+
+    function issuedLaunchCount(address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function MAX_LAUNCH_COUNT() external pure returns (uint256) {
+        return 100;
+    }
+
+    function LAUNCH_RATIO() external pure returns (uint256) {
+        return 1e17; // 10%
     }
 
     function addLaunchCount(address, uint256, uint256) external view {
@@ -208,39 +231,55 @@ contract MintInvariantTest {
     }
 
     // Helper functions to trigger state changes for invariant testing
+    // Note: Mint auto-prepares rounds on first settlement call via _prepareRewardIfNeeded
 
     function prepare(uint256 round) public {
-        if (round == 0 || round > 10) return;
-        preparedRounds++;
+        round = bound(round, 1, 10);
+        if (mint.isRewardPrepared(address(token), round)) return;
+
+        // Trigger preparation by attempting to mint for member 1
+        // Preparation happens inside mintGovReward via _prepareRewardIfNeeded
+        try mint.mintGovReward(address(token), 1, round) {
+            preparedRounds++;
+            settledGovRewards++;
+        } catch {
+            // Even on failure, check if round got prepared
+            if (mint.isRewardPrepared(address(token), round)) {
+                preparedRounds++;
+            }
+        }
     }
 
     function settleGov(uint256 memberId, uint256 round) public {
-        if (memberId == 0 || memberId > 10) return;
-        if (round == 0 || round > 10) return;
-        if (!mint.isRewardPrepared(address(token), round)) return;
+        memberId = bound(memberId, 1, 10);
+        round = bound(round, 1, 10);
 
         try mint.mintGovReward(address(token), memberId, round) {
             settledGovRewards++;
         } catch {
-            // Ignore expected reverts
+            // Ignore expected reverts (AlreadyMinted, NoRewardAvailable, etc.)
         }
     }
 
     function settleProposal(uint256 round, uint256 proposalId) public {
-        if (round == 0 || round > 10) return;
-        if (proposalId == 0 || proposalId > 5) return;
-        if (!mint.isRewardPrepared(address(token), round)) return;
+        round = bound(round, 1, 10);
+        proposalId = bound(proposalId, 1, 5);
 
         try mint.mintProposalReward(address(token), round, proposalId) {
             settledProposalRewards++;
         } catch {
-            // Ignore expected reverts
+            // Ignore expected reverts (UnauthorizedCaller, AlreadyMinted, NoRewardAvailable, etc.)
         }
     }
 
     function batchSettle(uint256 memberId, uint256[] memory rounds) public {
-        if (memberId == 0 || memberId > 10) return;
+        memberId = bound(memberId, 1, 10);
         if (rounds.length == 0 || rounds.length > 10) return;
+
+        // Constrain each round to valid range
+        for (uint256 i = 0; i < rounds.length; i++) {
+            rounds[i] = bound(rounds[i], 1, 10);
+        }
 
         try mint.mintGovRewards(address(token), memberId, rounds) {
             settledGovRewards += rounds.length;
