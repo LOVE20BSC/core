@@ -154,14 +154,8 @@ contract MintRealIntegrationTest {
             10    // maxWithdrawableToFeeRatio
         );
 
-        // 4. Initialize Vote (depends on: Phase, Stake, Submit, MemberNFT, Mint)
-        vote.init(
-            address(phase),
-            address(stake),
-            address(submit),
-            address(memberNFT),
-            address(mint)
-        );
+        // 4. Initialize Vote (depends on: Phase, Stake, Submit, MemberNFT)
+        vote.init(address(phase), address(stake), address(submit), address(memberNFT));
 
         // 5. Initialize Mint last (depends on: Vote, Submit, Launch, MemberNFT)
         mint.init(

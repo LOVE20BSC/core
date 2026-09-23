@@ -17,7 +17,6 @@ contract Vote is IVote {
     address internal _submitAddress;
     address internal _phaseAddress;
     address internal _memberNFTAddress;
-    address internal _mintAddress;
 
     // ------ votesNums ----
     // tokenAddress => round => votesNum
@@ -67,16 +66,11 @@ contract Vote is IVote {
         return _memberNFTAddress;
     }
 
-    function mintAddress() external view returns (address) {
-        return _mintAddress;
-    }
-
     function init(
         address phaseAddress_,
         address stakeAddress_,
         address submitAddress_,
-        address memberNFTAddress_,
-        address mintAddress_
+        address memberNFTAddress_
     ) external {
         if (_initialized) {
             revert AlreadyInitialized();
@@ -93,15 +87,11 @@ contract Vote is IVote {
         if (memberNFTAddress_ == address(0)) {
             revert InvalidAddress();
         }
-        if (mintAddress_ == address(0)) {
-            revert InvalidAddress();
-        }
         _initialized = true;
         _stakeAddress = stakeAddress_;
         _submitAddress = submitAddress_;
         _phaseAddress = phaseAddress_;
         _memberNFTAddress = memberNFTAddress_;
-        _mintAddress = mintAddress_;
     }
 
     function vote(

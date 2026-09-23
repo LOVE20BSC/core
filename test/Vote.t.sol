@@ -295,7 +295,6 @@ contract VoteTest {
     address private constant EOA_TARGET = address(0xE1E1);
     address private constant ALICE = address(0xA11CE);
     address private constant BOB = address(0xB0B);
-    address private constant MINT_ADDRESS = address(0x1234);
 
     Phase private phase;
     MockStake private stake;
@@ -328,7 +327,7 @@ contract VoteTest {
         submit.init(address(phase), address(stake), address(memberNFT), 1);
 
         vote = new Vote();
-        vote.init(address(phase), address(stake), address(submit), address(memberNFT), MINT_ADDRESS);
+        vote.init(address(phase), address(stake), address(submit), address(memberNFT));
 
         target = new MockTarget(address(vote));
 
@@ -535,7 +534,6 @@ contract VoteTest {
         require(vote.stakeAddress() == address(stake), "stake address");
         require(vote.submitAddress() == address(submit), "submit address");
         require(vote.memberNFTAddress() == address(memberNFT), "memberNFT address");
-        require(vote.mintAddress() == MINT_ADDRESS, "mint address");
 
         require(vote.currentRound() == phase.currentPhase(), "round must follow phase");
         require(vote.votesNum(TOKEN, vote.currentRound()) == 0, "no votes yet");
@@ -544,17 +542,17 @@ contract VoteTest {
 
     function testInitRejectsSecondCall() external {
         Vote fresh = new Vote();
-        fresh.init(address(phase), address(stake), address(submit), address(memberNFT), MINT_ADDRESS);
+        fresh.init(address(phase), address(stake), address(submit), address(memberNFT));
         require(fresh.initialized(), "first init must succeed");
 
         bytes memory expected = abi.encodeWithSelector(IVoteErrors.AlreadyInitialized.selector);
         _expectRevertOn(
             address(fresh),
-            abi.encodeCall(fresh.init, (address(phase), address(stake), address(submit), address(memberNFT), MINT_ADDRESS)),
+            abi.encodeCall(fresh.init, (address(phase), address(stake), address(submit), address(memberNFT))),
             expected,
             "second init"
         );
-        require(fresh.mintAddress() == MINT_ADDRESS, "second init must not overwrite state");
+        require(fresh.memberNFTAddress() == address(memberNFT), "second init must not overwrite state");
     }
 
     /// @dev Every dependency is checked, and a rejected init leaves nothing behind.
@@ -564,7 +562,7 @@ contract VoteTest {
 
         _expectRevertOn(
             address(fresh),
-            abi.encodeCall(fresh.init, (address(0), address(stake), address(submit), address(memberNFT), MINT_ADDRESS)),
+            abi.encodeCall(fresh.init, (address(0), address(stake), address(submit), address(memberNFT))),
             expected,
             "zero phase"
         );
@@ -573,7 +571,7 @@ contract VoteTest {
         fresh = new Vote();
         _expectRevertOn(
             address(fresh),
-            abi.encodeCall(fresh.init, (address(phase), address(0), address(submit), address(memberNFT), MINT_ADDRESS)),
+            abi.encodeCall(fresh.init, (address(phase), address(0), address(submit), address(memberNFT))),
             expected,
             "zero stake"
         );
@@ -582,7 +580,7 @@ contract VoteTest {
         fresh = new Vote();
         _expectRevertOn(
             address(fresh),
-            abi.encodeCall(fresh.init, (address(phase), address(stake), address(0), address(memberNFT), MINT_ADDRESS)),
+            abi.encodeCall(fresh.init, (address(phase), address(stake), address(0), address(memberNFT))),
             expected,
             "zero submit"
         );
@@ -591,7 +589,7 @@ contract VoteTest {
         fresh = new Vote();
         _expectRevertOn(
             address(fresh),
-            abi.encodeCall(fresh.init, (address(phase), address(stake), address(submit), address(0), MINT_ADDRESS)),
+            abi.encodeCall(fresh.init, (address(phase), address(stake), address(submit), address(0))),
             expected,
             "zero memberNFT"
         );
@@ -600,16 +598,7 @@ contract VoteTest {
         fresh = new Vote();
         _expectRevertOn(
             address(fresh),
-            abi.encodeCall(fresh.init, (address(phase), address(stake), address(submit), address(memberNFT), address(0))),
-            expected,
-            "zero mint"
-        );
-        require(!fresh.initialized(), "zero mint must not initialize");
-
-        fresh = new Vote();
-        _expectRevertOn(
-            address(fresh),
-            abi.encodeCall(fresh.init, (address(0), address(0), address(0), address(0), address(0))),
+            abi.encodeCall(fresh.init, (address(0), address(0), address(0), address(0))),
             expected,
             "all zero"
         );
@@ -620,12 +609,12 @@ contract VoteTest {
     ///      contract reports `AlreadyInitialized` even when the arguments are also invalid.
     function testInitStateIsCheckedBeforeArguments() external {
         Vote fresh = new Vote();
-        fresh.init(address(phase), address(stake), address(submit), address(memberNFT), MINT_ADDRESS);
+        fresh.init(address(phase), address(stake), address(submit), address(memberNFT));
 
         bytes memory expected = abi.encodeWithSelector(IVoteErrors.AlreadyInitialized.selector);
         _expectRevertOn(
             address(fresh),
-            abi.encodeCall(fresh.init, (address(0), address(0), address(0), address(0), address(0))),
+            abi.encodeCall(fresh.init, (address(0), address(0), address(0), address(0))),
             expected,
             "state before arguments"
         );
@@ -634,20 +623,20 @@ contract VoteTest {
     function testInitIsPermissionlessAndThereIsNoDeployer() external {
         Vote fresh = new Vote();
         vm.prank(ALICE);
-        fresh.init(address(phase), address(stake), address(submit), address(memberNFT), MINT_ADDRESS);
+        fresh.init(address(phase), address(stake), address(submit), address(memberNFT));
         require(fresh.initialized(), "any caller may initialize");
 
         // No deployer is remembered: nothing distinguishes this contract from one initialized by
         // another account, and there is no owner/administrator to leak.
-        require(fresh.phaseAddress() == address(phase) && fresh.mintAddress() == MINT_ADDRESS, "state as given");
+        require(fresh.phaseAddress() == address(phase) && fresh.memberNFTAddress() == address(memberNFT), "state as given");
     }
 
     /// @dev Only the zero address is rejected; nothing requires the dependencies to be contracts.
     function testInitAcceptsNonContractAddresses() external {
         Vote fresh = new Vote();
-        fresh.init(address(1), address(2), address(3), address(4), address(5));
+        fresh.init(address(1), address(2), address(3), address(4));
         require(fresh.initialized(), "non-contract addresses are accepted");
-        require(fresh.phaseAddress() == address(1) && fresh.mintAddress() == address(5), "stored verbatim");
+        require(fresh.phaseAddress() == address(1) && fresh.memberNFTAddress() == address(4), "stored verbatim");
     }
 
     // ============ Round views ============
@@ -1934,7 +1923,6 @@ contract VoteStubTest {
     uint256 private constant MAX_PROPOSAL_ID = 64;
     address private constant TOKEN = address(0xBEEF);
     address private constant OWNER = address(0x9001);
-    address private constant MINT_ADDRESS = address(0x1234);
 
     Phase private phase;
     MockStake private stake;
@@ -1960,7 +1948,7 @@ contract VoteStubTest {
 
         submitStub = new MockSubmit();
         vote = new Vote();
-        vote.init(address(phase), address(stake), address(submitStub), address(memberNFT), MINT_ADDRESS);
+        vote.init(address(phase), address(stake), address(submitStub), address(memberNFT));
         target = new MockTarget(address(vote));
 
         vm.prank(OWNER);
