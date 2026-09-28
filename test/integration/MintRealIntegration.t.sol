@@ -147,7 +147,6 @@ contract MintRealIntegrationTest {
             address(phase),
             address(memberNFT),
             address(vote),
-            address(submit),
             address(launch),
             address(router),
             address(factory),

@@ -27,6 +27,11 @@ contract MockPhase {
 /// Mock Vote contract
 contract MockVote {
     mapping(address => mapping(uint256 => mapping(uint256 => uint256))) private _votesNum;
+    address public submitAddress;
+
+    function setSubmitAddress(address submitAddress_) external {
+        submitAddress = submitAddress_;
+    }
 
     function votesNumByMemberId(address tokenAddress, uint256 round, uint256 memberId)
         external
@@ -242,6 +247,7 @@ contract StakeTest {
         vote = new MockVote();
         mockSubmit = new MockSubmit();
         mockLaunch = new MockLaunch();
+        vote.setSubmitAddress(address(mockSubmit));
         router = new MockRouter();
         pairFactory = new MockPairFactory();
 
@@ -289,7 +295,6 @@ contract StakeTest {
             address(phase),
             address(memberNFT),
             address(vote),
-            address(mockSubmit),
             address(mockLaunch),
             address(router),
             address(pairFactory),
@@ -359,7 +364,6 @@ contract StakeTest {
         require(stake.phaseAddress() == address(phase), "Phase address mismatch");
         require(stake.memberNFTAddress() == address(memberNFT), "MemberNFT address mismatch");
         require(stake.voteAddress() == address(vote), "Vote address mismatch");
-        require(stake.submitAddress() == address(mockSubmit), "Submit address mismatch");
         require(stake.launchAddress() == address(mockLaunch), "Launch address mismatch");
         require(stake.routerAddress() == address(router), "Router address mismatch");
         require(stake.pairFactoryAddress() == address(pairFactory), "PairFactory address mismatch");
@@ -376,7 +380,6 @@ contract StakeTest {
                 address(phase),
                 address(memberNFT),
                 address(vote),
-                address(mockSubmit),
                 address(mockLaunch),
                 address(router),
                 address(pairFactory),
@@ -396,7 +399,6 @@ contract StakeTest {
                 address(0), // zero phase address
                 address(memberNFT),
                 address(vote),
-                address(mockSubmit),
                 address(mockLaunch),
                 address(router),
                 address(pairFactory),
@@ -416,7 +418,6 @@ contract StakeTest {
                 address(phase),
                 address(0), // zero memberNFT address
                 address(vote),
-                address(mockSubmit),
                 address(mockLaunch),
                 address(router),
                 address(pairFactory),
@@ -436,7 +437,6 @@ contract StakeTest {
                 address(phase),
                 address(memberNFT),
                 address(0), // zero vote address
-                address(mockSubmit),
                 address(mockLaunch),
                 address(router),
                 address(pairFactory),
@@ -456,7 +456,6 @@ contract StakeTest {
                 address(phase),
                 address(memberNFT),
                 address(vote),
-                address(mockSubmit),
                 address(0),
                 address(router),
                 address(pairFactory),
@@ -476,7 +475,6 @@ contract StakeTest {
                 address(phase),
                 address(memberNFT),
                 address(vote),
-                address(mockSubmit),
                 address(mockLaunch),
                 address(0), // zero router address
                 address(pairFactory),
@@ -496,7 +494,6 @@ contract StakeTest {
                 address(phase),
                 address(memberNFT),
                 address(vote),
-                address(mockSubmit),
                 address(mockLaunch),
                 address(router),
                 address(0), // zero pair factory address
@@ -516,7 +513,6 @@ contract StakeTest {
                 address(phase),
                 address(memberNFT),
                 address(vote),
-                address(mockSubmit),
                 address(mockLaunch),
                 address(router),
                 address(pairFactory),
@@ -536,7 +532,6 @@ contract StakeTest {
                 address(phase),
                 address(memberNFT),
                 address(vote),
-                address(mockSubmit),
                 address(mockLaunch),
                 address(router),
                 address(pairFactory),
@@ -556,7 +551,6 @@ contract StakeTest {
                 address(phase),
                 address(memberNFT),
                 address(vote),
-                address(mockSubmit),
                 address(mockLaunch),
                 address(router),
                 address(pairFactory),

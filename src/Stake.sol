@@ -38,7 +38,6 @@ contract Stake is IStake {
     address public phaseAddress;
     address public memberNFTAddress;
     address public voteAddress;
-    address public submitAddress;
     address public launchAddress;
     address public routerAddress;
     address public pairFactoryAddress;
@@ -61,7 +60,6 @@ contract Stake is IStake {
         address phaseAddress_,
         address memberNFTAddress_,
         address voteAddress_,
-        address submitAddress_,
         address launchAddress_,
         address routerAddress_,
         address pairFactoryAddress_,
@@ -74,7 +72,6 @@ contract Stake is IStake {
             phaseAddress_ == address(0) ||
             memberNFTAddress_ == address(0) ||
             voteAddress_ == address(0) ||
-            submitAddress_ == address(0) ||
             launchAddress_ == address(0) ||
             routerAddress_ == address(0) ||
             pairFactoryAddress_ == address(0)
@@ -87,7 +84,6 @@ contract Stake is IStake {
         phaseAddress = phaseAddress_;
         memberNFTAddress = memberNFTAddress_;
         voteAddress = voteAddress_;
-        submitAddress = submitAddress_;
         launchAddress = launchAddress_;
         routerAddress = routerAddress_;
         pairFactoryAddress = pairFactoryAddress_;
@@ -266,7 +262,9 @@ contract Stake is IStake {
         uint256 round = _currentRound();
         if (
             IVote(voteAddress).votesNumByMemberId(tokenAddress, round, sourceMemberId) != 0
-                || ISubmit(submitAddress).proposalIdBySubmitter(tokenAddress, round, sourceMemberId) != 0
+                || ISubmit(IVote(voteAddress).submitAddress()).proposalIdBySubmitter(
+                    tokenAddress, round, sourceMemberId
+                ) != 0
         ) {
             revert SourceHasUsedStakeRightsInCurrentRound();
         }

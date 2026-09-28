@@ -3,7 +3,7 @@
 - 日期：2026-09-28
 - 审计版本：`core@93998fa6127699b11256e7fee183c57826f2b41d`
 - 范围：`core/src` 的 8 个合约、13 个接口及其直接使用的 `libs`；涉及兑换和建池时使用同一工作区的原版 Uniswap V2
-- 结论（修复前）：发现 **1 项严重、1 项高危、1 项中危**。三项均已在当前工作树修复，并通过回归测试。
+- 结论（复查）：C-01 与 H-01 已修复；M-01 的免费质押融合路径已修复，剩余累计 Proposal 扫描成本受票权门槛、资金锁定和等待期约束，作为经济型边界接受。
 
 ## 修复状态
 
@@ -11,9 +11,11 @@
 | --- | --- | --- |
 | C-01 | `Stake` 只接受 `Launch.isLOVE20Token` 登记的代币，并由固定 `launchAddress` 提供登记来源 | 已修复 |
 | H-01 | `Launch` 创建 Pair 前先读取 Factory；预先存在的正确 Pair 直接复用 | 已修复 |
-| M-01 | `Submit` 先完成推举状态写入再执行回调，`Stake.mergeStake` 直接检查当前 Round 的 Vote 票数和 Submit 推举记录 | 已修复 |
+| M-01 | 阻止同一份质押通过融合重复使用；新增资金仍可增加 Proposal 数量，但没有直接奖励收益 | 已修复，经济边界接受 |
 
 融合规则按产品确认采用“仅当前 Round”：上一 Round 使用过的来源 NFT 在下一 Round 可以再次融合；`submitNewProposal` 的创建回调在推举状态写入后执行。
+
+复查新增两项部署配置风险：`Mint.proposalRewardMinVotePerThousand` 未限制在 `0..1000`，大于 `1000` 会使所有 Proposal 不达标；`Launch.launchRatio` 未限制不超过 `1e18`，过大时发射额度可能长期无法达到阈值。两项不依赖管理员权限，但发布校验脚本必须拒绝这类配置。
 
 ## 前提和方法
 
@@ -51,15 +53,25 @@
 
 **建议。** 创建代币后读取 Factory 的现有 Pair；不存在时创建，已存在时验证确属该代币和父币并复用。配套测试须覆盖预建 Pair、正常新建 Pair 和错误 Pair 状态。改用另一个可预测的代币地址算法本身不能解决抢先建池。
 
-## M-01 质押融合使每轮提案数不受票权门槛的静态上界约束
+## M-01 每轮 Proposal 数量仍没有累计上限（融合路径已修复）
 
 **位置**：[Submit.canSubmit](src/Submit.sol#L64)、[Stake.mergeStake](src/Stake.sol#L244)、[Vote._vote](src/Vote.sol#L250)、[Mint._calculateEligibleProposalVotes](src/Mint.sol#L330)。
 
 **根因。** `canSubmit` 检查的是调用当刻该 `memberId` 的票权占比。每个成员每轮仅推举一次，但 `mergeStake` 只禁止合并本轮**已投票**的来源成员，没有禁止合并**已推举**的来源成员。持有多个 NFT 的同一人可在每次推举后把整份质押合并到下一个空 NFT，再以同样票权推举。旧报告把同时达标的成员数量 `floor(1000 / SUBMIT_MIN_PER_THOUSAND)` 当作整轮累计提案上限，该推导忽略了票权的顺次转移。
 
-**修复前根因。** 质押来源在推举后仍可融合到下一 NFT，因此同一份票权可以顺次重复满足推举门槛。修复后的回归覆盖 [当前 Round 推举](../compatibility/test/CoreAuditFindings.t.sol#L192)、[当前 Round 投票](../compatibility/test/CoreAuditFindings.t.sol#L247) 和 [创建回调](../compatibility/test/CoreAuditFindings.t.sol#L221)：当前 Round 已推举或已投票的来源均被拒绝，上一 Round 使用过的来源在下一 Round 可以融合。
+**已修复部分。** 当前 Round 已推举或已投票的来源不能再融合，创建回调也不能绕过；上一 Round 使用过的来源在下一 Round 可以融合。回归覆盖 [当前 Round 推举](../compatibility/test/CoreAuditFindings.t.sol#L192)、[当前 Round 投票](../compatibility/test/CoreAuditFindings.t.sol#L247) 和 [创建回调](../compatibility/test/CoreAuditFindings.t.sol#L221)。
 
-**建议。** 明确每轮可承受的提案量并在 `Submit` 写入口设置可验证上限，或阻止本轮已推举成员继续转出对应质押；若产品需要不设上限，则让 `Mint` 分批完成奖励准备。修改前应测量目标链 gas 限额及提案量增长曲线。
+**残留边界。** `Submit.canSubmit` 只检查提交当刻的票权比例，没有记录一轮内的累计 Proposal 数量。攻击者可以不断新增资金和 NFT：每次新增约为当前总票权 `1/99` 的质押，使新成员保持至少 1% 票权并提交一个 Proposal。前面的提交者可以被稀释，仍不影响已完成的提交；该过程不需要融合，也不违反当前的来源使用检查。回归测试用独立的 Submit/Stake/NFT 模拟完成 101 次提交，见 [testFreshCapitalCanStillGrowProposalCountPastThresholdBound](../compatibility/test/CoreAuditFindings.t.sol#L302)。
+
+**影响。** `Mint._calculateEligibleProposalVotes` 会遍历本轮所有投票 Proposal，并逐个跨合约读取票数。Proposal 数量可随资金增长，但每个新增成员都需要新增资本、NFT 成本和等待期。以 `0.3%` 门槛为例，333 个最低资格成员需要约 `2.72T` 总锁定票权，即新增约 `1.72T`；以常用的 `5%` Proposal 激励门槛计算，最多约 20 个 Proposal 能分到 Proposal 激励，超出的 Proposal 没有直接收益。因此该路径保留为需要监控的经济型 Gas 边界，不作为当前开放漏洞。
+
+**建议。** 保留当前融合限制，并在发布前固定 `SUBMIT_MIN_PER_THOUSAND >= 3`、`PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND > 0` 的配置；上线前测量目标链 Gas 限额和可承受的 Proposal 数量。当前不强制增加硬上限。
+
+## 低风险配置项
+
+- `Mint.init` 只校验两类奖励池之和与 Boost 倍数，没有校验 `proposalRewardMinVotePerThousand <= 1000`。部署值大于 `1000` 时，`_minProposalVotes` 永远高于本轮总票数，Proposal 池会被准备阶段取消。
+- `Launch.init` 只校验 `launchRatio > 0`。部署值大于 `1e18` 时，Launch 阈值可能超过剩余供应量，治理奖励不会转换为发射次数。
+- `Stake.init` 仍只校验 `MAX_WITHDRAWABLE_TO_FEE_RATIO > 0`，也不在合约内校验 Router 与 Factory 的一致性。这两项依赖发布前配置核对；错误实例必须拒绝发布。
 
 ## 其他核对结果
 
@@ -79,6 +91,6 @@
 
 - `core` 常规与模糊测试：排除耗时较长的 Mint 不变量组后，**393 项通过、0 项失败**。
 - Mint 不变量组：按缩短配置 **32 轮、每轮 40 次调用**，9 项不变量均通过；未把它等同于项目默认的 256 轮、每轮 500 次调用。
-- [修复回归测试](../compatibility/test/CoreAuditFindings.t.sol)：**5 项通过**，覆盖登记代币、预建 Pair、当前 Round 推举/投票、提案创建回调和跨 Round 融合。使用当前 `core` 源码及与 `dex` 同版本的原版 V2；已核对两处 Factory 创建字节码相同。
+- [修复回归测试](../compatibility/test/CoreAuditFindings.t.sol)：**6 项通过**，覆盖登记代币、预建 Pair、当前 Round 推举/投票、提案创建回调、跨 Round 融合和新增资金导致的累计 Proposal 数量增长。M-01 按经济边界接受。使用当前 `core` 源码及与 `dex` 同版本的原版 V2；已核对两处 Factory 创建字节码相同。
 - Slither 0.11.3：扫描 62 个合约、产生 157 条诊断，未报告 Critical/High；多数属于已知取整、循环、命名或泛化重入提示。C-01 和 H-01 由可运行复现确定，不能因扫描器未报警而排除。
 - 未做目标 BSC 链分叉测试、部署脚本验收或实际 MEV 盈利测算；M-01 在目标链达到拒绝服务所需的提案数仍待测量。

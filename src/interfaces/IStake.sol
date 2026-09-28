@@ -107,7 +107,6 @@ interface IStake is IStakeErrors, IStakeEvents {
     function phaseAddress() external view returns (address);
     function memberNFTAddress() external view returns (address);
     function voteAddress() external view returns (address);
-    function submitAddress() external view returns (address);
     function launchAddress() external view returns (address);
     function routerAddress() external view returns (address);
     function pairFactoryAddress() external view returns (address);
@@ -115,7 +114,6 @@ interface IStake is IStakeErrors, IStakeEvents {
         address phaseAddress,
         address memberNFTAddress,
         address voteAddress,
-        address submitAddress,
         address launchAddress,
         address routerAddress,
         address pairFactoryAddress,
