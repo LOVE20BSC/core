@@ -336,15 +336,12 @@ contract Launch is ILaunch {
             new LOVE20Token(name, symbol, LAUNCH_AMOUNT, MAX_SUPPLY, distributor, mintAddress, parentTokenAddress)
         );
 
-        // Every launched token gets its pair in the same transaction, so staking a community never depends
-        // on a step outside the protocol. The address is not stored here: Stake reads it from the factory
-        // on its first stake. A factory returning the zero address is rejected instead of leaving the
-        // community un-stakable without a trace.
-        // No reentrancy guard: the factory only deploys the pair and calls back into nothing that can reach
-        // Launch, and the caller registers the token right after this returns.
+        // Reuse a correct Pair that was created before this predictable CREATE address was deployed.
+        IUniswapV2Factory factory = IUniswapV2Factory(pairFactoryAddress);
         // forge-lint: disable-next-line(reentrancy-no-eth)
-        if (IUniswapV2Factory(pairFactoryAddress).createPair(tokenAddress, parentTokenAddress) == address(0)) {
-            revert InvalidAddress();
+        if (factory.getPair(tokenAddress, parentTokenAddress) == address(0)) {
+            // forge-lint: disable-next-line(reentrancy-no-eth)
+            if (factory.createPair(tokenAddress, parentTokenAddress) == address(0)) revert InvalidAddress();
         }
     }
 

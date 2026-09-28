@@ -93,6 +93,8 @@ contract Submit is ISubmit {
         proposalId = _createProposal(tokenAddress, memberId, proposalBody);
 
         _submitByProposalId(tokenAddress, memberId, proposalId);
+        _callProposalCreated(tokenAddress, proposalId);
+        _callProposalSubmitted(tokenAddress, proposalId, memberId);
         return proposalId;
     }
 
@@ -104,6 +106,7 @@ contract Submit is ISubmit {
         if (!canSubmit(tokenAddress, memberId)) revert CannotSubmitAction();
 
         _submitByProposalId(tokenAddress, memberId, proposalId);
+        _callProposalSubmitted(tokenAddress, proposalId, memberId);
     }
 
     function isSubmitted(
@@ -227,14 +230,6 @@ contract Submit is ISubmit {
             targetMode: proposalBody.targetMode
         });
 
-        if (proposalBody.targetMode == TargetMode.Callback) {
-            IProposalTarget(proposalBody.target).onProposalCreated(
-                tokenAddress,
-                proposalId,
-                proposalBody.targetData
-            );
-        }
-
         return proposalId;
     }
 
@@ -285,14 +280,19 @@ contract Submit is ISubmit {
             IPhase(phaseAddress).sync();
         }
 
+    }
+
+    function _callProposalCreated(address tokenAddress, uint256 proposalId) private {
         ProposalBody memory body = _proposals[tokenAddress][proposalId - 1].body;
         if (body.targetMode == TargetMode.Callback) {
-            IProposalTarget(body.target).onProposalSubmitted(
-                tokenAddress,
-                proposalId,
-                memberId,
-                body.targetData
-            );
+            IProposalTarget(body.target).onProposalCreated(tokenAddress, proposalId, body.targetData);
+        }
+    }
+
+    function _callProposalSubmitted(address tokenAddress, uint256 proposalId, uint256 memberId) private {
+        ProposalBody memory body = _proposals[tokenAddress][proposalId - 1].body;
+        if (body.targetMode == TargetMode.Callback) {
+            IProposalTarget(body.target).onProposalSubmitted(tokenAddress, proposalId, memberId, body.targetData);
         }
     }
 }

@@ -71,6 +71,8 @@ function init(
     address phaseAddress_,
     address memberNFTAddress_,
     address voteAddress_,
+    address submitAddress_,
+    address launchAddress_,
     address routerAddress_,
     address pairFactoryAddress_,
     uint256 promisedWaitingPhasesMin,
@@ -78,7 +80,7 @@ function init(
     uint256 maxWithdrawableToFeeRatio
 ) external
 ```
-**依赖**: Phase, MemberNFT, Vote, UniswapV2Router, UniswapV2Factory
+**依赖**: Phase, MemberNFT, Vote, Submit, Launch, UniswapV2Router, UniswapV2Factory
 
 ### Launch
 ```solidity
@@ -167,11 +169,13 @@ submit.init(
     50  // submitMinPerThousand: 5%
 );
 
-// 3. 初始化 Stake（依赖 Phase, MemberNFT, Vote, Router, Factory）
+// 3. 初始化 Stake（依赖 Phase, MemberNFT, Vote, Submit, Launch, Router, Factory）
 stake.init(
     address(phase),
     address(memberNFT),
     address(vote),
+    address(submit),
+    address(launch),
     address(router),
     address(factory),
     1,    // promisedWaitingPhasesMin

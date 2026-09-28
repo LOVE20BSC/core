@@ -78,7 +78,7 @@ rootToken = new LOVE20Token(...);
 // 阶段 2: 初始化 (init) - 按依赖顺序
 launch.init(...);   // 1. 先初始化，创建 firstToken
 submit.init(...);   // 2. 依赖 Phase, Stake, MemberNFT
-stake.init(...);    // 3. 依赖 Phase, MemberNFT, Vote, Router, Factory
+stake.init(...);    // 3. 依赖 Phase, MemberNFT, Vote, Submit, Launch, Router, Factory
 vote.init(...);     // 4. 依赖 Phase, Stake, Submit, MemberNFT, Mint
 mint.init(...);     // 5. 依赖 Vote, Submit, Launch, MemberNFT
 ```

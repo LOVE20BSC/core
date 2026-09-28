@@ -41,6 +41,20 @@ contract MockVote {
     }
 }
 
+contract MockLaunch {
+    mapping(address => bool) public isLOVE20Token;
+
+    function register(address token) external {
+        isLOVE20Token[token] = true;
+    }
+}
+
+contract MockSubmit {
+    function proposalIdBySubmitter(address, uint256, uint256) external pure returns (uint256) {
+        return 0;
+    }
+}
+
 /// Mock Router for swapping
 contract MockRouter {
     function getAmountsOut(uint256 amountIn, address[] calldata) external pure returns (uint256[] memory amounts) {
@@ -202,6 +216,8 @@ contract StakeTest {
     MemberNFT public memberNFT;
     MockPhase public phase;
     MockVote public vote;
+    MockSubmit public mockSubmit;
+    MockLaunch public mockLaunch;
     MockRouter public router;
     MockPairFactory public pairFactory;
 
@@ -224,6 +240,8 @@ contract StakeTest {
         phase.setPhase(1);
 
         vote = new MockVote();
+        mockSubmit = new MockSubmit();
+        mockLaunch = new MockLaunch();
         router = new MockRouter();
         pairFactory = new MockPairFactory();
 
@@ -257,6 +275,7 @@ contract StakeTest {
             address(this),
             address(parentToken) // parent token
         );
+        mockLaunch.register(address(childToken));
 
         // Deploy pair
         pair = new MockPair(address(childToken), address(parentToken));
@@ -270,6 +289,8 @@ contract StakeTest {
             address(phase),
             address(memberNFT),
             address(vote),
+            address(mockSubmit),
+            address(mockLaunch),
             address(router),
             address(pairFactory),
             PROMISED_WAITING_PHASES_MIN,
@@ -338,6 +359,8 @@ contract StakeTest {
         require(stake.phaseAddress() == address(phase), "Phase address mismatch");
         require(stake.memberNFTAddress() == address(memberNFT), "MemberNFT address mismatch");
         require(stake.voteAddress() == address(vote), "Vote address mismatch");
+        require(stake.submitAddress() == address(mockSubmit), "Submit address mismatch");
+        require(stake.launchAddress() == address(mockLaunch), "Launch address mismatch");
         require(stake.routerAddress() == address(router), "Router address mismatch");
         require(stake.pairFactoryAddress() == address(pairFactory), "PairFactory address mismatch");
         require(stake.PROMISED_WAITING_PHASES_MIN() == PROMISED_WAITING_PHASES_MIN, "Min phases mismatch");
@@ -353,6 +376,8 @@ contract StakeTest {
                 address(phase),
                 address(memberNFT),
                 address(vote),
+                address(mockSubmit),
+                address(mockLaunch),
                 address(router),
                 address(pairFactory),
                 PROMISED_WAITING_PHASES_MIN,
@@ -371,6 +396,8 @@ contract StakeTest {
                 address(0), // zero phase address
                 address(memberNFT),
                 address(vote),
+                address(mockSubmit),
+                address(mockLaunch),
                 address(router),
                 address(pairFactory),
                 PROMISED_WAITING_PHASES_MIN,
@@ -389,6 +416,8 @@ contract StakeTest {
                 address(phase),
                 address(0), // zero memberNFT address
                 address(vote),
+                address(mockSubmit),
+                address(mockLaunch),
                 address(router),
                 address(pairFactory),
                 PROMISED_WAITING_PHASES_MIN,
@@ -407,6 +436,8 @@ contract StakeTest {
                 address(phase),
                 address(memberNFT),
                 address(0), // zero vote address
+                address(mockSubmit),
+                address(mockLaunch),
                 address(router),
                 address(pairFactory),
                 PROMISED_WAITING_PHASES_MIN,
@@ -417,6 +448,26 @@ contract StakeTest {
         require(!success, "Should revert with zero vote address");
     }
 
+    function testInitRevertsWithZeroLaunchAddress() external {
+        Stake newStake = new Stake();
+        (bool success, ) = address(newStake).call(
+            abi.encodeWithSelector(
+                Stake.init.selector,
+                address(phase),
+                address(memberNFT),
+                address(vote),
+                address(mockSubmit),
+                address(0),
+                address(router),
+                address(pairFactory),
+                PROMISED_WAITING_PHASES_MIN,
+                PROMISED_WAITING_PHASES_MAX,
+                MAX_WITHDRAWABLE_TO_FEE_RATIO
+            )
+        );
+        require(!success, "Should revert with zero launch address");
+    }
+
     function testInitRevertsWithZeroRouterAddress() external {
         Stake newStake = new Stake();
         (bool success, ) = address(newStake).call(
@@ -425,6 +476,8 @@ contract StakeTest {
                 address(phase),
                 address(memberNFT),
                 address(vote),
+                address(mockSubmit),
+                address(mockLaunch),
                 address(0), // zero router address
                 address(pairFactory),
                 PROMISED_WAITING_PHASES_MIN,
@@ -443,6 +496,8 @@ contract StakeTest {
                 address(phase),
                 address(memberNFT),
                 address(vote),
+                address(mockSubmit),
+                address(mockLaunch),
                 address(router),
                 address(0), // zero pair factory address
                 PROMISED_WAITING_PHASES_MIN,
@@ -461,6 +516,8 @@ contract StakeTest {
                 address(phase),
                 address(memberNFT),
                 address(vote),
+                address(mockSubmit),
+                address(mockLaunch),
                 address(router),
                 address(pairFactory),
                 0, // zero min
@@ -479,6 +536,8 @@ contract StakeTest {
                 address(phase),
                 address(memberNFT),
                 address(vote),
+                address(mockSubmit),
+                address(mockLaunch),
                 address(router),
                 address(pairFactory),
                 PROMISED_WAITING_PHASES_MIN,
@@ -497,6 +556,8 @@ contract StakeTest {
                 address(phase),
                 address(memberNFT),
                 address(vote),
+                address(mockSubmit),
+                address(mockLaunch),
                 address(router),
                 address(pairFactory),
                 100, // min > max
@@ -2259,6 +2320,7 @@ contract StakeTest {
             address(this),
             address(parentToken)
         );
+        mockLaunch.register(address(newChild));
 
         // Create a new pair with reversed token order (parent is token0, child is token1)
         MockPair reversedPair = new MockPair(address(parentToken), address(newChild));
@@ -2323,6 +2385,7 @@ contract StakeTest {
             address(this),
             address(parentToken)
         );
+        mockLaunch.register(address(emptyToken));
 
         MockPair emptyPair = new MockPair(address(emptyToken), address(parentToken));
         // Set reserves to 0 to simulate empty pool
@@ -2373,6 +2436,7 @@ contract StakeTest {
             address(this),
             address(parentToken)
         );
+        mockLaunch.register(address(tinyToken));
 
         MockPair tinyPair = new MockPair(address(tinyToken), address(parentToken));
         pairFactory.setPair(address(tinyToken), address(parentToken), address(tinyPair));
@@ -2431,7 +2495,7 @@ contract StakeTest {
 
     function testStakeLiquidityRevertsWithInvalidToken() external {
         // Create a mock token that returns address(0) for parentTokenAddress
-        // This covers line 434: if (ILOVE20Token(tokenAddress).parentTokenAddress() == address(0))
+        // Unregistered tokens are rejected before Pair lookup.
         MockInvalidToken invalidToken = new MockInvalidToken();
 
         vm().prank(owner1);
@@ -2461,6 +2525,7 @@ contract StakeTest {
             address(this),
             address(parentToken)
         );
+        mockLaunch.register(address(zeroLpToken));
 
         MockPairZeroMint zeroMintPair = new MockPairZeroMint(address(zeroLpToken), address(parentToken));
         pairFactory.setPair(address(zeroLpToken), address(parentToken), address(zeroMintPair));
@@ -2546,4 +2611,3 @@ interface Vm {
     function prank(address) external;
     function expectRevert(bytes4) external;
 }
-

@@ -31,7 +31,7 @@ interface IStakeErrors {
     error InvalidMemberId();
     error NotMemberOwner(uint256 memberId);
     error SourceAndTargetMustBeDifferent();
-    error SourceHasVotedInCurrentRound();
+    error SourceHasUsedStakeRightsInCurrentRound();
     error TargetPromisedWaitingPhasesTooShort();
     error InvalidAddress();
     error ZeroAmount(string parameter);
@@ -107,12 +107,16 @@ interface IStake is IStakeErrors, IStakeEvents {
     function phaseAddress() external view returns (address);
     function memberNFTAddress() external view returns (address);
     function voteAddress() external view returns (address);
+    function submitAddress() external view returns (address);
+    function launchAddress() external view returns (address);
     function routerAddress() external view returns (address);
     function pairFactoryAddress() external view returns (address);
     function init(
         address phaseAddress,
         address memberNFTAddress,
         address voteAddress,
+        address submitAddress,
+        address launchAddress,
         address routerAddress,
         address pairFactoryAddress,
         uint256 promisedWaitingPhasesMin,

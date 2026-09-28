@@ -6,6 +6,8 @@ import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20
 import {RoundHistoryUint256} from "../lib/libs/src/RoundHistoryUint256.sol";
 import {Pagination} from "../lib/libs/src/Pagination.sol";
 import {IPhase} from "./interfaces/IPhase.sol";
+import {ILaunch} from "./interfaces/ILaunch.sol";
+import {ISubmit} from "./interfaces/ISubmit.sol";
 import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
 import {IUniswapV2Pair} from "./interfaces/UniswapV2/IUniswapV2Pair.sol";
@@ -36,6 +38,8 @@ contract Stake is IStake {
     address public phaseAddress;
     address public memberNFTAddress;
     address public voteAddress;
+    address public submitAddress;
+    address public launchAddress;
     address public routerAddress;
     address public pairFactoryAddress;
     uint256 public PROMISED_WAITING_PHASES_MIN;
@@ -57,6 +61,8 @@ contract Stake is IStake {
         address phaseAddress_,
         address memberNFTAddress_,
         address voteAddress_,
+        address submitAddress_,
+        address launchAddress_,
         address routerAddress_,
         address pairFactoryAddress_,
         uint256 promisedWaitingPhasesMin,
@@ -68,6 +74,8 @@ contract Stake is IStake {
             phaseAddress_ == address(0) ||
             memberNFTAddress_ == address(0) ||
             voteAddress_ == address(0) ||
+            submitAddress_ == address(0) ||
+            launchAddress_ == address(0) ||
             routerAddress_ == address(0) ||
             pairFactoryAddress_ == address(0)
         ) revert InvalidAddress();
@@ -79,6 +87,8 @@ contract Stake is IStake {
         phaseAddress = phaseAddress_;
         memberNFTAddress = memberNFTAddress_;
         voteAddress = voteAddress_;
+        submitAddress = submitAddress_;
+        launchAddress = launchAddress_;
         routerAddress = routerAddress_;
         pairFactoryAddress = pairFactoryAddress_;
         PROMISED_WAITING_PHASES_MIN = promisedWaitingPhasesMin;
@@ -254,8 +264,11 @@ contract Stake is IStake {
         if (source.liquidityShares == 0) revert NoStakedLiquidity();
 
         uint256 round = _currentRound();
-        if (IVote(voteAddress).votesNumByMemberId(tokenAddress, round, sourceMemberId) != 0) {
-            revert SourceHasVotedInCurrentRound();
+        if (
+            IVote(voteAddress).votesNumByMemberId(tokenAddress, round, sourceMemberId) != 0
+                || ISubmit(submitAddress).proposalIdBySubmitter(tokenAddress, round, sourceMemberId) != 0
+        ) {
+            revert SourceHasUsedStakeRightsInCurrentRound();
         }
 
         (uint256 liquiditySharesMerged, uint256 boostSharesMerged) =
@@ -417,7 +430,7 @@ contract Stake is IStake {
     }
 
     function _requireToken(address tokenAddress) private view {
-        if (ILOVE20Token(tokenAddress).parentTokenAddress() == address(0)) revert InvalidTokenAddress();
+        if (!ILaunch(launchAddress).isLOVE20Token(tokenAddress)) revert InvalidTokenAddress();
     }
 
     /// @dev Every token Stake moves — LOVE20 tokens, WBNB and the pair's LP token — reverts instead of
