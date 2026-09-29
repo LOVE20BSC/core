@@ -18,6 +18,13 @@ if [ -f "$NETWORK_DIR/network.params" ]; then
     set +a
 fi
 
+# 加载 dex 部署地址（WBNB, Factory, Router）
+if [ -f "$NETWORK_DIR/addresses.dex.params" ]; then
+    set -a
+    source "$NETWORK_DIR/addresses.dex.params"
+    set +a
+fi
+
 # 加载合约参数
 if [ -f "$NETWORK_DIR/core.params" ]; then
     set -a
