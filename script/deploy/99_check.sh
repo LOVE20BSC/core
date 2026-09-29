@@ -5,7 +5,9 @@ echo "=== Verifying Deployment ==="
 
 # 检查所有合约地址是否已设置
 if [ -z "${LOVE20TOKEN_ADDRESS:-}" ] || [ -z "${MEMBERNFT_ADDRESS:-}" ] || \
-   [ -z "${PHASE_ADDRESS:-}" ] || [ -z "${LAUNCH_ADDRESS:-}" ]; then
+   [ -z "${PHASE_ADDRESS:-}" ] || [ -z "${LAUNCH_ADDRESS:-}" ] || \
+   [ -z "${MINT_ADDRESS:-}" ] || [ -z "${STAKE_ADDRESS:-}" ] || \
+   [ -z "${SUBMIT_ADDRESS:-}" ] || [ -z "${VOTE_ADDRESS:-}" ]; then
     echo "Error: Not all contract addresses are set"
     exit 1
 fi
@@ -36,6 +38,34 @@ echo "Checking Launch at $LAUNCH_ADDRESS..."
 LAUNCH_CODE=$(cast code "$LAUNCH_ADDRESS" --rpc-url "$RPC_URL")
 if [ "$LAUNCH_CODE" = "0x" ]; then
     echo "Error: Launch not deployed"
+    exit 1
+fi
+
+echo "Checking Mint at $MINT_ADDRESS..."
+MINT_CODE=$(cast code "$MINT_ADDRESS" --rpc-url "$RPC_URL")
+if [ "$MINT_CODE" = "0x" ]; then
+    echo "Error: Mint not deployed"
+    exit 1
+fi
+
+echo "Checking Stake at $STAKE_ADDRESS..."
+STAKE_CODE=$(cast code "$STAKE_ADDRESS" --rpc-url "$RPC_URL")
+if [ "$STAKE_CODE" = "0x" ]; then
+    echo "Error: Stake not deployed"
+    exit 1
+fi
+
+echo "Checking Submit at $SUBMIT_ADDRESS..."
+SUBMIT_CODE=$(cast code "$SUBMIT_ADDRESS" --rpc-url "$RPC_URL")
+if [ "$SUBMIT_CODE" = "0x" ]; then
+    echo "Error: Submit not deployed"
+    exit 1
+fi
+
+echo "Checking Vote at $VOTE_ADDRESS..."
+VOTE_CODE=$(cast code "$VOTE_ADDRESS" --rpc-url "$RPC_URL")
+if [ "$VOTE_CODE" = "0x" ]; then
+    echo "Error: Vote not deployed"
     exit 1
 fi
 

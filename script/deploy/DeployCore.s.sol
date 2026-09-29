@@ -8,6 +8,9 @@ import {MemberNFT} from "../../src/MemberNFT.sol";
 import {Phase} from "../../src/Phase.sol";
 import {Launch} from "../../src/Launch.sol";
 import {Mint} from "../../src/Mint.sol";
+import {Vote} from "../../src/Vote.sol";
+import {Submit} from "../../src/Submit.sol";
+import {Stake} from "../../src/Stake.sol";
 import {LaunchInitParams} from "../../src/interfaces/ILaunch.sol";
 
 contract DeployCore is Script {
@@ -17,6 +20,9 @@ contract DeployCore is Script {
         address phase;
         address launch;
         address mint;
+        address vote;
+        address submit;
+        address stake;
     }
 
     function run() external returns (DeploymentAddresses memory addrs) {
@@ -72,6 +78,63 @@ contract DeployCore is Script {
         (address[] memory tokens,) = Launch(addrs.launch).tokens(0, 1, false);
         addrs.token = tokens[0];
         console2.log("First LOVE20Token created at:", addrs.token);
+
+        // 部署 Stake（未初始化）
+        addrs.stake = address(new Stake());
+        console2.log("Stake deployed at:", addrs.stake);
+
+        // 部署 Submit（未初始化）
+        addrs.submit = address(new Submit());
+        console2.log("Submit deployed at:", addrs.submit);
+
+        // 部署 Vote（未初始化）
+        addrs.vote = address(new Vote());
+        console2.log("Vote deployed at:", addrs.vote);
+
+        // 初始化 Stake
+        Stake(addrs.stake).init(
+            addrs.phase,
+            addrs.memberNFT,
+            addrs.vote,
+            addrs.launch,
+            vm.envAddress("ROUTER_ADDRESS"),
+            vm.envAddress("FACTORY_ADDRESS"),
+            vm.envUint("PROMISED_WAITING_PHASES_MIN"),
+            vm.envUint("PROMISED_WAITING_PHASES_MAX"),
+            vm.envUint("MAX_WITHDRAWABLE_TO_FEE_RATIO")
+        );
+        console2.log("Stake initialized");
+
+        // 初始化 Submit
+        Submit(addrs.submit).init(
+            addrs.phase,
+            addrs.stake,
+            addrs.memberNFT,
+            vm.envUint("SUBMIT_MIN_PER_THOUSAND")
+        );
+        console2.log("Submit initialized");
+
+        // 初始化 Vote
+        Vote(addrs.vote).init(
+            addrs.phase,
+            addrs.stake,
+            addrs.submit,
+            addrs.memberNFT
+        );
+        console2.log("Vote initialized");
+
+        // 初始化 Mint（需要所有合约地址）
+        Mint(addrs.mint).init(
+            addrs.vote,
+            addrs.submit,
+            addrs.launch,
+            addrs.memberNFT,
+            vm.envUint("MIN_PROPOSAL_VOTES"),
+            vm.envUint("GOV_REWARD_RATIO"),
+            vm.envUint("PROPOSAL_REWARD_RATIO"),
+            vm.envUint("MAX_BOOST_MULTIPLIER")
+        );
+        console2.log("Mint initialized");
     }
 
     function _deployMemberNFT() private returns (MemberNFT) {
@@ -132,6 +195,9 @@ contract DeployCore is Script {
         console2.log("PHASE_ADDRESS=", addrs.phase);
         console2.log("LAUNCH_ADDRESS=", addrs.launch);
         console2.log("MINT_ADDRESS=", addrs.mint);
+        console2.log("STAKE_ADDRESS=", addrs.stake);
+        console2.log("SUBMIT_ADDRESS=", addrs.submit);
+        console2.log("VOTE_ADDRESS=", addrs.vote);
     }
 
     function _writeAddressFile(DeploymentAddresses memory addrs) private {
@@ -145,9 +211,9 @@ contract DeployCore is Script {
                 "PHASE_ADDRESS=", vm.toString(addrs.phase), "\n",
                 "LAUNCH_ADDRESS=", vm.toString(addrs.launch), "\n",
                 "MINT_ADDRESS=", vm.toString(addrs.mint), "\n",
-                "STAKE_ADDRESS=\n",
-                "SUBMIT_ADDRESS=\n",
-                "VOTE_ADDRESS=\n"
+                "STAKE_ADDRESS=", vm.toString(addrs.stake), "\n",
+                "SUBMIT_ADDRESS=", vm.toString(addrs.submit), "\n",
+                "VOTE_ADDRESS=", vm.toString(addrs.vote), "\n"
             )
         );
     }

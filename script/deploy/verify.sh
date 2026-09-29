@@ -12,7 +12,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/00_init.sh" "$network" || exit 1
 
 if [ -z "${LOVE20TOKEN_ADDRESS:-}" ] || [ -z "${MEMBERNFT_ADDRESS:-}" ] || \
-   [ -z "${PHASE_ADDRESS:-}" ] || [ -z "${LAUNCH_ADDRESS:-}" ]; then
+   [ -z "${PHASE_ADDRESS:-}" ] || [ -z "${LAUNCH_ADDRESS:-}" ] || \
+   [ -z "${MINT_ADDRESS:-}" ] || [ -z "${STAKE_ADDRESS:-}" ] || \
+   [ -z "${SUBMIT_ADDRESS:-}" ] || [ -z "${VOTE_ADDRESS:-}" ]; then
     echo "Error: Contract addresses not found. Please deploy first."
     exit 1
 fi
@@ -74,5 +76,37 @@ forge verify-contract "$LOVE20TOKEN_ADDRESS" \
         "$TOKEN_NAME" "$TOKEN_SYMBOL" "$INITIAL_SUPPLY" "$MAX_SUPPLY" \
         "$DISTRIBUTOR" "$MINTER" "$PARENT_TOKEN") \
     --watch || echo "LOVE20Token verification failed or already verified"
+
+echo "Verifying Mint..."
+forge verify-contract "$MINT_ADDRESS" \
+    src/Mint.sol:Mint \
+    --chain-id "$CHAIN_ID" \
+    --verifier-url "$VERIFIER_URL" \
+    --etherscan-api-key "$ETHERSCAN_API_KEY" \
+    --watch || echo "Mint verification failed or already verified"
+
+echo "Verifying Stake..."
+forge verify-contract "$STAKE_ADDRESS" \
+    src/Stake.sol:Stake \
+    --chain-id "$CHAIN_ID" \
+    --verifier-url "$VERIFIER_URL" \
+    --etherscan-api-key "$ETHERSCAN_API_KEY" \
+    --watch || echo "Stake verification failed or already verified"
+
+echo "Verifying Submit..."
+forge verify-contract "$SUBMIT_ADDRESS" \
+    src/Submit.sol:Submit \
+    --chain-id "$CHAIN_ID" \
+    --verifier-url "$VERIFIER_URL" \
+    --etherscan-api-key "$ETHERSCAN_API_KEY" \
+    --watch || echo "Submit verification failed or already verified"
+
+echo "Verifying Vote..."
+forge verify-contract "$VOTE_ADDRESS" \
+    src/Vote.sol:Vote \
+    --chain-id "$CHAIN_ID" \
+    --verifier-url "$VERIFIER_URL" \
+    --etherscan-api-key "$ETHERSCAN_API_KEY" \
+    --watch || echo "Vote verification failed or already verified"
 
 echo "✓ Contract verification completed"
