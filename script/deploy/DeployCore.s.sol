@@ -66,13 +66,16 @@ contract DeployCore is Script {
     }
 
     function _deployToken() private returns (LOVE20Token) {
+        address distributor = vm.envAddress("DISTRIBUTOR");
+        address launch = address(0); // Launch.init 时由 Launch 调用 token.setMinter
+
         return new LOVE20Token(
             vm.envString("TOKEN_NAME"),
             vm.envString("TOKEN_SYMBOL"),
             vm.envUint("INITIAL_SUPPLY"),
             vm.envUint("MAX_SUPPLY"),
-            vm.envAddress("DISTRIBUTOR"),
-            vm.envAddress("MINTER"),
+            distributor,
+            launch, // minter 临时设为 Launch 地址占位，init 后再设置
             vm.envAddress("PARENT_TOKEN")
         );
     }
