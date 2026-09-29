@@ -16,16 +16,19 @@ contract DeployCore is Script {
         address launch;
     }
 
-    function run() external {
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+    function run() external returns (DeploymentAddresses memory addrs) {
+        vm.startBroadcast();
 
-        vm.startBroadcast(deployerPrivateKey);
-
-        DeploymentAddresses memory addrs = _deployContracts();
+        addrs = _deployContracts();
 
         vm.stopBroadcast();
 
+        _verifyDeployment(addrs);
         _logDeploymentSummary(addrs);
+
+        if (vm.envOr("WRITE_ADDRESS_FILE", false)) {
+            _writeAddressFile(addrs);
+        }
     }
 
     function _deployContracts() private returns (DeploymentAddresses memory addrs) {
@@ -77,11 +80,56 @@ contract DeployCore is Script {
         );
     }
 
+    function _verifyDeployment(DeploymentAddresses memory addrs) private view {
+        // 验证 LOVE20Token 配置
+        LOVE20Token token = LOVE20Token(addrs.token);
+        require(
+            keccak256(bytes(token.name())) == keccak256(bytes(vm.envString("TOKEN_NAME"))),
+            "Token name mismatch"
+        );
+        require(
+            keccak256(bytes(token.symbol())) == keccak256(bytes(vm.envString("TOKEN_SYMBOL"))),
+            "Token symbol mismatch"
+        );
+        require(token.minter() == vm.envAddress("MINTER"), "Token minter mismatch");
+        require(token.parentTokenAddress() == vm.envAddress("PARENT_TOKEN"), "Token parentToken mismatch");
+
+        // 验证 MemberNFT 配置
+        MemberNFT memberNFT = MemberNFT(addrs.memberNFT);
+        require(memberNFT.BASE_DIVISOR() == vm.envUint("MEMBER_BASE_DIVISOR"), "MemberNFT baseDivisor mismatch");
+        require(
+            memberNFT.BYTES_THRESHOLD() == vm.envUint("MEMBER_BYTES_THRESHOLD"),
+            "MemberNFT bytesThreshold mismatch"
+        );
+
+        // 验证 Phase 配置
+        Phase phase = Phase(addrs.phase);
+        require(phase.TARGET_SECONDS() == vm.envUint("PHASE_TARGET_SECONDS"), "Phase TARGET_SECONDS mismatch");
+    }
+
     function _logDeploymentSummary(DeploymentAddresses memory addrs) private pure {
         console2.log("\n=== Deployment Summary ===");
         console2.log("LOVE20TOKEN_ADDRESS=", addrs.token);
         console2.log("MEMBERNFT_ADDRESS=", addrs.memberNFT);
         console2.log("PHASE_ADDRESS=", addrs.phase);
         console2.log("LAUNCH_ADDRESS=", addrs.launch);
+    }
+
+    function _writeAddressFile(DeploymentAddresses memory addrs) private {
+        string memory network = vm.envOr("network", string("anvil31337_dev"));
+        string memory path = string.concat("script/network/", network, "/addresses.core.params");
+        vm.writeFile(
+            path,
+            string.concat(
+                "LOVE20TOKEN_ADDRESS=", vm.toString(addrs.token), "\n",
+                "MEMBERNFT_ADDRESS=", vm.toString(addrs.memberNFT), "\n",
+                "PHASE_ADDRESS=", vm.toString(addrs.phase), "\n",
+                "LAUNCH_ADDRESS=", vm.toString(addrs.launch), "\n",
+                "STAKE_ADDRESS=\n",
+                "SUBMIT_ADDRESS=\n",
+                "VOTE_ADDRESS=\n",
+                "MINT_ADDRESS=\n"
+            )
+        );
     }
 }
