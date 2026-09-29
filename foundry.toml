@@ -10,6 +10,14 @@ bytecode_hash = "none"
 cbor_metadata = false
 deny = "warnings"
 
+[fuzz]
+runs = 256
+
+[invariant]
+runs = 32
+depth = 15
+fail_on_revert = false
+
 [lint]
 severity = ["high", "med", "low"]
 ignore = ["test/**/*.sol"]
