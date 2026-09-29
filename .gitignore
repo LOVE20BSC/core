@@ -2,3 +2,6 @@
 /cache/
 *.bin
 lcov.info
+
+# 敏感部署配置
+script/network/**/.account
