@@ -7,6 +7,8 @@ import {LOVE20Token} from "../../src/LOVE20Token.sol";
 import {MemberNFT} from "../../src/MemberNFT.sol";
 import {Phase} from "../../src/Phase.sol";
 import {Launch} from "../../src/Launch.sol";
+import {Mint} from "../../src/Mint.sol";
+import {LaunchInitParams} from "../../src/interfaces/ILaunch.sol";
 
 contract DeployCore is Script {
     struct DeploymentAddresses {
@@ -14,6 +16,7 @@ contract DeployCore is Script {
         address memberNFT;
         address phase;
         address launch;
+        address mint;
     }
 
     function run() external returns (DeploymentAddresses memory addrs) {
@@ -40,13 +43,35 @@ contract DeployCore is Script {
         addrs.phase = address(_deployPhase());
         console2.log("Phase deployed at:", addrs.phase);
 
+        // 部署 Mint（未初始化）
+        addrs.mint = address(new Mint());
+        console2.log("Mint deployed at:", addrs.mint);
+
         // 部署 Launch
         addrs.launch = address(new Launch());
         console2.log("Launch deployed at:", addrs.launch);
 
-        // 部署首个 LOVE20Token
-        addrs.token = address(_deployToken());
-        console2.log("LOVE20Token deployed at:", addrs.token);
+        // 调用 Launch.init() 创建首个代币
+        LaunchInitParams memory launchParams = LaunchInitParams({
+            mintAddress: addrs.mint,
+            memberNFTAddress: addrs.memberNFT,
+            rootParentTokenAddress: vm.envAddress("PARENT_TOKEN"),
+            pairFactoryAddress: vm.envAddress("FACTORY_ADDRESS"),
+            launchRatio: vm.envUint("LAUNCH_RATIO"),
+            maxLaunchCount: vm.envUint("MAX_LAUNCH_COUNT"),
+            tokenSymbolLength: vm.envUint("TOKEN_SYMBOL_LENGTH"),
+            launchAmount: vm.envUint("INITIAL_SUPPLY"),
+            maxSupply: vm.envUint("MAX_SUPPLY"),
+            distributor: vm.envAddress("DISTRIBUTOR"),
+            name: vm.envString("TOKEN_NAME"),
+            symbol: vm.envString("TOKEN_SYMBOL")
+        });
+        Launch(addrs.launch).init(launchParams);
+
+        // 从 Launch 获取首个代币地址
+        (address[] memory tokens,) = Launch(addrs.launch).tokens(0, 1, false);
+        addrs.token = tokens[0];
+        console2.log("First LOVE20Token created at:", addrs.token);
     }
 
     function _deployMemberNFT() private returns (MemberNFT) {
@@ -68,18 +93,6 @@ contract DeployCore is Script {
         );
     }
 
-    function _deployToken() private returns (LOVE20Token) {
-        return new LOVE20Token(
-            vm.envString("TOKEN_NAME"),
-            vm.envString("TOKEN_SYMBOL"),
-            vm.envUint("INITIAL_SUPPLY"),
-            vm.envUint("MAX_SUPPLY"),
-            vm.envAddress("DISTRIBUTOR"),
-            vm.envAddress("MINTER"),
-            vm.envAddress("PARENT_TOKEN")
-        );
-    }
-
     function _verifyDeployment(DeploymentAddresses memory addrs) private view {
         // 验证 LOVE20Token 配置
         LOVE20Token token = LOVE20Token(addrs.token);
@@ -91,7 +104,7 @@ contract DeployCore is Script {
             keccak256(bytes(token.symbol())) == keccak256(bytes(vm.envString("TOKEN_SYMBOL"))),
             "Token symbol mismatch"
         );
-        require(token.minter() == vm.envAddress("MINTER"), "Token minter mismatch");
+        require(token.minter() == addrs.mint, "Token minter mismatch");
         require(token.parentTokenAddress() == vm.envAddress("PARENT_TOKEN"), "Token parentToken mismatch");
 
         // 验证 MemberNFT 配置
@@ -105,6 +118,11 @@ contract DeployCore is Script {
         // 验证 Phase 配置
         Phase phase = Phase(addrs.phase);
         require(phase.TARGET_SECONDS() == vm.envUint("PHASE_TARGET_SECONDS"), "Phase TARGET_SECONDS mismatch");
+
+        // 验证 Launch 初始化
+        Launch launch = Launch(addrs.launch);
+        require(launch.initialized(), "Launch not initialized");
+        require(launch.mintAddress() == addrs.mint, "Launch mintAddress mismatch");
     }
 
     function _logDeploymentSummary(DeploymentAddresses memory addrs) private pure {
@@ -113,6 +131,7 @@ contract DeployCore is Script {
         console2.log("MEMBERNFT_ADDRESS=", addrs.memberNFT);
         console2.log("PHASE_ADDRESS=", addrs.phase);
         console2.log("LAUNCH_ADDRESS=", addrs.launch);
+        console2.log("MINT_ADDRESS=", addrs.mint);
     }
 
     function _writeAddressFile(DeploymentAddresses memory addrs) private {
@@ -125,10 +144,10 @@ contract DeployCore is Script {
                 "MEMBERNFT_ADDRESS=", vm.toString(addrs.memberNFT), "\n",
                 "PHASE_ADDRESS=", vm.toString(addrs.phase), "\n",
                 "LAUNCH_ADDRESS=", vm.toString(addrs.launch), "\n",
+                "MINT_ADDRESS=", vm.toString(addrs.mint), "\n",
                 "STAKE_ADDRESS=\n",
                 "SUBMIT_ADDRESS=\n",
-                "VOTE_ADDRESS=\n",
-                "MINT_ADDRESS=\n"
+                "VOTE_ADDRESS=\n"
             )
         );
     }
