@@ -254,6 +254,88 @@ verify_value "memberNFTAddress" "$MEMBERNFT_ADDRESS" "$ACTUAL_VOTE_MEMBER" || ((
 ACTUAL_VOTE_INIT=$(cast call "$VOTE_ADDRESS" "initialized()(bool)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "initialized" "true" "$ACTUAL_VOTE_INIT" || ((FAILED++))
 
+# ========================================
+# 边界值验证（安全检查）
+# ========================================
+echo ""
+echo -e "${CYAN}─────────────────────────────────────────${NC}"
+echo -e "${BLUE}Boundary Value Checks${NC}"
+echo -e "${CYAN}─────────────────────────────────────────${NC}"
+
+# 验证边界值的辅助函数
+verify_boundary() {
+    local field_name=$1
+    local actual=$2
+    local max_value=$3
+
+    actual=$(normalize_output "$actual")
+
+    if [ "$actual" = "ERROR" ]; then
+        echo -e "  ${RED}✗${NC} ${field_name}: Failed to read value"
+        return 1
+    fi
+
+    # 使用 bc 进行大数比较
+    if command -v bc &>/dev/null; then
+        if [ "$(echo "$actual <= $max_value" | bc)" -eq 1 ]; then
+            echo -e "  ${GREEN}✓${NC} ${field_name} <= $max_value (actual: $actual)"
+            return 0
+        else
+            echo -e "  ${RED}✗${NC} ${field_name} > $max_value (actual: $actual)"
+            return 1
+        fi
+    else
+        # 回退到简单的数字比较（可能不支持大数）
+        if [ "$actual" -le "$max_value" ] 2>/dev/null; then
+            echo -e "  ${GREEN}✓${NC} ${field_name} <= $max_value (actual: $actual)"
+            return 0
+        else
+            echo -e "  ${RED}✗${NC} ${field_name} > $max_value (actual: $actual)"
+            return 1
+        fi
+    fi
+}
+
+# 1. 验证 PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND <= 1000
+echo -e "${GRAY}Checking PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND...${NC}"
+verify_boundary "PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND" "$ACTUAL_MIN_PROPOSAL" "1000" || ((FAILED++))
+
+# 2. 验证 LAUNCH_RATIO <= 1e18
+echo -e "${GRAY}Checking LAUNCH_RATIO...${NC}"
+verify_boundary "LAUNCH_RATIO" "$ACTUAL_LAUNCH_RATIO" "1000000000000000000" || ((FAILED++))
+
+# 3. 验证 Router 和 Factory 的地址一致性
+echo -e "${GRAY}Checking Router-Factory consistency...${NC}"
+ROUTER_FACTORY=$(cast call "$ACTUAL_ROUTER" "factory()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+if [ "$ROUTER_FACTORY" = "ERROR" ]; then
+    echo -e "  ${RED}✗${NC} Router.factory() call failed"
+    ((FAILED++))
+elif [ "$(normalize_output "$ROUTER_FACTORY")" = "$(normalize_output "$ACTUAL_FACTORY")" ]; then
+    echo -e "  ${GREEN}✓${NC} Router.factory() == pairFactoryAddress"
+else
+    echo -e "  ${RED}✗${NC} Router.factory() mismatch"
+    echo -e "    Expected: $ACTUAL_FACTORY"
+    echo -e "    Got:      $ROUTER_FACTORY"
+    ((FAILED++))
+fi
+
+# 4. 验证 Router WETH 地址存在
+echo -e "${GRAY}Checking Router WETH...${NC}"
+ROUTER_WETH=$(cast call "$ACTUAL_ROUTER" "WETH()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+if [ "$ROUTER_WETH" = "ERROR" ]; then
+    echo -e "  ${RED}✗${NC} Router.WETH() call failed"
+    ((FAILED++))
+else
+    ROUTER_WETH=$(normalize_output "$ROUTER_WETH")
+    # 检查是否为零地址
+    if [ "$ROUTER_WETH" = "0x0000000000000000000000000000000000000000" ]; then
+        echo -e "  ${RED}✗${NC} Router.WETH() is zero address"
+        ((FAILED++))
+    else
+        echo -e "  ${GREEN}✓${NC} Router.WETH() = $ROUTER_WETH"
+    fi
+fi
+
 echo ""
 echo -e "${CYAN}════════════════════════════════════════${NC}"
 if [ $FAILED -eq 0 ]; then

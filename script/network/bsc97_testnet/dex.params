@@ -1,0 +1,14 @@
+# PancakeSwap V2 合约地址（BSC Testnet）
+# 参考：https://docs.pancakeswap.finance/developers/smart-contracts/pancakeswap-exchange/v2-contracts
+
+# PancakeSwap V2 Router
+ROUTER_ADDRESS=0xD99D1c33F9fC3444f8101754aBC46c52416550D1
+
+# PancakeSwap V2 Factory
+FACTORY_ADDRESS=0x6725F303b657a9451d8BA641348b6761A6CC7a17
+
+# Wrapped BNB (WBNB) - BSC Testnet
+WBNB_ADDRESS=0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd
+
+# 注意：这些地址已在兼容性测试中验证
+# 参考：compatibility/results/compatibility-report.md
