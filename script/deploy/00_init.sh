@@ -50,6 +50,13 @@ export network
 export NETWORK_DIR
 export PROJECT_ROOT
 
+# 检查网络连通性
+if ! cast block-number --rpc-url "$RPC_URL" &>/dev/null; then
+    echo "Error: Cannot connect to RPC at $RPC_URL"
+    echo "Please check if the network is running"
+    exit 1
+fi
+
 echo "✓ Initialized environment for network: $network"
 echo "  RPC_URL: $RPC_URL"
 echo "  CHAIN_ID: $CHAIN_ID"

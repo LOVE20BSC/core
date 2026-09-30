@@ -1,2 +1,3 @@
 CHAIN_ID=31337
 RPC_URL=http://localhost:8545
+ETHERSCAN_API_KEY=
