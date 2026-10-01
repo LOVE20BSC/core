@@ -26,6 +26,9 @@ contract DeployCore is Script {
     }
 
     function run() external returns (DeploymentAddresses memory addrs) {
+        require(block.chainid == vm.envUint("CHAIN_ID"), "Chain ID mismatch");
+        require(vm.envUint("MIN_PROPOSAL_VOTES") <= 1000, "Proposal threshold exceeds 1000");
+        require(vm.envUint("LAUNCH_RATIO") <= 1e18, "Launch ratio exceeds 1e18");
         vm.startBroadcast();
 
         addrs = _deployContracts();

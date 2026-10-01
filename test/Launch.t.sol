@@ -344,6 +344,20 @@ contract LaunchTest {
         require(keccak256(bytes(_argString(data))) == keccak256("launchAmount"), "launch amount parameter name");
     }
 
+    function testInitLaunchRatioUpperBound() public {
+        LaunchInitParams memory params = _freshParams();
+        Launch bounded = new Launch();
+        params.launchRatio = 1e18 + 1;
+        bytes memory data = _revertOf(
+            address(bounded), abi.encodeWithSelector(ILaunch.init.selector, params), "ratio above 100%"
+        );
+        require(_selector(data) == ILaunchErrors.InvalidAmount.selector, "invalid ratio selector");
+        require(!bounded.initialized(), "invalid ratio must not initialize");
+        params.launchRatio = 1e18;
+        bounded.init(params);
+        require(bounded.LAUNCH_RATIO() == 1e18, "100% is allowed");
+    }
+
     function testInitRejectsLaunchAmountAboveMaxSupply() public {
         LaunchInitParams memory params = _freshParams();
         params.launchAmount = MAX_SUPPLY + 1;

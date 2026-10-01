@@ -665,9 +665,10 @@ contract Stake is IStake {
         global.lastWithdrawableLp -= lpAmount;
         global.totalLiquidityShares -= liquidityShares;
 
-        IUniswapV2Pair pairContract = IUniswapV2Pair(pair);
-        _push(pair, pair, lpAmount);
-        (tokenAmount, parentTokenAmount) = _burnLp(pairContract, tokenAddress, msg.sender);
+        if (lpAmount > 0) {
+            _push(pair, pair, lpAmount);
+            (tokenAmount, parentTokenAmount) = _burnLp(IUniswapV2Pair(pair), tokenAddress, msg.sender);
+        }
 
         _updateSqrtKBaseline(global, pair, tokenAddress);
     }

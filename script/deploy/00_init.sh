@@ -11,6 +11,13 @@ if [ ! -d "$NETWORK_DIR" ]; then
     exit 1
 fi
 
+for config in network.params addresses.dex.params core.params; do
+    if [ ! -f "$NETWORK_DIR/$config" ]; then
+        echo "Error: Missing required configuration: $NETWORK_DIR/$config"
+        exit 1
+    fi
+done
+
 # 加载网络配置
 if [ -f "$NETWORK_DIR/network.params" ]; then
     set -a
@@ -50,10 +57,10 @@ export network
 export NETWORK_DIR
 export PROJECT_ROOT
 
-# 检查网络连通性
-if ! cast block-number --rpc-url "$RPC_URL" &>/dev/null; then
-    echo "Error: Cannot connect to RPC at $RPC_URL"
-    echo "Please check if the network is running"
+# 确认实际链，不能只检查 RPC 是否可连接。
+ACTUAL_CHAIN_ID=$(cast chain-id --rpc-url "$RPC_URL") || exit 1
+if [ "$ACTUAL_CHAIN_ID" != "$CHAIN_ID" ]; then
+    echo "Error: RPC chain ID $ACTUAL_CHAIN_ID does not match configured CHAIN_ID $CHAIN_ID"
     exit 1
 fi
 

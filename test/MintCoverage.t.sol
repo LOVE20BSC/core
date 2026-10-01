@@ -114,6 +114,19 @@ contract MintCoverageTest {
         c.init(address(this), address(this), address(this), address(this), 50, 600, 401, 2);
     }
 
+    function testInitProposalThresholdBounds() public {
+        Mint bounded = new Mint();
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAmount.selector));
+        bounded.init(address(this), address(this), address(this), address(this), 1001, 100, 100, 2);
+        require(!bounded.initialized(), "invalid threshold must not initialize");
+        bounded.init(address(this), address(this), address(this), address(this), 1000, 100, 100, 2);
+        require(bounded.PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND() == 1000, "1000 is allowed");
+
+        bounded = new Mint();
+        bounded.init(address(this), address(this), address(this), address(this), 0, 100, 100, 2);
+        require(bounded.PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND() == 0, "zero threshold remains allowed");
+    }
+
     function testInitRejectsZeroMultiplier() public {
         Mint d = new Mint();
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAmount.selector));

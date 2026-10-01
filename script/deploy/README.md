@@ -37,8 +37,9 @@ RPC_URL=https://data-seed-prebsc-1-s1.binance.org:8545
 ```bash
 KEYSTORE_ACCOUNT=keystore-file-name
 ACCOUNT_ADDRESS=0xYourAccountAddress
-PRIVATE_KEY=your-private-key
 ```
+
+公共网络通过 Keystore 签名；仅 `CHAIN_ID=31337` 的本地网络可使用 `ACCOUNT_ADDRESS` 配合节点解锁账户。不要把明文私钥放进配置或命令参数。密码由部署时的交互输入提供；由助手操作时，在对话的密码输入框中提供，勿直接贴到消息中。
 
 ### 3. 配置合约参数
 
@@ -51,7 +52,6 @@ TOKEN_SYMBOL=LOVE
 INITIAL_SUPPLY=1000000000000000000000000000  # 10亿（18位小数）
 MAX_SUPPLY=10000000000000000000000000000     # 100亿（18位小数）
 DISTRIBUTOR=0xYourDeployerAddressHere        # 初始代币接收地址
-MINTER=${MINT_ADDRESS}                       # Mint合约地址
 PARENT_TOKEN=0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd  # WBNB地址
 
 # MemberNFT 部署参数
@@ -62,22 +62,23 @@ MEMBER_MAX_NAME_LENGTH=32
 
 # Phase 部署参数
 PHASE_ORIGIN_BLOCKS=1
-PHASE_ORIGIN_PHASE_BLOCKS=28800              # ~1天（BSC ~3秒/块）
+PHASE_ORIGIN_PHASE_BLOCKS=28800              # 示例值；按目标链实测出块间隔设置
 PHASE_TARGET_SECONDS=86400                   # 1天
 PHASE_ADJUST_THRESHOLD=600000000000000000    # 0.6（18位小数）
 PHASE_SYNC_OBSERVATION_LIMIT=100
+
+# Stake 手续费销毁阈值及单次处理量的分母
+MAX_WITHDRAWABLE_TO_FEE_RATIO=1000           # 每次处理 floor(withdrawableLp / 1000) 个手续费 LP 最小单位
 ```
 
 **重要参数说明：**
 - `DISTRIBUTOR`: 设置为部署钱包地址，接收初始代币
-- `MINTER`: 必须是 Mint 合约地址，需要先部署 Mint 或使用占位符
+- 首币 `minter` 自动绑定本次部署的 Mint 地址，无需配置 `MINTER`。
 - `PARENT_TOKEN`: 
   - BSC 主网: 使用官方 WBNB `0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c`
   - BSC 测试网: 使用测试 WBNB `0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd`
   - Anvil 本地: 使用 `${WBNB_ADDRESS}` 引用 dex 部署的 TestWBNB
-- `PHASE_ORIGIN_PHASE_BLOCKS`: 
-  - 测试环境: 100 块（约5分钟）
-  - 生产环境: 28800 块（约1天，BSC ~3秒/块）
+- `PHASE_ORIGIN_PHASE_BLOCKS`: 以目标链实测出块间隔估算；不要将固定的“3 秒一块”当作发布依据。
 
 ## 部署流程
 
@@ -94,6 +95,14 @@ cd core
 3. 验证部署结果
 4. 保存合约地址
 
+链 ID、全部初始化绑定及常量、DEX 地址关系任一不一致，部署入口返回失败，不覆盖已保存的地址。
+
+DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2：交易手续费固定为 0.30%，Factory 的 `feeTo` 与 `feeToSetter` 均为零。地址应来自该仓库同网络的部署及验收结果，不使用旧 PancakeSwap 配置。
+
+`MAX_WITHDRAWABLE_TO_FEE_RATIO` 决定手续费销毁的触发阈值和单次处理量，不是交易费率。`99_check.sh` 中的 `ACTUAL_FEE_RATIO` 只是链上读取结果，用于与这个配置值比对。现有配置保持 `1000`；每社区每 Phase 至多实际结算一次，且单次处理量须足够让 Pair 两侧产出非零数量。
+
+历史入口 `script/network/bsc97_testnet/deploy.sh` 已委托给 `bsc97_dev`；只维护 `bsc97_dev` 的参数、DEX 地址和 `.account`。
+
 ### 分步部署
 
 ```bash
@@ -102,10 +111,9 @@ source script/deploy/00_init.sh bsc97_dev
 
 # 2. 部署合约
 ./script/deploy/01_deploy.sh
-
-# 3. 验证部署
-./script/deploy/99_check.sh
 ```
+
+`01_deploy.sh` 已执行链上验收。重新独立验收时，在载入最新地址后运行 `99_check.sh`。
 
 ## 合约开源验证
 
@@ -118,6 +126,8 @@ export ETHERSCAN_API_KEY=your-api-key
 # 执行验证
 ./script/deploy/verify.sh bsc97_dev
 ```
+
+使用 Etherscan V2 API Key。缺少 Key、链不支持、构造参数错误或任何一份合约验证失败均返回非零；只有 8 份全部成功才显示完成。API 入口依据 [Etherscan 官方文档](https://docs.etherscan.io/make-your-first-call)。
 
 ## 部署输出
 
@@ -138,9 +148,7 @@ MINT_ADDRESS=
 
 ### 1. MINTER 地址问题
 
-如果 Mint 合约尚未部署，可以：
-- 方案1: 先部署 Mint，将地址填入 `core.params` 的 `MINTER`
-- 方案2: 临时使用 `0x0000...0000`，后续通过 `setMinter` 更新
+`DeployCore` 先部署 Mint，再由 Launch 创建首币并绑定 Mint。Token 没有 `setMinter`，错误绑定必须重新部署。开源验证使用本次部署地址文件里的 `MINT_ADDRESS`。
 
 ### 2. PARENT_TOKEN 配置
 
@@ -149,14 +157,22 @@ MINT_ADDRESS=
 
 ### 3. 区块数量配置
 
-BSC 平均出块时间约 3 秒：
-- 5 分钟 ≈ 100 块
-- 1 小时 ≈ 1200 块
-- 1 天 ≈ 28800 块
+根据目标网络近期区块时间计算初始块数，部署后核对 `Phase` 同步与校准行为。
 
 ## 安全注意事项
 
-1. **敏感文件**: `.account` 文件包含私钥，已被 `.gitignore`，绝不提交到仓库
+1. **敏感文件**: `.account` 已被 `.gitignore`，仅配置 Keystore 名称及账户地址，绝不提交到仓库
 2. **私钥管理**: 生产环境建议使用硬件钱包或 Keystore
 3. **参数检查**: 部署前仔细检查所有参数，特别是供应量和地址
 4. **测试先行**: 生产部署前先在测试网完整测试流程
+
+## 本地回归
+
+```bash
+forge build
+forge test
+python3 test/deploy_scripts_test.py
+forge test --match-contract ProposalDoSTest -vv
+```
+
+压力测试使用真实 Core 合约及模拟 DEX，实际创建、推举、投票、申请解锁并调用 Mint。输出用于本地回归，不代表目标 BSC 链的交易或区块 gas 上限。

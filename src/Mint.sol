@@ -96,6 +96,10 @@ contract Mint is IMint {
             revert InvalidAddress();
         }
 
+        if (proposalRewardMinVotePerThousand_ > 1000) {
+            revert InvalidAmount();
+        }
+
         if (roundRewardGovPerThousand_ + roundRewardProposalPerThousand_ > 1000) {
             revert InvalidAmount();
         }

@@ -10,6 +10,8 @@ interface SubmitVm {
     function warp(uint256 timestamp) external;
     function prank(address) external;
     function expectRevert(bytes calldata) external;
+    function pauseGasMetering() external;
+    function resumeGasMetering() external;
 }
 
 contract MockStake {
@@ -800,6 +802,47 @@ contract SubmitTest {
     }
 
     // ============ Boundary Value Tests ============
+
+    function testSubmissionLimitPerTokenAndRound() external {
+        ProposalBody memory body = ProposalBody("Proposal", "", address(0x1), TargetMode.NoCallback, new bytes[](0));
+        uint256 oldProposalId = submit.submitNewProposal(TOKEN, 1, body);
+        vm.roll(200);
+
+        // These submissions represent separate transactions in the same round.
+        vm.pauseGasMetering();
+        for (uint256 memberId = 1; memberId <= 1000; memberId++) {
+            memberNFT.setOwner(memberId, address(this));
+            stake.setValidGovVotes(TOKEN, memberId, 100);
+            submit.submitNewProposal(TOKEN, memberId, body);
+        }
+        vm.resumeGasMetering();
+
+        memberNFT.setOwner(1001, address(this));
+        stake.setValidGovVotes(TOKEN, 1001, 100);
+        require(submit.canSubmit(TOKEN, 1001), "vote threshold still met");
+        vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.CannotSubmitAction.selector));
+        submit.submitNewProposal(TOKEN, 1001, body);
+        vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.CannotSubmitAction.selector));
+        submit.submit(TOKEN, 1001, oldProposalId);
+
+        (, uint256 count) = submit.submitInfos(TOKEN, 2, 0, 0, false);
+        require(count == 1000, "round limit");
+        (, count) = submit.proposalIds(TOKEN, 0, 0, false);
+        require(count == 1001, "failed creation rolled back");
+        (, count) = submit.proposalIdsByAuthor(TOKEN, 1001, 0, 0, false);
+        require(count == 0, "failed author index rolled back");
+        require(submit.proposalIdBySubmitter(TOKEN, 2, 1001) == 0, "failed submission consumed no member slot");
+        require(!submit.isSubmitted(TOKEN, 2, oldProposalId), "old proposal not submitted");
+
+        stake.setGlobalGovVotes(TOKEN2, 1000);
+        stake.setValidGovVotes(TOKEN2, 1001, 100);
+        require(submit.submitNewProposal(TOKEN2, 1001, body) == 1, "other token independent");
+
+        vm.roll(300);
+        submit.submit(TOKEN, 1001, oldProposalId);
+        require(submit.isSubmitted(TOKEN, 3, oldProposalId), "old proposal accepted next round");
+        require(submit.submitNewProposal(TOKEN, 1, body) == 1002, "new proposal accepted beyond history of 1000");
+    }
 
     function testThresholdBoundaries() external {
         // Test exact threshold

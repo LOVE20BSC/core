@@ -249,6 +249,7 @@ contract Submit is ISubmit {
             _submitInfoBySubmitterId[tokenAddress][round][memberId]
                 .submitterId != 0
         ) revert OnlyOneSubmitPerRound();
+        if (_submits[tokenAddress][round].length >= 1000) revert CannotSubmitAction();
 
         // Effects
         SubmitInfo memory submitInfo = SubmitInfo(

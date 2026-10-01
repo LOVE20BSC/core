@@ -860,6 +860,43 @@ contract StakeTest {
         require(shares == 0, "Shares should be cleared after withdraw");
     }
 
+    function testDustWithdrawalReturnsBoostAndClearsShares() external {
+        stakeAsOwner(owner1, memberId1, 100e18, 100e18, 1);
+        (, uint256 tinyShares) = stakeAsOwner(owner1, memberId3, 1001, 1001, 1);
+        require(tinyShares == 1, "expected one LP share");
+        vm().prank(owner1);
+        childToken.approve(address(stake), 1e18);
+        vm().prank(owner1);
+        stake.stakeBoost(address(childToken), 1e18, 1, memberId3);
+
+        childToken.transfer(address(pair), 1001);
+        parentToken.transfer(address(pair), 1001);
+        pair.setReserves(100100e18 + 2002, 100100e18 + 2002);
+        vm().prank(owner1);
+        stake.unstake(address(childToken), memberId3);
+        phase.setPhase(3);
+
+        (uint256 totalSharesBefore,, uint256 withdrawableBefore,, uint256 totalBoostBefore,,) =
+            stake.globalStakeData(address(childToken));
+        require(tinyShares * withdrawableBefore / totalSharesBefore == 0, "expected zero LP payout");
+        uint256 balanceBefore = childToken.balanceOf(owner1);
+        uint256 lpBefore = pair.balanceOf(address(stake));
+        vm().prank(owner1);
+        stake.withdraw(address(childToken), memberId3);
+        require(childToken.balanceOf(owner1) == balanceBefore + 1e18, "boost must be returned");
+        require(pair.balanceOf(address(stake)) == lpBefore, "zero payout must not consume LP");
+        {
+            (uint256 shares, uint256 boost, uint256 waiting, uint256 requested,,) =
+                stake.stakeData(address(childToken), memberId3);
+            require(shares == 0 && boost == 0 && waiting == 0 && requested == 0, "position must be cleared");
+        }
+        (uint256 totalSharesAfter,, uint256 withdrawableAfter,, uint256 totalBoostAfter,,) =
+            stake.globalStakeData(address(childToken));
+        require(totalSharesAfter + tinyShares == totalSharesBefore, "only exiting shares are removed");
+        require(withdrawableAfter == withdrawableBefore, "remaining LP must stay in the ledger");
+        require(totalBoostAfter + 1e18 == totalBoostBefore, "boost liability must be removed");
+    }
+
 
     function testCanWithdrawMatchesWithdrawBehavior() external {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
@@ -2406,84 +2443,6 @@ contract StakeTest {
         require(shares > 0, "Should handle empty pool");
     }
 
-    // Test _canBurn returning false (covers line 717)
-    function testSettleFeesCannotBurnTinyUnit() external {
-        // The _canBurn check at line 717 protects against burning LP when reserves are so low
-        // that the burn would round to zero. This is extremely rare in practice because:
-        // 1. _reclassify bails early if currentSqrtK <= lastSqrtK (line 611)
-        // 2. To trigger _canBurn false, need settlementUnit * reserve < totalSupply
-        // 3. But tiny reserves make currentSqrtK small, triggering the line 611 early return
-
-        // The only way to reach line 717 is to have a situation where:
-        // - lastSqrtK was set very small (from a tiny-reserve baseline)
-        // - Current reserves are still tiny
-        // - But currentSqrtK > lastSqrtK (reserves grew)
-        // - settlementUnit * reserve < totalSupply
-
-        // Create a token with a pair that starts with minimal liquidity
-        LOVE20Token tinyToken = new LOVE20Token(
-            "Tiny Token",
-            "TINY",
-            1000000e18,
-            2000000e18,
-            address(this),
-            address(this),
-            address(parentToken)
-        );
-        mockLaunch.register(address(tinyToken));
-
-        MockPair tinyPair = new MockPair(address(tinyToken), address(parentToken));
-        pairFactory.setPair(address(tinyToken), address(parentToken), address(tinyPair));
-
-        tinyToken.transfer(owner1, 100000e18);
-
-        // Start with very small reserves to set a low lastSqrtK baseline
-        tinyToken.transfer(address(tinyPair), 1000);
-        parentToken.transfer(address(tinyPair), 1000);
-        tinyPair.setReserves(1000, 1000);
-
-        vm().prank(owner1);
-        tinyToken.approve(address(stake), 100);
-        vm().prank(owner1);
-        parentToken.approve(address(stake), 100);
-
-        vm().prank(owner1);
-        stake.stakeLiquidity(address(tinyToken), 100, 100, 0.5e18, 10, memberId1);
-
-        // Now we have:
-        // - totalLP ~= 100
-        // - lastSqrtK ~= sqrt(1000 * 1000) * 100 / totalSupply ~= 1000 (very small)
-        // - withdrawableLp ~= 100
-
-        // Add tiny fees by slightly increasing reserves
-        tinyToken.transfer(address(tinyPair), 100);
-        parentToken.transfer(address(tinyPair), 100);
-        tinyPair.setReserves(1200, 1200);
-
-        // Now currentSqrtK = sqrt(1200 * 1200) * totalLP / totalSupply = 1200
-        // This passes line 611 check: 1200 > 1000
-        // withdrawableLp after reclassify ~= 83
-        // settlementUnit = 83 / 1000 = 0 (rounds to zero!)
-        // This hits line 710 early return: feeLp < settlementUnit (both ~0)
-
-        // Actually, we need enough LP for settlementUnit to be non-zero
-        // Let's stake more to get totalLP higher
-
-        // Since this edge case is so contrived and requires settlementUnit to be non-zero
-        // while reserves stay tiny enough that _canBurn fails, and _reclassify doesn't bail,
-        // the test becomes a placeholder showing the theoretical possibility
-
-        vm().prank(owner1);
-        stake.settleFees(address(tinyToken));
-
-        require(true, "Edge case too contrived for practical testing");
-    }
-
-    // Test skipped - withdrawableLpBefore == 0 is extremely difficult to trigger
-    // without causing balance issues in the mock setup
-    function testStakeAfterAllFeesReclassified() external pure {
-        require(true, "Test skipped - edge case too complex for mock environment");
-    }
 
     // ============ Additional Error Path Coverage Tests ============
 

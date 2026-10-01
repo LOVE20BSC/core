@@ -72,6 +72,7 @@ contract Launch is ILaunch {
             revert InvalidAddress();
         }
         if (params.launchRatio == 0) revert ZeroAmount("launchRatio");
+        if (params.launchRatio > 1e18) revert InvalidAmount();
         if (params.maxLaunchCount == 0) revert ZeroAmount("maxLaunchCount");
         if (params.tokenSymbolLength == 0) revert ZeroAmount("tokenSymbolLength");
         if (params.launchAmount == 0) revert ZeroAmount("launchAmount");
