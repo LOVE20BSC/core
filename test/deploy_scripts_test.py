@@ -10,6 +10,11 @@ import sys
 import tempfile
 
 
+# 敏感值哨兵：任何一步把它们写进 stdout/stderr 都视为回归。
+SECRET_KEY = "do-not-print-this-key"
+SECRET_PASSWORD = "do-not-print-this-password"
+
+
 def fake_tool(tool, args):
     data = json.loads(Path(os.environ["MOCK_DATA"]).read_text())
     with Path(os.environ["MOCK_LOG"]).open("a") as log:
@@ -25,6 +30,8 @@ def fake_tool(tool, args):
             key = args[1].lower() + "/" + args[2]
             print(os.environ.get("BAD_VALUE", "ERROR") if key == os.environ.get("BAD_CALL") else data["calls"][key])
         elif args[0] == "abi-encode":
+            if os.environ.get("ABI_ENCODE_FAIL") == args[1]:
+                return 1
             print("0x1234")
         else:
             raise AssertionError(args)
@@ -104,20 +111,39 @@ def main():
         network.joinpath("network.params").write_text("\n".join(key + "=" + shlex.quote(value) for key, value in env.items()) + "\n")
         for name in ("addresses.dex.params", "core.params"):
             network.joinpath(name).write_text("")
-        network.joinpath(".account").write_text("KEYSTORE_ACCOUNT=test-keystore\nPRIVATE_KEY=do-not-print-this-key\n")
         saved = network / "addresses.core.params"
         base = {"PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "MOCK_DATA": str(data_path), "MOCK_LOG": str(log_path),
                 "PROJECT_ROOT": str(root), "NETWORK_DIR": str(network), "network": "test", **env}
         checks = 0
+
+        def write_account(password_line=""):
+            network.joinpath(".account").write_text(
+                "KEYSTORE_ACCOUNT=test-keystore\nPRIVATE_KEY=" + SECRET_KEY + "\n" + password_line)
 
         def run(script, success=True, args=(), **extra):
             nonlocal checks
             log_path.write_text("")
             result = subprocess.run(["bash", str(deploy / script), *args], env={**base, **extra}, text=True, capture_output=True)
             assert (result.returncode == 0) == success, (script, extra, result.stdout, result.stderr)
-            assert "do-not-print-this-key" not in result.stdout + result.stderr
+            assert not any(secret in result.stdout + result.stderr for secret in (SECRET_KEY, SECRET_PASSWORD))
             checks += 1
             return result, [json.loads(line) for line in log_path.read_text().splitlines()]
+
+        def run_sourced(script, success=True, **extra):
+            # README 的分步部署形式：00_init.sh 与步骤文件分处父子进程。
+            nonlocal checks
+            log_path.write_text("")
+            command = f'source "{deploy}/00_init.sh" test && bash "{deploy}/{script}"'
+            result = subprocess.run(["bash", "-c", command], env={**base, **extra}, text=True, capture_output=True)
+            assert (result.returncode == 0) == success, (script, extra, result.stdout, result.stderr)
+            assert not any(secret in result.stdout + result.stderr for secret in (SECRET_KEY, SECRET_PASSWORD))
+            checks += 1
+            return result, [json.loads(line) for line in log_path.read_text().splitlines()]
+
+        def forge_script_call(log):
+            return next(call for call in log if call[:2] == ["forge", "script"])
+
+        write_account()
 
         run("99_check.sh")
         for contract, signature in [("LAUNCH", "rootParentTokenAddress()(address)"), ("LAUNCH", "pairFactoryAddress()(address)"),
@@ -136,12 +162,26 @@ def main():
             run("one_click_deploy.sh", False, ("test",), **extra)
             assert saved.read_text() == "# previous deployment\n"
         _, log = run("one_click_deploy.sh", args=("test",))
-        command = next(call for call in log if call[:2] == ["forge", "script"])
+        command = forge_script_call(log)
         assert command[command.index("--chain-id") + 1] == "97"
         assert command[command.index("--account") + 1] == "test-keystore"
-        assert "--unlocked" not in command and "--private-key" not in command
+        assert "--unlocked" not in command and "--private-key" not in command and "--password" not in command
         assert "VOTE_ADDRESS=" in saved.read_text()
+        # .account 配了非空 KEYSTORE_PASSWORD 就直接用它解锁；留空等同未配置，仍由 forge 交互询问。
+        write_account("KEYSTORE_PASSWORD=" + SECRET_PASSWORD + "\n")
+        _, log = run("one_click_deploy.sh", args=("test",))
+        command = forge_script_call(log)
+        assert command[command.index("--password") + 1] == SECRET_PASSWORD
+        write_account("KEYSTORE_PASSWORD=\n")
+        _, log = run("one_click_deploy.sh", args=("test",))
+        assert "--password" not in forge_script_call(log)
+        write_account()
         run("01_deploy.sh", False, ACCOUNT_ADDRESS=env["DISTRIBUTOR"])
+        run_sourced("01_deploy.sh")  # README 的分步部署形式：00_init.sh / 01_deploy.sh 分处父子进程
+        saved_before = saved.read_text()
+        result, _ = run_sourced("01_deploy.sh", False, OMIT_ADDRESS="VOTE_ADDRESS")
+        assert "VOTE_ADDRESS" in result.stdout + result.stderr, result.stdout + result.stderr
+        assert saved.read_text() == saved_before, saved.read_text()
         result, _ = run("verify.sh", False, ("test",), VERIFY_FAIL="src/MemberNFT.sol:MemberNFT")
         assert "all 8 contracts" not in result.stdout
         result, log = run("verify.sh", False, ("test",), VERIFY_FAIL="src/Vote.sol:Vote")
@@ -151,6 +191,12 @@ def main():
         assert len([call for call in log if call[:2] == ["forge", "verify-contract"]]) == 8
         token_args = next(call for call in log if call[:2] == ["cast", "abi-encode"] and "string,string" in call[2])
         assert token_args[-2] == env["MINT_ADDRESS"]
+        for signature, label in [("constructor(uint256,uint256,uint256,uint256)", "MemberNFT"),
+                                 ("constructor(uint256,uint256,uint256,uint256,uint256)", "Phase"),
+                                 ("constructor(string,string,uint256,uint256,address,address,address)", "LOVE20Token")]:
+            result, log = run("verify.sh", False, ("test",), ABI_ENCODE_FAIL=signature)
+            assert f"Failed to encode {label}" in result.stdout, result.stdout
+            assert not any(call[0] == "forge" for call in log)
         with network.joinpath("network.params").open("a") as config:
             config.write("ETHERSCAN_API_KEY=\n")
         _, log = run("verify.sh", False, ("test",))

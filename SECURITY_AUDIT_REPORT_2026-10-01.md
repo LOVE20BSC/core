@@ -120,13 +120,13 @@ forge test --match-contract ProposalDoSTest --isolate -vv
 
 已补齐上述读取与比较，同时核对首币登记。代码读取失败按失败处理；地址比较只对地址做大小写归一化，Token 名称等字符串仍精确比较。错误计数修复为在 `set -e` 下不会因第一次自增意外退出的形式。
 
-隔离回归逐项注入错误值，确认均非零退出。地址文件在广播成功且链上验收全部通过后才写入；广播失败、地址解析缺失或验收失败均保留旧文件。本流程显式关闭 Solidity 脚本的提前写地址开关。
+隔离回归逐项注入错误值，确认均非零退出。地址文件在广播成功且链上验收全部通过后才写入；广播失败、地址解析缺失或验收失败均保留旧文件。Solidity 部署脚本不具备写地址能力，地址只由 shell 层在验收通过后落盘。
 
 公开 `init` 是现有明确设计，本次不将它单独认定为漏洞，也没有加入管理员或部署者权限。
 
 ## F-05：错链与签名配置缺少可靠处理
 
-位置：[00_init.sh](/Users/BigPolarBear/Documents/github/LOVE20BSC/core/script/deploy/00_init.sh:60)、[01_deploy.sh](/Users/BigPolarBear/Documents/github/LOVE20BSC/core/script/deploy/01_deploy.sh:10)、[DeployCore](/Users/BigPolarBear/Documents/github/LOVE20BSC/core/script/deploy/DeployCore.s.sol:28)。
+位置：[00_init.sh](/Users/BigPolarBear/Documents/github/LOVE20BSC/core/script/deploy/00_init.sh:51)、[01_deploy.sh](/Users/BigPolarBear/Documents/github/LOVE20BSC/core/script/deploy/01_deploy.sh:11)、[DeployCore](/Users/BigPolarBear/Documents/github/LOVE20BSC/core/script/deploy/DeployCore.s.sol:28)。
 
 已在 RPC 层对比实际 chain ID，在执行参数中显式传链 ID，并在部署脚本模拟阶段核对 `block.chainid`。公共网络使用配置的 Keystore；仅 31337 本地网络允许节点解锁账户签名。移除命令字符串拼接与 `eval`，改用参数数组。
 
@@ -136,7 +136,7 @@ forge test --match-contract ProposalDoSTest --isolate -vv
 
 位置：[verify.sh](/Users/BigPolarBear/Documents/github/LOVE20BSC/core/script/deploy/verify.sh:13)。
 
-已取消 `|| echo` 吞错：缺少 API Key、未知网络、构造参数编码失败或任一合约开源失败均非零退出；只有八份全部成功才显示完成。Token 构造参数使用本次的 `MINT_ADDRESS`，不依赖不存在的 `MINTER`。
+已取消 `|| echo` 吞错：缺少 API Key、未知网络、构造参数编码失败或任一合约开源失败均非零退出；只有八份全部成功才显示完成。构造参数编码失败会指明是 MemberNFT、Phase 还是 LOVE20Token，且不会发出任何验证请求。Token 构造参数使用本次的 `MINT_ADDRESS`，不依赖不存在的 `MINTER`。
 
 使用 Etherscan V2 入口，chain ID 由 Foundry 传入，API Key 通过环境提供。依据：[Etherscan 官方 API 文档](https://docs.etherscan.io/make-your-first-call)。
 
@@ -152,9 +152,9 @@ forge test --match-contract ProposalDoSTest --isolate -vv
 
 ## F-08：Router.WETH 未与 WBNB 配置对账
 
-位置：[DEX 验收](/Users/BigPolarBear/Documents/github/LOVE20BSC/core/script/deploy/99_check.sh:338)。
+位置：[DEX 验收](/Users/BigPolarBear/Documents/github/LOVE20BSC/core/script/deploy/99_check.sh:328)。
 
-已核对 `Router.factory() == FACTORY_ADDRESS`、`Router.WETH() == WBNB_ADDRESS`、首币父币为该 WBNB，并确认 Router、Factory、WBNB 均有代码。对实际返回有效但错误地址的情形，回归确认会拒绝。
+已核对 `Router.factory() == FACTORY_ADDRESS`、`Router.WETH() == WBNB_ADDRESS`、首币父币为该 WBNB，并确认 Router、Factory、WBNB 均有代码。对实际返回有效但错误地址的情形，回归确认会拒绝。部署脚本另在广播前校验 WBNB、Factory、Router 均为已部署合约：`PARENT_TOKEN` 只被记录、`ROUTER_ADDRESS` 只在提现时使用，两者配错时模拟阶段不会回滚，此前要到本项验收才发现、8 个合约已白广播。
 
 这些检查验证配置与接口关系，不证明任意提供的 Router/Factory 都可信。正式发布仍需对具体地址与实现来源验收。
 

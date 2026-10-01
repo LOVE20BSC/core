@@ -306,24 +306,14 @@ verify_boundary() {
         return 1
     fi
 
-    # 使用 bc 进行大数比较
-    if command -v bc &>/dev/null; then
-        if [ "$(echo "$actual <= $max_value" | bc)" -eq 1 ]; then
-            echo -e "  ${GREEN}✓${NC} ${field_name} <= $max_value (actual: $actual)"
-            return 0
-        else
-            echo -e "  ${RED}✗${NC} ${field_name} > $max_value (actual: $actual)"
-            return 1
-        fi
+    # 上限最大为 1e18，在 bash 内建整数范围内；超出 64 位的配置值视为超限，用 2>/dev/null 压掉
+    # "integer expression expected" 噪音，判定仍走 else 分支。
+    if [ "$actual" -le "$max_value" ] 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} ${field_name} <= $max_value (actual: $actual)"
+        return 0
     else
-        # 回退到简单的数字比较（可能不支持大数）
-        if [ "$actual" -le "$max_value" ] 2>/dev/null; then
-            echo -e "  ${GREEN}✓${NC} ${field_name} <= $max_value (actual: $actual)"
-            return 0
-        else
-            echo -e "  ${RED}✗${NC} ${field_name} > $max_value (actual: $actual)"
-            return 1
-        fi
+        echo -e "  ${RED}✗${NC} ${field_name} > $max_value (actual: $actual)"
+        return 1
     fi
 }
 
@@ -363,7 +353,7 @@ fi
 verify_deployed "WBNB" "$WBNB_ADDRESS" || ((FAILED+=1))
 verify_deployed "Factory" "$FACTORY_ADDRESS" || ((FAILED+=1))
 verify_deployed "Router" "$ROUTER_ADDRESS" || ((FAILED+=1))
-verify_value "root parent is WBNB" "$WBNB_ADDRESS" "$PARENT_TOKEN" || ((FAILED+=1))
+verify_value "root parent is WBNB" "$WBNB_ADDRESS" "$ACTUAL_ROOT_PARENT" || ((FAILED+=1))
 
 echo ""
 echo -e "${CYAN}════════════════════════════════════════${NC}"

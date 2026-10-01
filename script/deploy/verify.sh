@@ -16,22 +16,27 @@ case "$CHAIN_ID" in
     *) echo "Error: Source verification is not configured for chain $CHAIN_ID"; exit 1 ;;
 esac
 
-for field in LOVE20TOKEN_ADDRESS MEMBERNFT_ADDRESS PHASE_ADDRESS LAUNCH_ADDRESS MINT_ADDRESS STAKE_ADDRESS SUBMIT_ADDRESS VOTE_ADDRESS; do
-    if [[ ! ${!field:-} =~ ^0x[0-9a-fA-F]{40}$ ]] || [[ ${!field} = 0x0000000000000000000000000000000000000000 ]]; then
-        echo "Error: Missing or invalid $field"
-        exit 1
-    fi
-done
+require_core_addresses
 
 # Encode all constructor arguments before submitting any verification request.
-MEMBER_ARGS=$(cast abi-encode "constructor(uint256,uint256,uint256,uint256)" \
-    "$MEMBER_BASE_DIVISOR" "$MEMBER_BYTES_THRESHOLD" "$MEMBER_MULTIPLIER" "$MEMBER_MAX_NAME_LENGTH")
-PHASE_ARGS=$(cast abi-encode "constructor(uint256,uint256,uint256,uint256,uint256)" \
+# 命令替换失败在 set -e 下会静默中止，故逐个显式判别，保证失败有明确输出。
+if ! MEMBER_ARGS=$(cast abi-encode "constructor(uint256,uint256,uint256,uint256)" \
+    "$MEMBER_BASE_DIVISOR" "$MEMBER_BYTES_THRESHOLD" "$MEMBER_MULTIPLIER" "$MEMBER_MAX_NAME_LENGTH"); then
+    echo "Error: Failed to encode MemberNFT constructor arguments"
+    exit 1
+fi
+if ! PHASE_ARGS=$(cast abi-encode "constructor(uint256,uint256,uint256,uint256,uint256)" \
     "$PHASE_ORIGIN_BLOCKS" "$PHASE_ORIGIN_PHASE_BLOCKS" "$PHASE_TARGET_SECONDS" \
-    "$PHASE_ADJUST_THRESHOLD" "$PHASE_SYNC_OBSERVATION_LIMIT")
-TOKEN_ARGS=$(cast abi-encode "constructor(string,string,uint256,uint256,address,address,address)" \
+    "$PHASE_ADJUST_THRESHOLD" "$PHASE_SYNC_OBSERVATION_LIMIT"); then
+    echo "Error: Failed to encode Phase constructor arguments"
+    exit 1
+fi
+if ! TOKEN_ARGS=$(cast abi-encode "constructor(string,string,uint256,uint256,address,address,address)" \
     "$TOKEN_NAME" "$TOKEN_SYMBOL" "$INITIAL_SUPPLY" "$MAX_SUPPLY" \
-    "$DISTRIBUTOR" "$MINT_ADDRESS" "$PARENT_TOKEN")
+    "$DISTRIBUTOR" "$MINT_ADDRESS" "$PARENT_TOKEN"); then
+    echo "Error: Failed to encode LOVE20Token constructor arguments"
+    exit 1
+fi
 
 COMMON_ARGS=(--chain "$CHAIN_ID" --verifier etherscan --verifier-url "https://api.etherscan.io/v2/api" --watch)
 verify_contract() {

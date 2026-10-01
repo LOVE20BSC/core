@@ -3,7 +3,6 @@ pragma solidity =0.8.37;
 
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
-import {LOVE20Token} from "../../src/LOVE20Token.sol";
 import {MemberNFT} from "../../src/MemberNFT.sol";
 import {Phase} from "../../src/Phase.sol";
 import {Launch} from "../../src/Launch.sol";
@@ -29,18 +28,23 @@ contract DeployCore is Script {
         require(block.chainid == vm.envUint("CHAIN_ID"), "Chain ID mismatch");
         require(vm.envUint("MIN_PROPOSAL_VOTES") <= 1000, "Proposal threshold exceeds 1000");
         require(vm.envUint("LAUNCH_RATIO") <= 1e18, "Launch ratio exceeds 1e18");
+
+        // DEX 依赖必须是已部署合约。PARENT_TOKEN 只被记录、ROUTER_ADDRESS 只在提现时使用，
+        // 两者配错时模拟阶段不会回滚，会白广播 8 个合约（要到 99_check.sh 才拦下）。
+        address rootParent = vm.envAddress("PARENT_TOKEN");
+        address factory = vm.envAddress("FACTORY_ADDRESS");
+        address router = vm.envAddress("ROUTER_ADDRESS");
+        require(rootParent.code.length != 0, "WBNB must be a deployed contract");
+        require(factory.code.length != 0, "Factory must be a deployed contract");
+        require(router.code.length != 0, "Router must be a deployed contract");
+
         vm.startBroadcast();
 
         addrs = _deployContracts();
 
         vm.stopBroadcast();
 
-        _verifyDeployment(addrs);
         _logDeploymentSummary(addrs);
-
-        if (vm.envOr("WRITE_ADDRESS_FILE", false)) {
-            _writeAddressFile(addrs);
-        }
     }
 
     function _deployContracts() private returns (DeploymentAddresses memory addrs) {
@@ -159,38 +163,6 @@ contract DeployCore is Script {
         );
     }
 
-    function _verifyDeployment(DeploymentAddresses memory addrs) private view {
-        // 验证 LOVE20Token 配置
-        LOVE20Token token = LOVE20Token(addrs.token);
-        require(
-            keccak256(bytes(token.name())) == keccak256(bytes(vm.envString("TOKEN_NAME"))),
-            "Token name mismatch"
-        );
-        require(
-            keccak256(bytes(token.symbol())) == keccak256(bytes(vm.envString("TOKEN_SYMBOL"))),
-            "Token symbol mismatch"
-        );
-        require(token.minter() == addrs.mint, "Token minter mismatch");
-        require(token.parentTokenAddress() == vm.envAddress("PARENT_TOKEN"), "Token parentToken mismatch");
-
-        // 验证 MemberNFT 配置
-        MemberNFT memberNFT = MemberNFT(addrs.memberNFT);
-        require(memberNFT.BASE_DIVISOR() == vm.envUint("MEMBER_BASE_DIVISOR"), "MemberNFT baseDivisor mismatch");
-        require(
-            memberNFT.BYTES_THRESHOLD() == vm.envUint("MEMBER_BYTES_THRESHOLD"),
-            "MemberNFT bytesThreshold mismatch"
-        );
-
-        // 验证 Phase 配置
-        Phase phase = Phase(addrs.phase);
-        require(phase.TARGET_SECONDS() == vm.envUint("PHASE_TARGET_SECONDS"), "Phase TARGET_SECONDS mismatch");
-
-        // 验证 Launch 初始化
-        Launch launch = Launch(addrs.launch);
-        require(launch.initialized(), "Launch not initialized");
-        require(launch.mintAddress() == addrs.mint, "Launch mintAddress mismatch");
-    }
-
     function _logDeploymentSummary(DeploymentAddresses memory addrs) private pure {
         console2.log("\n=== Deployment Summary ===");
         console2.log("LOVE20TOKEN_ADDRESS=", addrs.token);
@@ -201,23 +173,5 @@ contract DeployCore is Script {
         console2.log("STAKE_ADDRESS=", addrs.stake);
         console2.log("SUBMIT_ADDRESS=", addrs.submit);
         console2.log("VOTE_ADDRESS=", addrs.vote);
-    }
-
-    function _writeAddressFile(DeploymentAddresses memory addrs) private {
-        string memory network = vm.envOr("network", string("anvil31337_dev"));
-        string memory path = string.concat("script/network/", network, "/addresses.core.params");
-        vm.writeFile(
-            path,
-            string.concat(
-                "LOVE20TOKEN_ADDRESS=", vm.toString(addrs.token), "\n",
-                "MEMBERNFT_ADDRESS=", vm.toString(addrs.memberNFT), "\n",
-                "PHASE_ADDRESS=", vm.toString(addrs.phase), "\n",
-                "LAUNCH_ADDRESS=", vm.toString(addrs.launch), "\n",
-                "MINT_ADDRESS=", vm.toString(addrs.mint), "\n",
-                "STAKE_ADDRESS=", vm.toString(addrs.stake), "\n",
-                "SUBMIT_ADDRESS=", vm.toString(addrs.submit), "\n",
-                "VOTE_ADDRESS=", vm.toString(addrs.vote), "\n"
-            )
-        );
     }
 }
