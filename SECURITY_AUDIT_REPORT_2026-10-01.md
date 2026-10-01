@@ -144,9 +144,9 @@ forge test --match-contract ProposalDoSTest --isolate -vv
 
 ## F-07：旧入口配置缺失和明文私钥日志
 
-位置：[旧测试网入口](/Users/BigPolarBear/Documents/github/LOVE20BSC/core/script/network/bsc97_testnet/deploy.sh:1)。
+位置：统一部署入口 `script/deploy/one_click_deploy.sh`。
 
-基线独立入口缺少 Core 参数加载，把明文私钥拼进部署命令并输出。现已将它缩为统一 `bsc97_dev` 入口的委托；实际配置、签名、验收、地址保存使用同一条路径。旧目录配置标记为历史参考，不再加载。
+基线独立入口缺少 Core 参数加载，把明文私钥拼进部署命令并输出。现已将它缩为统一 `bsc97_dev` 入口的委托；实际配置、签名、验收、地址保存使用同一条路径。
 
 仍需部署者填写 `bsc97_dev` 中真实 DEX 地址及分发地址；模板占位值没有被审计过程替换为猜测地址。新路径只将 Keystore 名称传给签名工具，不把私钥放入命令行或打印。
 

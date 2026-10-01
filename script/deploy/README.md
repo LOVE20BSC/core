@@ -101,8 +101,6 @@ DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2：交易手续费固
 
 `MAX_WITHDRAWABLE_TO_FEE_RATIO` 决定手续费销毁的触发阈值和单次处理量，不是交易费率。`99_check.sh` 中的 `ACTUAL_FEE_RATIO` 只是链上读取结果，用于与这个配置值比对。现有配置保持 `1000`；每社区每 Phase 至多实际结算一次，且单次处理量须足够让 Pair 两侧产出非零数量。
 
-历史入口 `script/network/bsc97_testnet/deploy.sh` 已委托给 `bsc97_dev`；只维护 `bsc97_dev` 的参数、DEX 地址和 `.account`。
-
 ### 分步部署
 
 ```bash
