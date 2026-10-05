@@ -33,8 +33,14 @@ contract MintEdgeCasesTest {
         token = new LOVE20Token("Test", "TST", supply, maxSupply, address(this), address(mint), address(1));
     }
 
-    function isRoundEnded(uint256 round) external pure returns (bool) {
-        return round > 0;
+    uint256 public currentPhaseValue = type(uint256).max;
+
+    function phaseAddress() external view returns (address) {
+        return address(this);
+    }
+
+    function currentPhase() external view returns (uint256) {
+        return currentPhaseValue;
     }
 
     function ownerOf(uint256 id) external view returns (address) {
@@ -99,6 +105,30 @@ contract MintEdgeCasesTest {
         mint.init(address(this), address(this), address(this), address(this), 50, 100, 100, 2);
     }
 
+    function testInitDerivesPhaseFromVote() public {
+        setupMint(1000, 10000);
+        require(mint.phaseAddress() == address(this), "phase derived and exposed");
+    }
+
+    function testInitRejectsVoteWithoutPhase() public {
+        ZeroPhaseVote zeroPhaseVote = new ZeroPhaseVote();
+        Mint fresh = new Mint();
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAddress.selector));
+        fresh.init(address(zeroPhaseVote), address(this), address(this), address(this), 50, 100, 100, 2);
+        require(!fresh.initialized(), "must not latch on failed derivation");
+    }
+
+    function testRoundEndedReadsDerivedPhaseDirectly() public {
+        setupMint(1000, 10000);
+        currentPhaseValue = 5;
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
+        mint.mintGovReward(address(token), 1, 5);
+
+        currentPhaseValue = 6;
+        (uint256 voteReward,,) = mint.mintGovReward(address(token), 1, 5);
+        require(voteReward > 0, "round settles once the derived phase advances");
+    }
+
     function testProposalDoubleClaimReverts() public {
         setupMint(1000, 10000);
         vm.prank(TARGET);
@@ -155,5 +185,11 @@ contract MintEdgeCasesTest {
         vm.prank(TARGET);
         vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, 2));
         mint.burnUnmintedProposalReward(address(token), 1, 2);
+    }
+}
+
+contract ZeroPhaseVote {
+    function phaseAddress() external pure returns (address) {
+        return address(0);
     }
 }

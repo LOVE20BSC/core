@@ -51,8 +51,12 @@ contract MintCoverageTest {
         token = new LOVE20Token("Coverage", "COV", supply, maxSupply, address(this), address(mint), address(1));
     }
 
-    function isRoundEnded(uint256 round) external pure returns (bool) {
-        return round > 0;
+    function phaseAddress() external view returns (address) {
+        return address(this);
+    }
+
+    function currentPhase() external pure returns (uint256) {
+        return type(uint256).max;
     }
 
     function ownerOf(uint256 id) external view returns (address) {

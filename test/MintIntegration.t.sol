@@ -3,6 +3,7 @@ pragma solidity =0.8.37;
 
 import {Mint} from "../src/Mint.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
+import {IMintErrors} from "../src/interfaces/IMint.sol";
 import {ISubmitErrors, TargetMode} from "../src/interfaces/ISubmit.sol";
 import {IERC721Errors} from "../lib/openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 
@@ -38,6 +39,7 @@ contract MintIntegrationTest {
         vote = new MockVote();
         submit = new MockSubmit();
         launch = new MockLaunch();
+        vote.setPhaseAddress(address(phase));
 
         // Initialize Mint with mocks - pass vote for both voteAddress and memberNFTAddress
         mint = new Mint();
@@ -78,7 +80,7 @@ contract MintIntegrationTest {
         vote.setProposalVotes(address(token), 1, proposalId, 250);
         vote.addVotedProposal(address(token), 1, proposalId);
         submit.setProposalTarget(proposalId, target, TargetMode.NoCallback);
-        phase.setRoundEnded(1, true);
+        phase.setCurrentPhase(2);
 
         // Claim rewards (auto-prepare)
         vm.prank(member1);
@@ -140,7 +142,7 @@ contract MintIntegrationTest {
 
         submit.setProposalTarget(1, target, TargetMode.NoCallback);
         submit.setProposalTarget(2, target, TargetMode.NoCallback);
-        phase.setRoundEnded(1, true);
+        phase.setCurrentPhase(2);
 
         // Prepare both
 
@@ -173,7 +175,7 @@ contract MintIntegrationTest {
             vote.addVotedProposal(address(token), round, round);
             vote.setProposalVotes(address(token), round, round, 100);
             submit.setProposalTarget(round, target, TargetMode.NoCallback);
-            phase.setRoundEnded(round, true);
+            phase.setCurrentPhase(round + 1);
 
         }
 
@@ -208,7 +210,7 @@ contract MintIntegrationTest {
         vote.addVotedProposal(address(token), 1, 1);
         vote.setProposalVotes(address(token), 1, 1, 1000);
         submit.setProposalTarget(1, target, TargetMode.NoCallback);
-        phase.setRoundEnded(1, true);
+        phase.setCurrentPhase(2);
 
 
         // Calculate launch credit: mintAmount / threshold
@@ -248,7 +250,7 @@ contract MintIntegrationTest {
         vote.addVotedProposal(address(token), 1, 1);
         vote.setProposalVotes(address(token), 1, 1, 100);
         submit.setProposalTarget(1, target, TargetMode.NoCallback);
-        phase.setRoundEnded(1, true);
+        phase.setCurrentPhase(2);
 
         // Setup token2 round 1
         vote.setMemberVotes(address(token2), 1, 1, 80);
@@ -291,7 +293,7 @@ contract MintIntegrationTest {
         vote.addVotedProposal(address(token), 1, 1);
         vote.setProposalVotes(address(token), 1, 1, 200);
         submit.setProposalTarget(1, target, TargetMode.NoCallback);
-        phase.setRoundEnded(1, true);
+        phase.setCurrentPhase(2);
 
 
         // Member1 (owner of memberId 1) claims successfully
@@ -307,7 +309,7 @@ contract MintIntegrationTest {
         vote.addVotedProposal(address(token), 2, 2);
         vote.setProposalVotes(address(token), 2, 2, 200);
         submit.setProposalTarget(2, target, TargetMode.NoCallback);
-        phase.setRoundEnded(2, true);
+        phase.setCurrentPhase(3);
 
 
         // Member2 (owner of memberId 2) claims successfully
@@ -346,7 +348,7 @@ contract MintIntegrationTest {
         vote.setProposalVotes(address(token), 1, 2, 700);
         submit.setProposalTarget(2, address(0x3002), TargetMode.NoCallback);
 
-        phase.setRoundEnded(1, true);
+        phase.setCurrentPhase(2);
 
         // Trigger auto-prepare by minting
         vm.prank(member1);
@@ -392,7 +394,7 @@ contract MintIntegrationTest {
         vote.setProposalVotes(address(token), 1, 1, 50);
         submit.setProposalTarget(1, target, TargetMode.NoCallback);
 
-        phase.setRoundEnded(1, true);
+        phase.setCurrentPhase(2);
 
         // Verify proposal is eligible
         assertTrue(mint.isProposalIdWithReward(address(token), 1, 1), "Proposal at 5% should qualify");
@@ -410,7 +412,7 @@ contract MintIntegrationTest {
         vote.setProposalVotes(address(token), 2, 2, 49);
         submit.setProposalTarget(2, target, TargetMode.NoCallback);
 
-        phase.setRoundEnded(2, true);
+        phase.setCurrentPhase(3);
 
         // Verify proposal is NOT eligible
         assertTrue(!mint.isProposalIdWithReward(address(token), 2, 2), "Proposal below 5% should not qualify");
@@ -425,7 +427,7 @@ contract MintIntegrationTest {
         vote.setProposalVotes(address(token), 3, 3, 51);
         submit.setProposalTarget(3, target, TargetMode.NoCallback);
 
-        phase.setRoundEnded(3, true);
+        phase.setCurrentPhase(4);
 
         // Verify proposal is eligible
         assertTrue(mint.isProposalIdWithReward(address(token), 3, 3), "Proposal above 5% should qualify");
@@ -442,11 +444,14 @@ contract MintIntegrationTest {
         vote.setProposalVotes(address(token), 1, 1, 100);
         submit.setProposalTarget(1, target, TargetMode.NoCallback);
 
-        // Round not ended - prepare should fail (would revert)
-        phase.setRoundEnded(1, false);
+        // Round not ended - prepare must revert
+        phase.setCurrentPhase(1);
+        vm.prank(member1);
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
+        mint.mintGovReward(address(token), 1, 1);
 
         // Now mark round as ended
-        phase.setRoundEnded(1, true);
+        phase.setCurrentPhase(2);
 
         // Mint should succeed (auto-prepare)
         vm.prank(member1);
@@ -467,7 +472,7 @@ contract MintIntegrationTest {
         vote.addVotedProposal(address(token), 1, 1);
         vote.setProposalVotes(address(token), 1, 1, 100);
         submit.setProposalTarget(1, target, TargetMode.NoCallback);
-        phase.setRoundEnded(1, true);
+        phase.setCurrentPhase(2);
 
         // First mint (triggers prepare)
         vm.prank(member1);
@@ -527,14 +532,14 @@ contract MintIntegrationTest {
 // Mock contracts with stateful behavior
 
 contract MockPhase {
-    mapping(uint256 => bool) public roundEnded;
+    uint256 internal _currentPhase;
 
-    function isRoundEnded(uint256 round) external view returns (bool) {
-        return roundEnded[round];
+    function currentPhase() external view returns (uint256) {
+        return _currentPhase;
     }
 
-    function setRoundEnded(uint256 round, bool ended) external {
-        roundEnded[round] = ended;
+    function setCurrentPhase(uint256 phase) external {
+        _currentPhase = phase;
     }
 }
 
@@ -546,8 +551,10 @@ contract MockVote {
     mapping(address => mapping(uint256 => uint256)) public totalBoost;
     mapping(address => mapping(uint256 => mapping(uint256 => uint256))) public memberBoost;
 
-    function isRoundEnded(uint256 round) external pure returns (bool) {
-        return round > 0;
+    address public phaseAddress;
+
+    function setPhaseAddress(address phaseAddress_) external {
+        phaseAddress = phaseAddress_;
     }
 
     function votesNum(address token, uint256 round) external view returns (uint256) {
