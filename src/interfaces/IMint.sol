@@ -78,6 +78,8 @@ interface IMint is IMintEvents, IMintErrors {
             uint256[] memory boostRewards,
             uint256[] memory burnRewards
         );
+    function burnUnmintedProposalReward(address tokenAddress, uint256 round, uint256 proposalId)
+        external returns (uint256 amount);
     function rewardReserved(address tokenAddress) external view returns (uint256);
     function rewardMinted(address tokenAddress) external view returns (uint256);
     function rewardBurned(address tokenAddress) external view returns (uint256);

@@ -331,6 +331,46 @@ contract Mint is IMint {
         return (voteRewards, boostRewards, burnRewards);
     }
 
+    function burnUnmintedProposalReward(
+        address tokenAddress,
+        uint256 round,
+        uint256 proposalId
+    ) external returns (uint256 amount) {
+        // Only the proposal's registered Target may cancel its unminted incentive.
+        // forge-lint: disable-next-line(unused-return)
+        (address target, ) = ISubmit(submitAddress).proposalTarget(tokenAddress, proposalId);
+
+        if (msg.sender != target) {
+            revert UnauthorizedCaller();
+        }
+
+        if (!IVote(voteAddress).isRoundEnded(round)) {
+            revert RoundNotReadyToMint();
+        }
+
+        // Automatically prepare rewards if not already done
+        _prepareRewardIfNeeded(tokenAddress, round);
+
+        if (_proposalMinted[tokenAddress][round][proposalId]) {
+            revert AlreadyMinted();
+        }
+
+        // Existence already verified above; skip redundant check in query.
+        (amount, ) = _proposalRewardCalculation(tokenAddress, round, proposalId);
+        if (amount == 0) {
+            revert NoRewardAvailable();
+        }
+
+        // Settle-by-burn: the proposal can never mint afterward; the reserved share
+        // returns to availability through the burned ledger.
+        _proposalMinted[tokenAddress][round][proposalId] = true;
+        _rewardBurned[tokenAddress] += amount;
+
+        emit RewardBurned(tokenAddress, round, amount, keccak256("proposalRewardUnallocatable"));
+
+        return amount;
+    }
+
     function _calculateEligibleProposalVotes(
         address tokenAddress,
         uint256 round,
