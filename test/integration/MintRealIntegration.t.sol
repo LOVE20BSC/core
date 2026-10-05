@@ -40,6 +40,7 @@ contract MintRealIntegrationTest {
     uint256 constant SLIPPAGE_100_PERCENT = 1e18;
     uint256 constant PROMISED_WAITING_PHASES = 1;
     uint256 constant TOKEN_TRANSFER_AMOUNT = 10000;
+    uint256 constant BOOST_AMOUNT = 1000;
 
     // Configuration constants - must match init() parameters
     uint256 constant ROUND_REWARD_GOV_PER_THOUSAND = 100;        // 10%
@@ -1068,6 +1069,159 @@ contract MintRealIntegrationTest {
         uint256 r4Votes = vote.votesNumByMemberId(address(token), data.round4, 1);
         assertEq(r1Votes, VOTE_AMOUNT_MEMBER1, "Round 1 must have 100 votes");
         assertEq(r4Votes, VOTE_AMOUNT_MEMBER2, "Round 4 must have 60 votes");
+    }
+
+    // ==================== Test 6: Burn Unminted Proposal Reward ====================
+
+    struct BurnUnmintedTestData {
+        uint256 round1;
+        uint256 proposalId1;
+        uint256 proposalId2;
+        address proposalTarget1;
+        address proposalTarget2;
+    }
+
+    /// @notice Test 6: Target burns its unminted proposal reward after the round ends
+    /// @dev Verifies burn settlement, availability restoration, and sibling-proposal isolation
+    function testRealIntegration_BurnUnmintedProposalReward() public {
+        vm.roll(block.number + BLOCKS_PAST_ROUND0);
+
+        BurnUnmintedTestData memory data;
+        data.round1 = phase.currentPhase();
+
+        _setupBurnUnmintedStakes();
+        _setupBurnUnmintedProposals(data);
+        _burnUnmintedProposal(data);
+        _verifySiblingProposalUnaffected(data);
+    }
+
+    function _setupBurnUnmintedStakes() internal {
+        vm.prank(distributor);
+        token.transfer(member1, TOKEN_TRANSFER_AMOUNT);
+        vm.prank(distributor);
+        token.transfer(member2, TOKEN_TRANSFER_AMOUNT);
+        vm.prank(owner);
+        rootToken.transfer(member1, TOKEN_TRANSFER_AMOUNT);
+        vm.prank(owner);
+        rootToken.transfer(member2, TOKEN_TRANSFER_AMOUNT);
+
+        _stakeLiquidityForMembers(STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER2);
+
+        // Boost on top of the liquidity stake so the round's boost pool survives preparation
+        vm.startPrank(member1);
+        token.approve(address(stake), BOOST_AMOUNT);
+        stake.stakeBoost(address(token), BOOST_AMOUNT, PROMISED_WAITING_PHASES, 1);
+        vm.stopPrank();
+
+        vm.startPrank(member2);
+        token.approve(address(stake), BOOST_AMOUNT);
+        stake.stakeBoost(address(token), BOOST_AMOUNT, PROMISED_WAITING_PHASES, 2);
+        vm.stopPrank();
+    }
+
+    function _setupBurnUnmintedProposals(BurnUnmintedTestData memory data) internal {
+        data.proposalTarget1 = address(0xB001);
+        data.proposalTarget2 = address(0xB002);
+
+        vm.prank(member1);
+        data.proposalId1 = submit.submitNewProposal(
+            address(token), 1,
+            ProposalBody({
+                title: "Burn Target Proposal",
+                details: "Burn settlement",
+                target: data.proposalTarget1,
+                targetMode: TargetMode.NoCallback,
+                targetData: new bytes[](0)
+            })
+        );
+
+        vm.prank(member2);
+        data.proposalId2 = submit.submitNewProposal(
+            address(token), 2,
+            ProposalBody({
+                title: "Sibling Proposal",
+                details: "Remaining share",
+                target: data.proposalTarget2,
+                targetMode: TargetMode.NoCallback,
+                targetData: new bytes[](0)
+            })
+        );
+
+        // Member1 votes 100 on proposal 1, member2 votes 60 on proposal 2
+        uint256[] memory proposalIds = new uint256[](1);
+        uint256[] memory voteAmounts = new uint256[](1);
+
+        proposalIds[0] = data.proposalId1;
+        voteAmounts[0] = VOTE_AMOUNT_MEMBER1;
+        vm.prank(member1);
+        vote.vote(address(token), 1, proposalIds, voteAmounts, new bytes[][](0));
+
+        proposalIds[0] = data.proposalId2;
+        voteAmounts[0] = VOTE_AMOUNT_MEMBER2;
+        vm.prank(member2);
+        vote.vote(address(token), 2, proposalIds, voteAmounts, new bytes[][](0));
+    }
+
+    function _burnUnmintedProposal(BurnUnmintedTestData memory data) internal {
+        vm.roll(block.number + BLOCKS_PER_ROUND);
+        assertEq(phase.currentPhase(), data.round1 + 1, "Round must advance");
+
+        // Non-target callers cannot burn
+        vm.prank(address(0xBAD));
+        vm.expectRevert(abi.encodeWithSignature("UnauthorizedCaller()"));
+        mint.burnUnmintedProposalReward(address(token), data.round1, data.proposalId1);
+
+        // Target burns its unminted proposal reward; the call auto-prepares the round
+        uint256 totalSupplyBefore = token.totalSupply();
+        vm.prank(data.proposalTarget1);
+        uint256 burned = mint.burnUnmintedProposalReward(address(token), data.round1, data.proposalId1);
+        assertTrue(burned > 0, "Burn amount must be positive");
+        assertEq(token.totalSupply(), totalSupplyBefore, "Burn must not mint tokens");
+        assertEq(mint.rewardBurned(address(token)), burned, "Burned ledger");
+        assertTrue(mint.isRewardPrepared(address(token), data.round1), "Round must be prepared");
+        assertTrue(vote.stakedAmountOfVoters(address(token), data.round1) > 0, "Boost snapshot recorded");
+
+        // Burned amount matches the independent proposal-reward model
+        uint256 expectedBurn = _calculateExpectedProposalReward(
+            mint.proposalReward(address(token), data.round1),
+            vote.votesNumByProposalId(address(token), data.round1, data.proposalId1),
+            mint.eligibleProposalVotes(address(token), data.round1)
+        );
+        assertEq(burned, expectedBurn, "Burn must match math model");
+
+        // Settled by burn: frozen amount still queryable, late mint and second burn rejected
+        (uint256 frozenAmount, bool minted) =
+            mint.proposalRewardByProposalId(address(token), data.round1, data.proposalId1);
+        assertEq(frozenAmount, burned, "Frozen amount after burn");
+        assertTrue(minted, "Proposal must be settled");
+
+        vm.prank(data.proposalTarget1);
+        vm.expectRevert(abi.encodeWithSignature("AlreadyMinted()"));
+        mint.mintProposalReward(address(token), data.round1, data.proposalId1);
+        vm.prank(data.proposalTarget1);
+        vm.expectRevert(abi.encodeWithSignature("AlreadyMinted()"));
+        mint.burnUnmintedProposalReward(address(token), data.round1, data.proposalId1);
+    }
+
+    function _verifySiblingProposalUnaffected(BurnUnmintedTestData memory data) internal {
+        uint256 expectedSibling = _calculateExpectedProposalReward(
+            mint.proposalReward(address(token), data.round1),
+            vote.votesNumByProposalId(address(token), data.round1, data.proposalId2),
+            mint.eligibleProposalVotes(address(token), data.round1)
+        );
+
+        uint256 balanceBefore = token.balanceOf(data.proposalTarget2);
+        vm.prank(data.proposalTarget2);
+        uint256 claimed = mint.mintProposalReward(address(token), data.round1, data.proposalId2);
+        assertEq(claimed, expectedSibling, "Sibling share unchanged");
+        assertEq(token.balanceOf(data.proposalTarget2) - balanceBefore, expectedSibling, "Sibling exact transfer");
+
+        assertEq(mint.rewardMinted(address(token)), expectedSibling, "Minted ledger");
+        assertEq(
+            mint.reservedAvailable(address(token)),
+            mint.govReward(address(token), data.round1),
+            "Only gov pool remains reserved"
+        );
     }
 
     // ========================================

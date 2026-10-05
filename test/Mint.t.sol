@@ -318,4 +318,68 @@ contract MintTest {
         // Second mint uses cached data - no scan
         require(mint.mintProposalReward(address(token), 1, 300) == 3, "cached settlement");
     }
+
+    function testBurnUnmintedProposalRewardReturnsAvailability() public {
+        totalVotes = 20;
+        secondVotes = 19;
+        proposalCount = 2;
+        setupMint(1000, 10000, 0, 100);
+        require(mint.mintProposalReward(address(token), 1, 2) == 855, "prepare via sibling mint");
+        uint256 burnedBefore = mint.rewardBurned(address(token));
+        uint256 reservedBefore = mint.reservedAvailable(address(token));
+        uint256 availableBefore = mint.rewardAvailable(address(token));
+        uint256 proposalPoolBefore = mint.proposalReward(address(token), 1);
+        uint256 amount = mint.burnUnmintedProposalReward(address(token), 1, 1);
+        require(amount == 45, "burn amount");
+        require(mint.rewardBurned(address(token)) == burnedBefore + amount, "burned ledger");
+        require(mint.reservedAvailable(address(token)) == reservedBefore - amount, "reserved share consumed");
+        require(mint.rewardAvailable(address(token)) == availableBefore + amount, "availability restored");
+        require(mint.proposalReward(address(token), 1) == proposalPoolBefore, "round pool unchanged");
+        require(mint.eligibleProposalVotes(address(token), 1) == 20, "eligible votes unchanged");
+        require(token.totalSupply() == 1855, "burn minted nothing");
+        (uint256 queryAmount, bool minted) = mint.proposalRewardByProposalId(address(token), 1, 1);
+        require(queryAmount == amount && minted, "settled query");
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.AlreadyMinted.selector));
+        mint.mintProposalReward(address(token), 1, 1);
+    }
+
+    function testBurnUnmintedProposalRewardAutoPrepares() public {
+        totalVotes = 20;
+        secondVotes = 19;
+        proposalCount = 2;
+        setupMint(1000, 10000, 0, 100);
+        require(!mint.isRewardPrepared(address(token), 1), "precondition");
+        uint256 amount = mint.burnUnmintedProposalReward(address(token), 1, 1);
+        require(amount == 45 && mint.isRewardPrepared(address(token), 1), "auto-prepared");
+        require(mint.proposalReward(address(token), 1) == 900, "frozen pool");
+        require(mint.eligibleProposalVotes(address(token), 1) == 20, "frozen eligible votes");
+        require(mint.rewardBurned(address(token)) == amount, "burned ledger");
+        require(token.totalSupply() == 1000, "nothing minted");
+        require(mint.mintProposalReward(address(token), 1, 2) == 855, "sibling share intact");
+    }
+
+    function testBurnUnmintedProposalRewardRejectsSettledProposal() public {
+        totalVotes = 20;
+        secondVotes = 19;
+        proposalCount = 2;
+        setupMint(1000, 10000, 0, 100);
+        require(mint.burnUnmintedProposalReward(address(token), 1, 1) == 45, "first burn");
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.AlreadyMinted.selector));
+        mint.burnUnmintedProposalReward(address(token), 1, 1);
+        mint.mintProposalReward(address(token), 1, 2);
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.AlreadyMinted.selector));
+        mint.burnUnmintedProposalReward(address(token), 1, 2);
+    }
+
+    function testBurnUnmintedProposalRewardRejectsIneligibleProposal() public {
+        totalVotes = 21;
+        firstVotes = 1;
+        secondVotes = 20;
+        proposalCount = 2;
+        setupMint(1000, 10000, 0, 100);
+        (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
+        require(amount == 0, "ineligible projection");
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.NoRewardAvailable.selector));
+        mint.burnUnmintedProposalReward(address(token), 1, 1);
+    }
 }

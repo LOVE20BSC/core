@@ -136,4 +136,24 @@ contract MintEdgeCasesTest {
         uint256 available = mint.rewardAvailable(address(token));
         require(available == 9000, "available matches maxSupply - totalSupply");
     }
+
+    function testBurnUnmintedUnauthorizedReverts() public {
+        setupMint(1000, 10000);
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.UnauthorizedCaller.selector));
+        mint.burnUnmintedProposalReward(address(token), 1, 1);
+    }
+
+    function testBurnUnmintedRoundNotReadyReverts() public {
+        setupMint(1000, 10000);
+        vm.prank(TARGET);
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
+        mint.burnUnmintedProposalReward(address(token), 0, 1);
+    }
+
+    function testBurnUnmintedUnknownProposalReverts() public {
+        setupMint(1000, 10000);
+        vm.prank(TARGET);
+        vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, 2));
+        mint.burnUnmintedProposalReward(address(token), 1, 2);
+    }
 }

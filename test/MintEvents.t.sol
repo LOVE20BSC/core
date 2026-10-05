@@ -302,6 +302,27 @@ contract MintEventsTest {
         // This demonstrates the pattern for the first event
         mint.mintGovRewards(address(token), memberId, rounds);
     }
+
+    /// @notice Verify RewardBurned event for an unallocatable proposal reward
+    function testEvent_RewardBurnedForUnallocatableProposalReward() public {
+        uint256 round = 1;
+        uint256 proposalId = 1;
+
+        // Prepare the round with a sibling mint so the burn emits only its own event
+        vm.prank(TARGET);
+        mint.mintProposalReward(address(token), round, proposalId + 1);
+
+        (uint256 amount,) = mint.proposalRewardByProposalId(address(token), round, proposalId);
+        assertEq(amount, 33000, "expected burn amount");
+
+        vm.expectEmit(true, true, false, true);
+        emit RewardBurned(address(token), round, amount, keccak256("proposalRewardUnallocatable"));
+
+        vm.prank(TARGET);
+        uint256 burned = mint.burnUnmintedProposalReward(address(token), round, proposalId);
+        assertEq(burned, amount, "burned amount matches event");
+        assertEq(mint.rewardBurned(address(token)), amount, "burned ledger");
+    }
 }
 
 /// @notice Mock Vote with high boost causing overflow
