@@ -198,6 +198,9 @@ verify_value "launchAddress" "$LAUNCH_ADDRESS" "$ACTUAL_MINT_LAUNCH" || ((FAILED
 ACTUAL_MINT_MEMBER=$(cast call "$MINT_ADDRESS" "memberNFTAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "memberNFTAddress" "$MEMBERNFT_ADDRESS" "$ACTUAL_MINT_MEMBER" || ((FAILED+=1))
 
+ACTUAL_MINT_PHASE=$(cast call "$MINT_ADDRESS" "phaseAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "phaseAddress" "$PHASE_ADDRESS" "$ACTUAL_MINT_PHASE" || ((FAILED+=1))
+
 ACTUAL_MIN_PROPOSAL=$(cast call "$MINT_ADDRESS" "PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND" "$MIN_PROPOSAL_VOTES" "$ACTUAL_MIN_PROPOSAL" || ((FAILED+=1))
 
