@@ -2,10 +2,11 @@
 pragma solidity =0.8.37;
 
 interface IUniswapV2Pair {
-    // `token1()` is not declared: every caller identifies the community token by `token0()` and treats the
-    // other reserve as the parent side. LP transfers go through the ERC20 interface, so `transfer` is not
-    // declared here either.
+    // The factory sorts token addresses, so the community token is not always `token0()`; callers that know
+    // it compare against `token0()` to order the reserves. LP transfers go through the ERC20 interface, so
+    // `transfer` is not declared here.
     function token0() external view returns (address);
+    function token1() external view returns (address);
     function getReserves()
         external
         view
