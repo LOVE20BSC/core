@@ -5,6 +5,7 @@ import {Math} from "../lib/openzeppelin-contracts/contracts/utils/math/Math.sol"
 import {IVote} from "./interfaces/IVote.sol";
 import {ISubmit} from "./interfaces/ISubmit.sol";
 import {ILaunch} from "./interfaces/ILaunch.sol";
+import {IPhase} from "./interfaces/IPhase.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
 import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
 import {IMint} from "./interfaces/IMint.sol";
@@ -34,6 +35,7 @@ contract Mint is IMint {
     address public submitAddress;
     address public launchAddress;
     address public memberNFTAddress;
+    address public phaseAddress;
     uint256 public PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND;
     uint256 public ROUND_REWARD_GOV_PER_THOUSAND;
     uint256 public ROUND_REWARD_PROPOSAL_PER_THOUSAND;
@@ -96,6 +98,11 @@ contract Mint is IMint {
             revert InvalidAddress();
         }
 
+        address phaseAddress_ = IVote(voteAddress_).phaseAddress();
+        if (phaseAddress_ == address(0)) {
+            revert InvalidAddress();
+        }
+
         if (proposalRewardMinVotePerThousand_ > 1000) {
             revert InvalidAmount();
         }
@@ -112,10 +119,15 @@ contract Mint is IMint {
         submitAddress = submitAddress_;
         launchAddress = launchAddress_;
         memberNFTAddress = memberNFTAddress_;
+        phaseAddress = phaseAddress_;
         PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND = proposalRewardMinVotePerThousand_;
         ROUND_REWARD_GOV_PER_THOUSAND = roundRewardGovPerThousand_;
         ROUND_REWARD_PROPOSAL_PER_THOUSAND = roundRewardProposalPerThousand_;
         MAX_GOV_BOOST_REWARD_MULTIPLIER = maxGovBoostRewardMultiplier_;
+    }
+
+    function _isRoundEnded(uint256 round) private view returns (bool) {
+        return round != 0 && IPhase(phaseAddress).currentPhase() > round;
     }
 
     function _prepareRewardIfNeeded(address tokenAddress, uint256 round) internal {
@@ -125,7 +137,7 @@ contract Mint is IMint {
 
         // Called from mintGovReward/mintProposalReward; cannot hoist out of batch loop.
         // forge-lint: disable-next-line(calls-loop)
-        if (!IVote(voteAddress).isRoundEnded(round)) {
+        if (!_isRoundEnded(round)) {
             // Early validation; reverts before state changes in batch operations.
             // forge-lint: disable-next-line(require-revert-in-loop)
             revert RoundNotReadyToMint();
@@ -223,7 +235,7 @@ contract Mint is IMint {
             revert UnauthorizedCaller();
         }
 
-        if (!IVote(voteAddress).isRoundEnded(round)) {
+        if (!_isRoundEnded(round)) {
             revert RoundNotReadyToMint();
         }
 
@@ -263,7 +275,7 @@ contract Mint is IMint {
             revert NotMemberOwner(memberId);
         }
 
-        if (!IVote(voteAddress).isRoundEnded(round)) {
+        if (!_isRoundEnded(round)) {
             revert RoundNotReadyToMint();
         }
 
@@ -344,7 +356,7 @@ contract Mint is IMint {
             revert UnauthorizedCaller();
         }
 
-        if (!IVote(voteAddress).isRoundEnded(round)) {
+        if (!_isRoundEnded(round)) {
             revert RoundNotReadyToMint();
         }
 

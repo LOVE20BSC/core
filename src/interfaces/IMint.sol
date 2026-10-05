@@ -52,6 +52,7 @@ interface IMint is IMintEvents, IMintErrors {
     function submitAddress() external view returns (address);
     function launchAddress() external view returns (address);
     function memberNFTAddress() external view returns (address);
+    function phaseAddress() external view returns (address);
 
     function PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND() external view returns (uint256);
     function ROUND_REWARD_GOV_PER_THOUSAND() external view returns (uint256);
