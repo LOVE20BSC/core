@@ -178,6 +178,8 @@ ACTUAL_LAUNCH_MAX_SUPPLY=$(cast call "$LAUNCH_ADDRESS" "MAX_SUPPLY()(uint256)" -
 verify_value "MAX_SUPPLY" "$MAX_SUPPLY" "$ACTUAL_LAUNCH_MAX_SUPPLY" || ((FAILED+=1))
 ACTUAL_REGISTERED=$(cast call "$LAUNCH_ADDRESS" "isLOVE20Token(address)(bool)" "$LOVE20TOKEN_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "first token registered" "true" "$ACTUAL_REGISTERED" || ((FAILED+=1))
+ACTUAL_FIRST_TOKEN=$(cast call "$LAUNCH_ADDRESS" "firstTokenAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "firstTokenAddress" "$LOVE20TOKEN_ADDRESS" "$ACTUAL_FIRST_TOKEN" || ((FAILED+=1))
 
 ACTUAL_LAUNCH_INIT=$(cast call "$LAUNCH_ADDRESS" "initialized()(bool)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "initialized" "true" "$ACTUAL_LAUNCH_INIT" || ((FAILED+=1))

@@ -114,6 +114,15 @@ contract FakeToken {
     }
 }
 
+/// 根父币最小模拟：只提供根级发射命名与前缀判定所需的 symbol()
+contract RootTokenMock {
+    string public symbol;
+
+    constructor(string memory symbol_) {
+        symbol = symbol_;
+    }
+}
+
 /// 最小 Pair Factory：只提供 Launch 建池所需的两个入口，并记录每次创建以便断言
 contract PairFactoryMock {
     mapping(address => mapping(address => address)) private _pairByTokens;
@@ -198,6 +207,7 @@ contract LaunchTest {
         require(launch.mintAddress() == address(mintAccount), "mint");
         require(launch.memberNFTAddress() == address(member), "member");
         require(launch.rootParentTokenAddress() == ROOT, "root parent");
+        require(launch.firstTokenAddress() == address(firstToken), "first token getter");
         require(launch.TOKEN_SYMBOL_LENGTH() == SYMBOL_LENGTH, "symbol length");
         require(launch.LAUNCH_RATIO() == LAUNCH_RATIO, "launch ratio");
         require(launch.MAX_LAUNCH_COUNT() == MAX_LAUNCH_COUNT, "max launch count");
@@ -421,6 +431,7 @@ contract LaunchTest {
         require(!freshLaunch.initialized(), "initialized rolled back");
         require(freshLaunch.mintAddress() == address(0), "mint rolled back");
         require(freshLaunch.rootParentTokenAddress() == address(0), "root rolled back");
+        require(freshLaunch.firstTokenAddress() == address(0), "first token rolled back");
         require(rejecting.LOVE20_TOKEN_ADDRESS() == EOA, "member untouched");
     }
 
@@ -1009,20 +1020,30 @@ contract LaunchTest {
         require(launch.launchCount(address(firstToken), aliceMemberId) == 4, "launch count");
         require(launch.issuedLaunchCount(address(firstToken)) == 4, "issued count");
 
-        bool found;
+        // 首币次数 1:1 伴生到根父币维度：同一笔交易、同一 count、各发一条 LaunchCountAdded
+        require(launch.launchCount(ROOT, aliceMemberId) == 4, "root count mirrored");
+        require(launch.issuedLaunchCount(ROOT) == 4, "root issued mirrored");
+
+        bool foundFirst;
+        bool foundRoot;
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 eventSelector = keccak256("LaunchCountAdded(address,uint256,uint256)");
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(launch) || logs[i].topics.length == 0) continue;
             if (logs[i].topics[0] != eventSelector) continue;
-            require(logs[i].topics[1] == bytes32(uint256(uint160(address(firstToken)))), "event token");
-            require(logs[i].topics[2] == bytes32(aliceMemberId), "event member");
-            require(abi.decode(logs[i].data, (uint256)) == 4, "event count");
-            found = true;
+            if (logs[i].topics[1] == bytes32(uint256(uint160(address(firstToken))))) {
+                require(logs[i].topics[2] == bytes32(aliceMemberId), "event member");
+                require(abi.decode(logs[i].data, (uint256)) == 4, "event count");
+                foundFirst = true;
+            } else if (logs[i].topics[1] == bytes32(uint256(uint160(ROOT)))) {
+                require(logs[i].topics[2] == bytes32(aliceMemberId), "root event member");
+                require(abi.decode(logs[i].data, (uint256)) == 4, "root event count");
+                foundRoot = true;
+            }
         }
-        require(found, "missing LaunchCountAdded");
-        // 反向断言：只发一条 LaunchCountAdded，且不产生其它 Launch 事件
-        require(_countLogs(logs, address(launch), eventSelector) == 1, "exactly one LaunchCountAdded");
+        require(foundFirst && foundRoot, "missing LaunchCountAdded");
+        // 反向断言：首币与根父币各一条 LaunchCountAdded，且不产生其它 Launch 事件
+        require(_countLogs(logs, address(launch), eventSelector) == 2, "two LaunchCountAdded");
         require(_countLogs(logs, address(launch), keccak256("LaunchCountMerged(address,uint256,uint256,uint256)")) == 0, "no merged");
         require(
             _countLogs(logs, address(launch), keccak256("TokenLaunched(address,address,uint256,address,string,string)")) == 0,
@@ -1033,6 +1054,8 @@ contract LaunchTest {
         mintAccount.addLaunchCount(launch, address(firstToken), aliceMemberId, 1);
         require(launch.launchCount(address(firstToken), aliceMemberId) == 5, "accumulated");
         require(launch.issuedLaunchCount(address(firstToken)) == 5, "issued accumulated");
+        require(launch.launchCount(ROOT, aliceMemberId) == 5, "root accumulated");
+        require(launch.issuedLaunchCount(ROOT) == 5, "root issued accumulated");
     }
 
     function testAddLaunchCountRejectsUnauthorizedCaller() public {
@@ -1077,6 +1100,9 @@ contract LaunchTest {
         mintAccount.addLaunchCount(launch, address(firstToken), aliceMemberId, MAX_LAUNCH_COUNT);
         require(launch.issuedLaunchCount(address(firstToken)) == MAX_LAUNCH_COUNT, "issued at cap");
         require(launch.launchCount(address(firstToken), aliceMemberId) == MAX_LAUNCH_COUNT, "count at cap");
+        // 根级伴生同步到达同一上限：不变式 issuedLaunchCount(root) == issuedLaunchCount(first)
+        require(launch.issuedLaunchCount(ROOT) == MAX_LAUNCH_COUNT, "root issued at cap");
+        require(launch.launchCount(ROOT, aliceMemberId) == MAX_LAUNCH_COUNT, "root count at cap");
 
         // 到达上限后任何增量都回滚，极端大值也不能以算术溢出收场
         (bool ok, bytes memory data) = mintAccount.forward(
@@ -1152,6 +1178,120 @@ contract LaunchTest {
         );
         require(!ok, "uninitialized add must revert");
         require(_selector(data) == ILaunchErrors.UnauthorizedCaller.selector, "caller check first");
+    }
+
+    // ============ 根级次数与根级发射 ============
+
+    function testAddLaunchCountMirrorsRootOnlyForFirstToken() public {
+        _grantCount(address(firstToken), aliceMemberId, 1);
+        address child = _launchOk(alice, "AAA", address(firstToken), aliceMemberId);
+
+        require(launch.launchCount(ROOT, aliceMemberId) == 1, "root mirrored from the first token");
+        require(launch.issuedLaunchCount(ROOT) == 1, "root issued mirrored");
+
+        // 子币产生的次数不伴生根级次数
+        _grantCount(child, aliceMemberId, 3);
+        require(launch.launchCount(child, aliceMemberId) == 3, "child count");
+        require(launch.launchCount(ROOT, aliceMemberId) == 1, "root unchanged by child counts");
+        require(launch.issuedLaunchCount(ROOT) == 1, "root issued unchanged");
+        require(launch.issuedLaunchCount(child) == 3, "child issued");
+    }
+
+    function testAddLaunchCountRejectsRootParentToken() public {
+        (bool ok, bytes memory data) = mintAccount.forward(
+            address(launch), abi.encodeWithSelector(ILaunch.addLaunchCount.selector, ROOT, aliceMemberId, 1)
+        );
+        require(!ok, "root parent must not accept direct writes");
+        require(_selector(data) == ILaunchErrors.InvalidTokenAddress.selector, "token selector");
+        require(launch.launchCount(ROOT, aliceMemberId) == 0, "root ledger untouched");
+    }
+
+    function testMergeRootLevelCountMovesRootLedger() public {
+        _grantCount(address(firstToken), aliceMemberId, 3);
+
+        (bool ok, ) = _merge(alice, ROOT, aliceMemberId, bobMemberId, 2);
+        require(ok, "merge root level");
+        require(launch.launchCount(ROOT, aliceMemberId) == 1, "root source decreased");
+        require(launch.launchCount(ROOT, bobMemberId) == 2, "root target increased");
+        require(launch.issuedLaunchCount(ROOT) == 3, "root issued unchanged");
+        require(launch.launchCount(address(firstToken), aliceMemberId) == 3, "community untouched");
+    }
+
+    function testLaunchRootLevelTokenCreatesSiblingAndConsumesRootCount() public {
+        RootTokenMock rootToken = new RootTokenMock("WBNB");
+        (Launch booted, LOVE20Token bootedToken, , uint256 memberId) =
+            _bootSystemAtRoot(address(rootToken), "LOVE", carol, "dave");
+
+        _grantCountAt(booted, address(bootedToken), memberId, 2);
+        require(booted.launchCount(address(rootToken), memberId) == 2, "root mirrored");
+        uint256 pairsBefore = pairFactory.createdPairCount();
+
+        address sibling = _launchOkAt(booted, carol, "AAA", address(rootToken), memberId);
+        LOVE20Token siblingToken = LOVE20Token(sibling);
+
+        // 名称按现有规则拼接：子币符号 + "@" + 根父币实际符号
+        require(keccak256(bytes(siblingToken.name())) == keccak256("AAA@WBNB"), "sibling name");
+        require(keccak256(bytes(siblingToken.symbol())) == keccak256("AAA"), "sibling symbol");
+        require(siblingToken.parentTokenAddress() == address(rootToken), "sibling token parent");
+        require(booted.isLOVE20Token(sibling), "sibling registered");
+        require(booted.parentTokenOf(sibling) == address(rootToken), "sibling parent ledger");
+        require(booted.tokenAddressBySymbol("AAA") == sibling, "sibling symbol ledger");
+
+        // 消耗根级次数，首币次数不动
+        require(booted.launchCount(address(rootToken), memberId) == 1, "root count consumed");
+        require(booted.launchCount(address(bootedToken), memberId) == 2, "community count untouched");
+        require(booted.issuedLaunchCount(address(rootToken)) == 2, "root issued unchanged");
+
+        // 根父币的子币列表：首币在索引 0，同级币按创建顺序追加
+        (address[] memory list, uint256 total) = booted.childTokens(address(rootToken), 0, 10, false);
+        require(total == 2 && list[0] == address(bootedToken) && list[1] == sibling, "root children");
+        (list, total) = booted.tokens(0, 10, false);
+        require(total == 2 && list[1] == sibling, "sibling appended to token list");
+
+        // 同级币的 Pair 在同一笔发射内创建
+        require(pairFactory.createdPairCount() == pairsBefore + 1, "sibling pair created");
+        require(
+            pairFactory.getPair(sibling, address(rootToken)) == pairFactory.createdPairs(pairsBefore),
+            "sibling pair wired"
+        );
+    }
+
+    function testRootLevelAndCommunityCountsAreIndependent() public {
+        RootTokenMock rootToken = new RootTokenMock("WBNB");
+        (Launch booted, LOVE20Token bootedToken, , uint256 memberId) =
+            _bootSystemAtRoot(address(rootToken), "LOVE", carol, "dave");
+
+        _grantCountAt(booted, address(bootedToken), memberId, 1);
+
+        // 根级发射消耗根级次数，社区次数不动
+        _launchOkAt(booted, carol, "AAA", address(rootToken), memberId);
+        require(booted.launchCount(address(rootToken), memberId) == 0, "root consumed");
+        require(booted.launchCount(address(bootedToken), memberId) == 1, "community remains");
+
+        // 社区发射消耗社区次数
+        _launchOkAt(booted, carol, "BBB", address(bootedToken), memberId);
+        require(booted.launchCount(address(bootedToken), memberId) == 0, "community consumed");
+
+        // 两边都用尽后根级发射回滚
+        (bool ok, bytes memory data) = _launchAt(booted, carol, "CCC", address(rootToken), memberId);
+        require(!ok, "no root count must revert");
+        require(_selector(data) == ILaunchErrors.NotEnoughLaunchCount.selector, "count selector");
+    }
+
+    function testRootLevelLaunchPrefixUsesFirstTokenSymbol() public {
+        RootTokenMock rootToken = new RootTokenMock("WBNB");
+        (Launch booted, LOVE20Token bootedToken, , uint256 memberId) =
+            _bootSystemAtRoot(address(rootToken), "TestLOVE", carol, "dave");
+
+        _grantCountAt(booted, address(bootedToken), memberId, 1);
+        address sibling = _launchOkAt(booted, carol, "AAA", address(rootToken), memberId);
+        LOVE20Token siblingToken = LOVE20Token(sibling);
+
+        // 根父币符号不含 Test，但根级发射按首币符号判定，仍然加前缀
+        require(keccak256(bytes(siblingToken.symbol())) == keccak256("TestAAA"), "prefixed symbol");
+        require(keccak256(bytes(siblingToken.name())) == keccak256("TestAAA@WBNB"), "prefixed name");
+        require(booted.tokenAddressBySymbol("TestAAA") == sibling, "final symbol ledger");
+        require(booted.tokenAddressBySymbol("AAA") == address(0), "unprefixed symbol not registered");
     }
 
     // ============ 分页查询 ============
@@ -1286,15 +1426,35 @@ contract LaunchTest {
         });
     }
 
+    function _paramsAtRoot(
+        address memberNFTAddress,
+        address rootParentTokenAddress,
+        string memory firstTokenSymbol
+    ) private view returns (LaunchInitParams memory) {
+        LaunchInitParams memory params = _params(memberNFTAddress, LAUNCH_AMOUNT, MAX_SUPPLY, firstTokenSymbol);
+        params.rootParentTokenAddress = rootParentTokenAddress;
+        return params;
+    }
+
     /// 独立部署一套 Launch + MemberNFT + 首币，并给调用者铸一个成员
     function _bootSystem(
         string memory firstTokenSymbol,
         Caller caller,
         string memory memberName
     ) private returns (Launch bootedLaunch, LOVE20Token bootedToken, MemberNFT bootedMember, uint256 memberId) {
+        return _bootSystemAtRoot(ROOT, firstTokenSymbol, caller, memberName);
+    }
+
+    /// 同 _bootSystem，根父币换成可提供 symbol() 的地址，用于根级发射用例
+    function _bootSystemAtRoot(
+        address rootParentTokenAddress,
+        string memory firstTokenSymbol,
+        Caller caller,
+        string memory memberName
+    ) private returns (Launch bootedLaunch, LOVE20Token bootedToken, MemberNFT bootedMember, uint256 memberId) {
         bootedMember = _newMember();
         bootedLaunch = new Launch();
-        bootedLaunch.init(_params(address(bootedMember), LAUNCH_AMOUNT, MAX_SUPPLY, firstTokenSymbol));
+        bootedLaunch.init(_paramsAtRoot(address(bootedMember), rootParentTokenAddress, firstTokenSymbol));
         bootedToken = LOVE20Token(bootedMember.LOVE20_TOKEN_ADDRESS());
         _fundAndApprove(caller, bootedToken, bootedMember);
         (memberId, ) = caller.mintMember(bootedMember, memberName);

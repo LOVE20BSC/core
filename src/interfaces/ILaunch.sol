@@ -59,6 +59,7 @@ interface ILaunch is ILaunchErrors, ILaunchEvents {
     function mintAddress() external view returns (address);
     function memberNFTAddress() external view returns (address);
     function rootParentTokenAddress() external view returns (address);
+    function firstTokenAddress() external view returns (address);
     function pairFactoryAddress() external view returns (address);
     function TOKEN_SYMBOL_LENGTH() external view returns (uint256);
     function LAUNCH_RATIO() external view returns (uint256);

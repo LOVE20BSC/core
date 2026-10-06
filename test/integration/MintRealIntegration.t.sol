@@ -1312,6 +1312,37 @@ contract MintRealIntegrationTest {
         assertEq(childToken.balanceOf(member1), launch.LAUNCH_AMOUNT(), "Child token initial supply");
         assertEq(childToken.totalSupply(), launch.LAUNCH_AMOUNT(), "Child token total supply");
         assertEq(childToken.maxSupply(), launch.MAX_SUPPLY(), "Child token max supply");
+
+        // Governance rewards on the first token mirror 1:1 into root-level counts
+        uint256 rootCredits = launch.launchCount(address(rootToken), 1);
+        assertEq(rootCredits, launchCredits, "Root-level credits must mirror the first token credits");
+        assertEq(
+            launch.issuedLaunchCount(address(rootToken)),
+            launch.issuedLaunchCount(address(token)),
+            "Root issued count must mirror the first token"
+        );
+        assertEq(launch.launchCount(address(rootToken), 1), rootCredits, "Root credits untouched by community launch");
+
+        // Root-level launch creates a sibling of the first token under the root parent
+        string memory siblingSymbol = "BBBB";
+        vm.prank(member1);
+        address siblingTokenAddress = launch.launchToken(
+            siblingSymbol,
+            address(rootToken),
+            1,
+            member1,
+            DistributorMode.NoCallback,
+            new bytes[](0)
+        );
+        assertTrue(launch.isLOVE20Token(siblingTokenAddress), "Sibling must be registered");
+        assertTrue(launch.parentTokenOf(siblingTokenAddress) == address(rootToken), "Sibling parent must be root");
+        assertTrue(keccak256(bytes(rootToken.symbol())) == keccak256(bytes("ROOT")), "Root symbol used for naming");
+        assertTrue(
+            keccak256(bytes(ILOVE20Token(siblingTokenAddress).symbol())) == keccak256(bytes(siblingSymbol)),
+            "Sibling symbol"
+        );
+        assertEq(uint256(launch.launchCount(address(rootToken), 1)), rootCredits - 1, "Root credit must be consumed");
+        assertEq(launch.launchCount(address(token), 1), launchCredits - 1, "Community credit untouched by root launch");
     }
 
     // ========================================

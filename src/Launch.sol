@@ -23,6 +23,8 @@ contract Launch is ILaunch {
     address public memberNFTAddress;
     // the root parent token, WBNB on BSC
     address public rootParentTokenAddress;
+    // the first token; its launch counts mirror 1:1 into root-level counts
+    address public firstTokenAddress;
     // the Uniswap V2 compatible factory every launched token gets its pair from
     address public pairFactoryAddress;
 
@@ -59,7 +61,8 @@ contract Launch is ILaunch {
     /**
      * @notice Bind dependencies, create and register the first token, and initialize MemberNFT
      * @dev The initialization state check runs before parameter checks. The first token does not consume a
-     *      launch count, carries no distributor data and always uses NoCallback.
+     *      launch count, carries no distributor data and always uses NoCallback. It is recorded as
+     *      `firstTokenAddress`, the only token whose launch counts mirror into root-level counts.
      * @param params Dependencies, launch settings, token supply settings and first-token metadata
      */
     function init(LaunchInitParams calldata params) external {
@@ -89,20 +92,20 @@ contract Launch is ILaunch {
         LAUNCH_AMOUNT = params.launchAmount;
         MAX_SUPPLY = params.maxSupply;
 
-        address firstTokenAddress =
-            _createToken(params.rootParentTokenAddress, params.name, params.symbol, params.distributor);
-        _tokens.push(firstTokenAddress);
-        _parentTokenOf[firstTokenAddress] = params.rootParentTokenAddress;
-        _tokenAddressBySymbol[params.symbol] = firstTokenAddress;
-        _childTokens[params.rootParentTokenAddress].push(firstTokenAddress);
+        address firstToken = _createToken(params.rootParentTokenAddress, params.name, params.symbol, params.distributor);
+        firstTokenAddress = firstToken;
+        _tokens.push(firstToken);
+        _parentTokenOf[firstToken] = params.rootParentTokenAddress;
+        _tokenAddressBySymbol[params.symbol] = firstToken;
+        _childTokens[params.rootParentTokenAddress].push(firstToken);
 
         // MemberNFT is initialized with the first token in the same transaction; it does not store Launch.
-        IMemberNFT(params.memberNFTAddress).init(firstTokenAddress);
+        IMemberNFT(params.memberNFTAddress).init(firstToken);
 
         // The first token address is known only after deployment, so this event follows the external call.
         // forge-lint: disable-next-item(reentrancy-events)
         emit TokenLaunched({
-            tokenAddress: firstTokenAddress,
+            tokenAddress: firstToken,
             parentTokenAddress: params.rootParentTokenAddress,
             launcherMemberId: 0,
             distributor: params.distributor,
@@ -128,9 +131,11 @@ contract Launch is ILaunch {
     /**
      * @notice Launch a sub-token of the given community and consume one launch count
      * @dev Check order: parameters, existence, ownership, ledger. The launch count is consumed before any
-     *      external call, so a failing call reverts the consumption, the registration and the token.
+     *      external call, so a failing call reverts the consumption, the registration and the token. The
+     *      root parent token is accepted as a parent for root-level launches and consumes the root-level
+     *      count; every other parent must be a registered LOVE20 token.
      * @param tokenSymbol Sub-token symbol, validated against the configured length and character set
-     * @param parentTokenAddress The community token, must be a registered LOVE20 token
+     * @param parentTokenAddress The community token, must be a registered LOVE20 token or the root parent token
      * @param memberId The member that consumes the launch count, must be held by the caller
      * @param distributor Receiver of the initial supply
      * @param distributorMode NoCallback or Callback
@@ -149,7 +154,9 @@ contract Launch is ILaunch {
         if (distributor == address(0)) revert InvalidAddress();
         _checkDistributorMode(distributorMode, distributor);
 
-        if (!isLOVE20Token(parentTokenAddress)) revert InvalidParentToken();
+        if (parentTokenAddress != rootParentTokenAddress && !isLOVE20Token(parentTokenAddress)) {
+            revert InvalidParentToken();
+        }
 
         if (_ownerOf(memberId) != msg.sender) revert NotMemberOwner(memberId);
 
@@ -158,10 +165,14 @@ contract Launch is ILaunch {
 
         _launchCount[parentTokenAddress][memberId] = availableCount - 1;
 
-        // Mainnet test support: a parent symbol starting with "Test" prefixes the sub-token symbol.
-        // The prefix is applied after the symbol check, so the actual symbol may exceed the configured length.
+        // Mainnet test support: a parent symbol starting with "Test" prefixes the sub-token symbol; a
+        // root-level launch reads the first token instead, since the root parent symbol is shared across
+        // networks. The prefix is applied after the symbol check, so the actual symbol may exceed the length.
         string memory parentTokenSymbol = ILOVE20Token(parentTokenAddress).symbol();
-        string memory subTokenSymbol = _addTestPrefixIfNeeded(tokenSymbol, parentTokenSymbol);
+        string memory prefixSourceSymbol = parentTokenAddress == rootParentTokenAddress
+            ? ILOVE20Token(firstTokenAddress).symbol()
+            : parentTokenSymbol;
+        string memory subTokenSymbol = _addTestPrefixIfNeeded(tokenSymbol, prefixSourceSymbol);
         if (_tokenAddressBySymbol[subTokenSymbol] != address(0)) revert TokenSymbolExists();
         string memory tokenName = string.concat(subTokenSymbol, "@", parentTokenSymbol);
 
@@ -195,7 +206,7 @@ contract Launch is ILaunch {
      * @notice Move part of the available launch count to another member of the same community
      * @dev Only the source MemberNFT is required to be held, the target is not. The launch credit held by
      *      Mint is not transferred and no other state of the target is touched.
-     * @param tokenAddress The community token
+     * @param tokenAddress The community token or the root parent token for root-level counts
      * @param sourceMemberId The member that gives the count, must be held by the caller
      * @param targetMemberId The member that receives the count, only required to exist
      * @param count The transferred count, greater than zero
@@ -208,7 +219,7 @@ contract Launch is ILaunch {
         }
         if (count == 0) revert CountMustBeGreaterThanZero();
 
-        if (!isLOVE20Token(tokenAddress)) revert InvalidTokenAddress();
+        if (tokenAddress != rootParentTokenAddress && !isLOVE20Token(tokenAddress)) revert InvalidTokenAddress();
 
         address sourceOwner = _ownerOf(sourceMemberId);
         // Existence check only: a missing target reverts with the MemberNFT error, Launch adds no own error.
@@ -230,7 +241,9 @@ contract Launch is ILaunch {
     /**
      * @notice Add launch counts of a community to a member
      * @dev Only Mint can call it, in the same transaction as the governance reward mint. The per-community
-     *      issued bound is enforced here as a fallback.
+     *      issued bound is enforced here as a fallback. When the token is the first token, the same count is
+     *      mirrored 1:1 into the root-level ledger under rootParentTokenAddress, so root-level issuance stays
+     *      equal to the first token's issuance; the root parent token itself is not accepted as a parameter.
      * @param tokenAddress The community token, must be a registered LOVE20 token
      * @param memberId The member that receives the counts
      * @param count The added count, greater than zero
@@ -251,13 +264,21 @@ contract Launch is ILaunch {
         _issuedLaunchCount[tokenAddress] = issuedCount + count;
 
         emit LaunchCountAdded({tokenAddress: tokenAddress, memberId: memberId, count: count});
+
+        // The first token's counts are mirrored 1:1 into the root-level ledger of the same member.
+        if (tokenAddress == firstTokenAddress) {
+            _launchCount[rootParentTokenAddress][memberId] += count;
+            _issuedLaunchCount[rootParentTokenAddress] += count;
+            emit LaunchCountAdded({tokenAddress: rootParentTokenAddress, memberId: memberId, count: count});
+        }
     }
 
     // ============ Queries ============
 
     /**
      * @notice Available integer launch count of a member in a community
-     * @dev An unregistered token returns 0 without reverting.
+     * @dev An unregistered token returns 0 without reverting, except the root parent token, which carries
+     *      the root-level counts.
      */
     function launchCount(address tokenAddress, uint256 memberId) external view returns (uint256) {
         return _launchCount[tokenAddress][memberId];
@@ -265,7 +286,8 @@ contract Launch is ILaunch {
 
     /**
      * @notice Issued launch count of a community; consumption and merging never decrease it
-     * @dev An unregistered token returns 0 without reverting.
+     * @dev An unregistered token returns 0 without reverting, except the root parent token, whose issued
+     *      count mirrors the first token's.
      */
     function issuedLaunchCount(address tokenAddress) external view returns (uint256) {
         return _issuedLaunchCount[tokenAddress];
@@ -290,9 +312,9 @@ contract Launch is ILaunch {
 
     /**
      * @notice Page through the sub-tokens of a community in creation order
-     * @dev `childTokens(rootParentTokenAddress)` returns the first token; an unknown parent returns an
-     *      empty array and a zero count.
-     * @param parentTokenAddress The community token
+     * @dev `childTokens(rootParentTokenAddress)` returns the first token and every root-level token, the
+     *      first token at index 0; an unknown parent returns an empty array and a zero count.
+     * @param parentTokenAddress The community token, or the root parent token for root-level tokens
      * @param offset Starting index, 0-based
      * @param limit Maximum number of entries to return
      * @param reverse If true, return the newest sub-tokens first
@@ -393,18 +415,19 @@ contract Launch is ILaunch {
     }
 
     /**
-     * @dev Add the "Test" prefix when the parent token symbol starts with "Test"; the comparison uses the
-     *      first four bytes of the parent symbol, so a shorter symbol never matches.
+     * @dev Add the "Test" prefix when the prefix source symbol starts with "Test"; the comparison uses the
+     *      first four bytes, so a shorter symbol never matches. The caller passes the parent token symbol,
+     *      or the first token symbol for root-level launches whose root parent symbol is shared across networks.
      */
-    function _addTestPrefixIfNeeded(string calldata tokenSymbol, string memory parentTokenSymbol)
+    function _addTestPrefixIfNeeded(string calldata tokenSymbol, string memory prefixSourceSymbol)
         internal
         pure
         returns (string memory)
     {
-        bytes memory parentSymbolBytes = bytes(parentTokenSymbol);
+        bytes memory symbolBytes = bytes(prefixSourceSymbol);
         if (
-            parentSymbolBytes.length >= 4 && parentSymbolBytes[0] == "T" && parentSymbolBytes[1] == "e"
-                && parentSymbolBytes[2] == "s" && parentSymbolBytes[3] == "t"
+            symbolBytes.length >= 4 && symbolBytes[0] == "T" && symbolBytes[1] == "e" && symbolBytes[2] == "s"
+                && symbolBytes[3] == "t"
         ) {
             return string(abi.encodePacked("Test", tokenSymbol));
         }

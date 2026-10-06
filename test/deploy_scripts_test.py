@@ -93,10 +93,12 @@ def main():
         getters("PHASE", {key + "()(uint256)": "PHASE_" + key for key in ("ORIGIN_BLOCKS", "ORIGIN_PHASE_BLOCKS", "TARGET_SECONDS", "ADJUST_THRESHOLD", "SYNC_OBSERVATION_LIMIT")})
         getters("LAUNCH", {key + "()(uint256)": key for key in ("LAUNCH_RATIO", "MAX_LAUNCH_COUNT", "TOKEN_SYMBOL_LENGTH", "MAX_SUPPLY")})
         getters("LAUNCH", {"LAUNCH_AMOUNT()(uint256)": "INITIAL_SUPPLY", "rootParentTokenAddress()(address)": "PARENT_TOKEN",
-                "pairFactoryAddress()(address)": "FACTORY_ADDRESS", "isLOVE20Token(address)(bool)": "true"})
+                "firstTokenAddress()(address)": "LOVE20TOKEN_ADDRESS", "pairFactoryAddress()(address)": "FACTORY_ADDRESS",
+                "isLOVE20Token(address)(bool)": "true"})
         getters("MINT", {key + "()(uint256)": value for key, value in {
             "PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND": "MIN_PROPOSAL_VOTES", "ROUND_REWARD_GOV_PER_THOUSAND": "GOV_REWARD_RATIO",
             "ROUND_REWARD_PROPOSAL_PER_THOUSAND": "PROPOSAL_REWARD_RATIO", "MAX_GOV_BOOST_REWARD_MULTIPLIER": "MAX_BOOST_MULTIPLIER"}.items()})
+        getters("MINT", {"phaseAddress()(address)": "PHASE_ADDRESS"})
         getters("STAKE", {key + "()(uint256)": key for key in ("PROMISED_WAITING_PHASES_MIN", "PROMISED_WAITING_PHASES_MAX", "MAX_WITHDRAWABLE_TO_FEE_RATIO")})
         getters("STAKE", {"routerAddress()(address)": "ROUTER_ADDRESS", "pairFactoryAddress()(address)": "FACTORY_ADDRESS"})
         getters("SUBMIT", {"SUBMIT_MIN_PER_THOUSAND()(uint256)": "SUBMIT_MIN_PER_THOUSAND"})
@@ -146,7 +148,8 @@ def main():
         write_account()
 
         run("99_check.sh")
-        for contract, signature in [("LAUNCH", "rootParentTokenAddress()(address)"), ("LAUNCH", "pairFactoryAddress()(address)"),
+        for contract, signature in [("LAUNCH", "rootParentTokenAddress()(address)"), ("LAUNCH", "firstTokenAddress()(address)"),
+                ("LAUNCH", "pairFactoryAddress()(address)"),
                 ("LAUNCH", "TOKEN_SYMBOL_LENGTH()(uint256)"), ("LAUNCH", "LAUNCH_AMOUNT()(uint256)"), ("LAUNCH", "MAX_SUPPLY()(uint256)"),
                 ("MEMBERNFT", "MAX_NAME_LENGTH()(uint256)"), ("PHASE", "ORIGIN_BLOCKS()(uint256)"),
                 ("PHASE", "ORIGIN_PHASE_BLOCKS()(uint256)"), ("PHASE", "SYNC_OBSERVATION_LIMIT()(uint256)"), ("ROUTER", "WETH()(address)")]:
