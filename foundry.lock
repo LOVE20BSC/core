@@ -6,7 +6,7 @@
     }
   },
   "lib/libs": {
-    "rev": "b837e1a0afa97f82a5168c741176da80a9d5d3c3"
+    "rev": "54383b13cf49efc27e9d9178a83bed1d5f47b5ae"
   },
   "lib/openzeppelin-contracts": {
     "rev": "5fd1781b1454fd1ef8e722282f86f9293cacf256"
