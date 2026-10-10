@@ -86,7 +86,7 @@ PHASE_SYNC_OBSERVATION_LIMIT=100
 # Launch 部署参数
 LAUNCH_RATIO=1000000000000000000             # 1e18，上限即 1e18
 MAX_LAUNCH_COUNT=1000
-TOKEN_SYMBOL_LENGTH=4                        # 子币符号长度（首币不受此限）
+TOKEN_SYMBOL_LENGTH=4                        # 子币符号 UTF-8 字节长度（首币不受此限；汉字占 3 字节）
 
 # Mint 部署参数
 MIN_PROPOSAL_VOTES=50                        # 提案奖励门槛（千分比，须 <= 1000）

@@ -570,11 +570,116 @@ contract LaunchTest {
         }
         require(launch.launchCount(address(firstToken), aliceMemberId) == 2, "no count consumed");
 
-        // 合法符号：首字符 A-Z，其余 A-Z0-9
+        // 合法符号：首字符 A-Z 或汉字，其余 A-Z、0-9 或汉字；汉字符号的合法与边界见
+        // testLaunchTokenAcceptsChineseSymbols 与 testLaunchTokenRejectsInvalidUtf8AndOutOfRangeSymbols
         address firstAddress = _launchOk(alice, "A0Z", address(firstToken), aliceMemberId);
         address secondAddress = _launchOk(alice, "ZZ9", address(firstToken), aliceMemberId);
         require(firstAddress != secondAddress, "distinct tokens");
         require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "both counts consumed");
+    }
+
+    function testLaunchTokenAcceptsChineseSymbols() public {
+        _grantCount(address(firstToken), aliceMemberId, 3);
+
+        // "中" 为 U+4E2D；"一" 为 U+4E00，钉住允许区间下界；E9BFBF 为 U+9FFF，钉住上界
+        string memory upperBoundSymbol = _symbolFromBytes(abi.encodePacked(hex"E9BFBF"));
+        address zhong = _launchOk(alice, unicode"中", address(firstToken), aliceMemberId);
+        address lowerBound = _launchOk(alice, unicode"一", address(firstToken), aliceMemberId);
+        address upperBound = _launchOk(alice, upperBoundSymbol, address(firstToken), aliceMemberId);
+
+        LOVE20Token zhongToken = LOVE20Token(zhong);
+        require(keccak256(bytes(zhongToken.symbol())) == keccak256(bytes(unicode"中")), "chinese symbol");
+        require(keccak256(bytes(zhongToken.name())) == keccak256(bytes(unicode"中@LOVE")), "chinese name");
+        require(launch.tokenAddressBySymbol(unicode"中") == zhong, "chinese symbol ledger");
+        require(launch.tokenAddressBySymbol(unicode"一") == lowerBound, "lower bound code point accepted");
+        require(launch.tokenAddressBySymbol(upperBoundSymbol) == upperBound, "upper bound code point accepted");
+        require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "three counts consumed");
+    }
+
+    function testLaunchTokenRejectsInvalidUtf8AndOutOfRangeSymbols() public {
+        string[] memory invalid = new string[](14);
+        // 字节数不匹配：6 字节与 4 字节都不是配置的 3
+        invalid[0] = unicode"中文";
+        invalid[1] = unicode"中A";
+        invalid[2] = unicode"A中";
+        // 紧邻允许区间之外：U+4DFF（下界之下）、U+A000（上界之上，彝文）、U+3400（扩展 A）
+        invalid[3] = _symbolFromBytes(abi.encodePacked(hex"E4B7BF"));
+        invalid[4] = _symbolFromBytes(abi.encodePacked(hex"EA8080"));
+        invalid[5] = _symbolFromBytes(abi.encodePacked(hex"E39080"));
+        // 全角字符 U+FF21、四字节起始字节、孤立的续字节
+        invalid[6] = _symbolFromBytes(abi.encodePacked(hex"EFBCA1"));
+        invalid[7] = _symbolFromBytes(abi.encodePacked(hex"F09F98"));
+        invalid[8] = _symbolFromBytes(abi.encodePacked(hex"808080"));
+        // 不完整或损坏的多字节序列："中" 的第三字节被替换、尾部截断、双字节起始字节
+        invalid[9] = _symbolFromBytes(abi.encodePacked(hex"E4B841"));
+        invalid[10] = _symbolFromBytes(abi.encodePacked(hex"4142E4"));
+        invalid[11] = _symbolFromBytes(abi.encodePacked(hex"C3A941"));
+        // 长度正确但尾部脏字节：ASCII 后跟孤立的续字节
+        invalid[12] = _symbolFromBytes(abi.encodePacked(hex"418080"));
+        invalid[13] = _symbolFromBytes(abi.encodePacked(hex"414280"));
+
+        _grantCount(address(firstToken), aliceMemberId, 1);
+        for (uint256 i; i < invalid.length; ++i) {
+            (bool ok, bytes memory data) = _launch(alice, invalid[i], address(firstToken), aliceMemberId);
+            require(!ok, "invalid symbol must revert");
+            require(_selector(data) == ILaunchErrors.InvalidTokenSymbol.selector, "symbol selector");
+        }
+        require(launch.launchCount(address(firstToken), aliceMemberId) == 1, "no count consumed");
+    }
+
+    function testLaunchTokenAcceptsMixedChineseAndAsciiSymbols() public {
+        // 符号长度配置为 6 字节：两个汉字、六个 ASCII、或中英数字混排都合法
+        MemberNFT bootedMember = _newMember();
+        Launch bootedLaunch = new Launch();
+        LaunchInitParams memory params = _paramsAtRoot(address(bootedMember), ROOT, "LOVE");
+        params.tokenSymbolLength = 6;
+        bootedLaunch.init(params);
+        LOVE20Token bootedToken = LOVE20Token(bootedMember.LOVE20_TOKEN_ADDRESS());
+        _fundAndApprove(carol, bootedToken, bootedMember);
+        (uint256 memberId, ) = carol.mintMember(bootedMember, "dave");
+        _grantCountAt(bootedLaunch, address(bootedToken), memberId, 4);
+
+        address pureChinese = _launchOkAt(bootedLaunch, carol, unicode"中文", address(bootedToken), memberId);
+        address pureAscii = _launchOkAt(bootedLaunch, carol, "ABCDEF", address(bootedToken), memberId);
+        address mixedLetters = _launchOkAt(bootedLaunch, carol, unicode"中AAB", address(bootedToken), memberId);
+        address mixedDigit = _launchOkAt(bootedLaunch, carol, unicode"中1AB", address(bootedToken), memberId);
+
+        require(bootedLaunch.tokenAddressBySymbol(unicode"中文") == pureChinese, "two chinese characters");
+        require(bootedLaunch.tokenAddressBySymbol("ABCDEF") == pureAscii, "six ascii characters");
+        require(bootedLaunch.tokenAddressBySymbol(unicode"中AAB") == mixedLetters, "chinese first mixed");
+        require(bootedLaunch.tokenAddressBySymbol(unicode"中1AB") == mixedDigit, "digit after chinese");
+
+        // 字节数不匹配与数字开头仍回滚
+        (bool ok, bytes memory data) = _launchAt(bootedLaunch, carol, unicode"中", address(bootedToken), memberId);
+        require(!ok, "three bytes is not six");
+        require(_selector(data) == ILaunchErrors.InvalidTokenSymbol.selector, "length selector");
+        (ok, data) = _launchAt(bootedLaunch, carol, "1AAAAA", address(bootedToken), memberId);
+        require(!ok, "digit first character must revert");
+        require(_selector(data) == ILaunchErrors.InvalidTokenSymbol.selector, "first character selector");
+        require(bootedLaunch.launchCount(address(bootedToken), memberId) == 0, "four counts consumed");
+    }
+
+    /// 校验器的码点分界：U+4E00-U+9FFF 接受，区间之外回滚；fuzz 在分界附近扫过
+    function testFuzzLaunchTokenChineseSymbolCodePointBoundary(uint24 seed) public {
+        uint32 codePoint = 0x4D00 + (uint32(seed) % 0x5400);
+        string memory symbol = _symbolFromBytes(
+            abi.encodePacked(
+                bytes1(uint8(0xE0 | (codePoint >> 12))),
+                bytes1(uint8(0x80 | ((codePoint >> 6) & 0x3F))),
+                bytes1(uint8(0x80 | (codePoint & 0x3F)))
+            )
+        );
+        bool expected = codePoint >= 0x4E00 && codePoint <= 0x9FFF;
+
+        _grantCount(address(firstToken), aliceMemberId, 1);
+        (bool ok, bytes memory data) = _launch(alice, symbol, address(firstToken), aliceMemberId);
+        if (expected) {
+            require(ok, "code point in range must be accepted");
+            require(launch.tokenAddressBySymbol(symbol) == abi.decode(data, (address)), "registered");
+        } else {
+            require(!ok, "code point out of range must revert");
+            require(_selector(data) == ILaunchErrors.InvalidTokenSymbol.selector, "symbol selector");
+        }
     }
 
     function testLaunchTokenRejectsZeroDistributor() public {
@@ -1486,6 +1591,11 @@ contract LaunchTest {
 
     function _emptyData() private pure returns (bytes[] memory) {
         return new bytes[](0);
+    }
+
+    /// 由任意字节构造符号字符串，用于非法 UTF-8 与码点边界用例
+    function _symbolFromBytes(bytes memory raw) private pure returns (string memory) {
+        return string(raw);
     }
 
     function _launch(

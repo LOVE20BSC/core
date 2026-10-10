@@ -376,8 +376,13 @@ contract Launch is ILaunch {
     }
 
     /**
-     * @dev Sub-token symbol rules kept from the old launch: exact configured length, first character A-Z,
-     *      remaining characters A-Z or 0-9. ASCII codes: "A"-"Z" is 0x41-0x5A, "0"-"9" is 0x30-0x39.
+     * @dev Sub-token symbol rules: the UTF-8 byte length must equal the configured TOKEN_SYMBOL_LENGTH;
+     *      the first character must be ASCII "A"-"Z" or a Chinese character, every following character
+     *      must be ASCII "A"-"Z", "0"-"9" or a Chinese character. ASCII codes: "A"-"Z" is 0x41-0x5A,
+     *      "0"-"9" is 0x30-0x39; a Chinese character is the three-byte UTF-8 encoding of a code point
+     *      in the CJK Unified Ideographs block U+4E00-U+9FFF, so a pure-Chinese symbol needs a
+     *      configured length that is a multiple of three. Any other byte sequence reverts, including
+     *      incomplete UTF-8 sequences and multi-byte characters outside the block.
      */
     function _checkValidTokenSymbol(string calldata tokenSymbol) internal view {
         bytes calldata symbolBytes = bytes(tokenSymbol);
@@ -386,19 +391,52 @@ contract Launch is ILaunch {
         // The configured length is greater than zero after init; the empty check keeps the first-byte
         // access below total.
         if (length == 0 || length != TOKEN_SYMBOL_LENGTH) revert InvalidTokenSymbol();
+        if (!_isValidTokenSymbolBytes(symbolBytes)) revert InvalidTokenSymbol();
+    }
 
-        uint8 firstByte = uint8(symbolBytes[0]);
-        if (firstByte < 0x41 || firstByte > 0x5A) revert InvalidTokenSymbol();
-
-        bool allLettersOrDigits = true;
-        for (uint256 i = 1; i < length; i++) {
+    /**
+     * @dev Whether every character of the symbol bytes is allowed: the first position must be ASCII
+     *      "A"-"Z" or a Chinese character, the remaining positions must be ASCII "A"-"Z", "0"-"9" or
+     *      a Chinese character.
+     */
+    function _isValidTokenSymbolBytes(bytes calldata symbolBytes) internal pure returns (bool) {
+        uint256 length = symbolBytes.length;
+        uint256 i = 0;
+        while (i < length) {
             uint8 byteValue = uint8(symbolBytes[i]);
-            if (!((byteValue >= 0x41 && byteValue <= 0x5A) || (byteValue >= 0x30 && byteValue <= 0x39))) {
-                allLettersOrDigits = false;
-                break;
+            if (byteValue >= 0x41 && byteValue <= 0x5A) {
+                i += 1;
+            } else if (i > 0 && byteValue >= 0x30 && byteValue <= 0x39) {
+                i += 1;
+            } else if (_isChineseChar(symbolBytes, i, length)) {
+                i += 3;
+            } else {
+                return false;
             }
         }
-        if (!allLettersOrDigits) revert InvalidTokenSymbol();
+        return true;
+    }
+
+    /**
+     * @dev Whether the three bytes starting at the index encode a Chinese character in the CJK
+     *      Unified Ideographs block U+4E00-U+9FFF: two continuation bytes 0x80-0xBF after a lead byte
+     *      0xE5-0xE9, or after 0xE4 with a second byte of at least 0xB8 (0xE4 with a lower second byte
+     *      lies below U+4E00). An incomplete trailing sequence cannot match.
+     */
+    function _isChineseChar(bytes calldata symbolBytes, uint256 start, uint256 length)
+        internal
+        pure
+        returns (bool)
+    {
+        if (start + 3 > length) return false;
+
+        uint8 byte2 = uint8(symbolBytes[start + 1]);
+        uint8 byte3 = uint8(symbolBytes[start + 2]);
+        if (byte2 < 0x80 || byte2 > 0xBF || byte3 < 0x80 || byte3 > 0xBF) return false;
+
+        uint8 byte1 = uint8(symbolBytes[start]);
+        if (byte1 == 0xE4) return byte2 >= 0xB8;
+        return byte1 >= 0xE5 && byte1 <= 0xE9;
     }
 
     /**
