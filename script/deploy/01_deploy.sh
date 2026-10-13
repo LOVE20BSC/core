@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# 前置：环境已由入口脚本载入（source 00_init.sh <network>）；本步骤不自行载入。
 echo "=== Deploying Core Contracts to $network ==="
 
 # 准备部署日志
@@ -47,8 +48,6 @@ SUBMIT_ADDRESS=$(grep "SUBMIT_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 
 VOTE_ADDRESS=$(grep "VOTE_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 | xargs || true)
 
 require_core_addresses
-export LOVE20TOKEN_ADDRESS MEMBERNFT_ADDRESS PHASE_ADDRESS LAUNCH_ADDRESS MINT_ADDRESS STAKE_ADDRESS SUBMIT_ADDRESS VOTE_ADDRESS
-bash "$PROJECT_ROOT/script/deploy/99_check.sh"
 
 # 写入地址文件
 cat > "$NETWORK_DIR/addresses.core.params" <<EOFADDR

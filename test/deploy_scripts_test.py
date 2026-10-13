@@ -132,7 +132,7 @@ def main():
             return result, [json.loads(line) for line in log_path.read_text().splitlines()]
 
         def run_sourced(script, success=True, **extra):
-            # README 的分步部署形式：00_init.sh 与步骤文件分处父子进程。
+            # 单步骤脚本不自行载入环境：由调用方先 source 00_init.sh，步骤脚本作为子进程运行。
             nonlocal checks
             log_path.write_text("")
             command = f'source "{deploy}/00_init.sh" test && bash "{deploy}/{script}"'
@@ -147,18 +147,23 @@ def main():
 
         write_account()
 
-        run("99_check.sh")
+        run_sourced("99_check.sh")
         for contract, signature in [("LAUNCH", "rootParentTokenAddress()(address)"), ("LAUNCH", "firstTokenAddress()(address)"),
                 ("LAUNCH", "pairFactoryAddress()(address)"),
                 ("LAUNCH", "TOKEN_SYMBOL_LENGTH()(uint256)"), ("LAUNCH", "LAUNCH_AMOUNT()(uint256)"), ("LAUNCH", "MAX_SUPPLY()(uint256)"),
                 ("MEMBERNFT", "MAX_NAME_LENGTH()(uint256)"), ("PHASE", "ORIGIN_BLOCKS()(uint256)"),
                 ("PHASE", "ORIGIN_PHASE_BLOCKS()(uint256)"), ("PHASE", "SYNC_OBSERVATION_LIMIT()(uint256)"), ("ROUTER", "WETH()(address)")]:
             wrong_value = "0x" + "98" * 20 if signature.endswith("(address)") else "999"
-            run("99_check.sh", False, BAD_CALL=env[contract + "_ADDRESS"].lower() + "/" + signature, BAD_VALUE=wrong_value)
-        run("99_check.sh", False, RPC_CODE_ERROR="1")
-        run("99_check.sh", False, RPC_CHAIN="56")
-        run("99_check.sh", False, BAD_CALL=env["STAKE_ADDRESS"] + "/MAX_WITHDRAWABLE_TO_FEE_RATIO()(uint256)")
-        run("99_check.sh", WBNB_ADDRESS="0x" + "AB" * 20)
+            run_sourced("99_check.sh", False, BAD_CALL=env[contract + "_ADDRESS"].lower() + "/" + signature, BAD_VALUE=wrong_value)
+        run_sourced("99_check.sh", False, RPC_CODE_ERROR="1")
+        run_sourced("99_check.sh", False, RPC_CHAIN="56")
+        run_sourced("99_check.sh", False, BAD_CALL=env["STAKE_ADDRESS"] + "/MAX_WITHDRAWABLE_TO_FEE_RATIO()(uint256)")
+        # 地址比较大小写不敏感：配置写大写、链上读到小写，仍应通过（配置值经 00_init.sh 载入）。
+        params_path = network.joinpath("network.params")
+        params_text = params_path.read_text()
+        params_path.write_text(params_text + "WBNB_ADDRESS=0x" + "AB" * 20 + "\n")
+        run_sourced("99_check.sh")
+        params_path.write_text(params_text)
         saved.write_text("# previous deployment\n")
         for extra in ({"RPC_CHAIN": "56"}, {"DEPLOY_FAIL": "1"}, {"OMIT_ADDRESS": "VOTE_ADDRESS"},
                       {"BAD_CALL": env["LAUNCH_ADDRESS"] + "/pairFactoryAddress()(address)"}):
@@ -179,30 +184,33 @@ def main():
         _, log = run("one_click_deploy.sh", args=("test",))
         assert "--password" not in forge_script_call(log)
         write_account()
-        run("01_deploy.sh", False, ACCOUNT_ADDRESS=env["DISTRIBUTOR"])
-        run_sourced("01_deploy.sh")  # README 的分步部署形式：00_init.sh / 01_deploy.sh 分处父子进程
+        # 公共链必须配 KEYSTORE_ACCOUNT 才能签名；.account 里没有时 01_deploy.sh 直接失败。
+        network.joinpath(".account").write_text("PRIVATE_KEY=" + SECRET_KEY + "\n")
+        run_sourced("01_deploy.sh", False)
+        write_account()
+        run_sourced("01_deploy.sh")
         saved_before = saved.read_text()
         result, _ = run_sourced("01_deploy.sh", False, OMIT_ADDRESS="VOTE_ADDRESS")
         assert "VOTE_ADDRESS" in result.stdout + result.stderr, result.stdout + result.stderr
         assert saved.read_text() == saved_before, saved.read_text()
-        result, _ = run("verify.sh", False, ("test",), VERIFY_FAIL="src/MemberNFT.sol:MemberNFT")
+        result, _ = run_sourced("verify.sh", False, VERIFY_FAIL="src/MemberNFT.sol:MemberNFT")
         assert "all 8 contracts" not in result.stdout
-        result, log = run("verify.sh", False, ("test",), VERIFY_FAIL="src/Vote.sol:Vote")
+        result, log = run_sourced("verify.sh", False, VERIFY_FAIL="src/Vote.sol:Vote")
         assert "all 8 contracts" not in result.stdout
         assert len([call for call in log if call[:2] == ["forge", "verify-contract"]]) == 8
-        _, log = run("verify.sh", args=("test",))
+        _, log = run_sourced("verify.sh")
         assert len([call for call in log if call[:2] == ["forge", "verify-contract"]]) == 8
         token_args = next(call for call in log if call[:2] == ["cast", "abi-encode"] and "string,string" in call[2])
         assert token_args[-2] == env["MINT_ADDRESS"]
         for signature, label in [("constructor(uint256,uint256,uint256,uint256)", "MemberNFT"),
                                  ("constructor(uint256,uint256,uint256,uint256,uint256)", "Phase"),
                                  ("constructor(string,string,uint256,uint256,address,address,address)", "LOVE20Token")]:
-            result, log = run("verify.sh", False, ("test",), ABI_ENCODE_FAIL=signature)
+            result, log = run_sourced("verify.sh", False, ABI_ENCODE_FAIL=signature)
             assert f"Failed to encode {label}" in result.stdout, result.stdout
             assert not any(call[0] == "forge" for call in log)
         with network.joinpath("network.params").open("a") as config:
             config.write("ETHERSCAN_API_KEY=\n")
-        _, log = run("verify.sh", False, ("test",))
+        _, log = run_sourced("verify.sh", False)
         assert not any(call[0] == "forge" for call in log)
         print(f"Passed {checks} isolated deployment checks (no network calls or broadcasts).")
 

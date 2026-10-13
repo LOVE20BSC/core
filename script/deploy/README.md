@@ -5,10 +5,10 @@
 ```
 script/
 ├── deploy/
-│   ├── one_click_deploy.sh    # 一键部署脚本
-│   ├── 00_init.sh             # 环境初始化
-│   ├── 01_deploy.sh           # 合约部署
-│   ├── 99_check.sh            # 部署验证
+│   ├── one_click_deploy.sh    # 一键部署入口（编排下列步骤）
+│   ├── 00_init.sh             # 部署环境初始化
+│   ├── 01_deploy.sh           # 合约部署与初始化
+│   ├── 99_check.sh            # 部署与初始化正确性校验
 │   ├── verify.sh              # 合约开源验证
 │   └── DeployCore.s.sol       # Foundry 部署脚本
 └── network/
@@ -125,13 +125,14 @@ cd core
 ./script/deploy/one_click_deploy.sh bsc97_dev
 ```
 
-该脚本会自动执行：
-1. 加载环境配置
-2. 部署所有合约
-3. 验证部署结果
-4. 保存合约地址
+该脚本依次调用下列单步骤脚本（各步骤只做自己那一步、互不调用，也不自行载入环境；单独执行见「分步部署」）：
 
-链 ID、全部初始化绑定及常量、DEX 地址关系任一不一致，部署入口返回失败，不覆盖已保存的地址。网络名必填，缺参直接报错。`PARENT_TOKEN`（WBNB）、`FACTORY_ADDRESS`、`ROUTER_ADDRESS` 在广播前即校验为已部署合约，配错不会产生任何交易。
+1. `00_init.sh` —— 加载并校验环境配置
+2. `01_deploy.sh` —— 部署并初始化全部合约，写入合约地址
+3. `99_check.sh` —— 校验部署与初始化结果
+4. `verify.sh` —— 合约开源验证；链支持时执行（需 `ETHERSCAN_API_KEY`），链不支持时跳过
+
+链 ID、全部初始化绑定及常量、DEX 地址关系任一不一致，部署入口返回失败，并回滚到上一次已保存的地址（校验失败不覆盖旧地址）。网络名必填，缺参直接报错。`PARENT_TOKEN`（WBNB）、`FACTORY_ADDRESS`、`ROUTER_ADDRESS` 在广播前即校验为已部署合约，配错不会产生任何交易。
 
 DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2：交易手续费固定为 0.30%，Factory 的 `feeTo` 与 `feeToSetter` 均为零。地址应来自该仓库同网络的部署及验收结果，不使用旧 PancakeSwap 配置。
 
@@ -139,20 +140,24 @@ DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2：交易手续费固
 
 ### 分步部署
 
-`00_init.sh` 与 `01_deploy.sh` 之间靠同一 shell 的变量传递，必须在同一个 bash 子进程里顺序执行。不要把 `00_init.sh` `source` 进交互 shell —— 它的 `set -euo pipefail` 会留在当前终端（部分编辑器的终端集成会因此在每条命令前报 `RPROMPT: parameter not set`）。
+单步骤脚本互不调用、各自只做一步，也**不自行载入环境**：环境由调用方在调用前载入——由入口脚本负责，手工执行时由执行者负责（先 `source 00_init.sh <network>`，再在同一 shell 中运行步骤脚本）。
+
+`00_init.sh` 与后续步骤之间靠同一 shell 的变量传递，必须在同一个 bash 子进程里顺序执行。不要把 `00_init.sh` `source` 进交互 shell —— 它的 `set -euo pipefail` 会留在当前终端（部分编辑器的终端集成会因此在每条命令前报 `RPROMPT: parameter not set`）。
 
 ```bash
-# 初始化 + 部署
+# 部署与初始化
 bash -c 'source script/deploy/00_init.sh bsc97_dev && bash script/deploy/01_deploy.sh'
 ```
 
-`01_deploy.sh` 已执行链上验收。重新独立验收时，在载入最新地址后运行 `99_check.sh`：
+`01_deploy.sh` 只负责部署、初始化并写入地址，不再自行验收；验收由 `one_click_deploy.sh` 编排，或按下例单独运行：
 
 ```bash
+# 校验部署与初始化结果（只读配置与链上状态，可重复运行）
 bash -c 'source script/deploy/00_init.sh bsc97_dev && bash script/deploy/99_check.sh'
-```
 
-`99_check.sh` 只读配置与链上状态，可重复运行。
+# 合约开源验证
+bash -c 'source script/deploy/00_init.sh bsc97_dev && bash script/deploy/verify.sh'
+```
 
 ## 合约开源验证
 
@@ -166,7 +171,7 @@ export ETHERSCAN_API_KEY=your-api-key
 ./script/deploy/verify.sh bsc97_dev
 ```
 
-使用 Etherscan V2 API Key。缺少 Key、链不支持、构造参数错误或任何一份合约验证失败均返回非零；只有 8 份全部成功才显示完成。API 入口依据 [Etherscan 官方文档](https://docs.etherscan.io/make-your-first-call)。
+使用 Etherscan V2 API Key。缺少 Key、构造参数错误或任何一份合约验证失败均返回非零；链不支持开源验证时跳过并返回 0；只有 8 份全部成功才显示完成。API 入口依据 [Etherscan 官方文档](https://docs.etherscan.io/make-your-first-call)。
 
 API Key 只通过环境变量传入，不要写进 `network.params`：`00_init.sh` 会载入该文件，文件里的空值会覆盖已导出的环境变量。
 

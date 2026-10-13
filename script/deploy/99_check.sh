@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# 前置：环境已由入口脚本载入（source 00_init.sh <network>）；本步骤不自行载入。
+
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'

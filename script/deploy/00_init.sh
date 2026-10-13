@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# 部署环境初始化。由入口脚本 source 载入（source 00_init.sh <network>）；步骤脚本不载入，直接用已载入的环境。
 if [ -z "${1:-}" ]; then
     echo "Error: network name is required (e.g. bsc97_dev)"
     exit 1
@@ -60,7 +61,7 @@ echo "  CHAIN_ID: $CHAIN_ID"
 
 # 8 个核心合约地址，供 01_deploy.sh 与 verify.sh 共用校验。
 # 字段必须写在函数体内：函数经 export -f 传给子进程后，未导出的数组会静默展开为空，校验会变成空转。
-# 99_check.sh 支持独立运行（不 source 本文件），故保留自身检查。
+# 99_check.sh 作为子进程运行、不 source 本文件，故保留自身检查。
 require_core_addresses() {
     local field
     for field in LOVE20TOKEN_ADDRESS MEMBERNFT_ADDRESS PHASE_ADDRESS LAUNCH_ADDRESS \
@@ -71,5 +72,5 @@ require_core_addresses() {
         fi
     done
 }
-# 步骤文件可能作为子进程启动（如 bash -c 'source 00_init.sh <net> && bash 01_deploy.sh'），函数不随环境继承。
+# 步骤脚本作为子进程启动时函数不随环境继承，故显式导出。
 export -f require_core_addresses

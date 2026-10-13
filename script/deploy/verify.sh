@@ -1,20 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-network="${1:-}"
-if [ -z "$network" ]; then
-    echo "Usage: $0 <network>"
-    exit 1
-fi
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/00_init.sh" "$network"
+# 前置：环境已由入口脚本载入（source 00_init.sh <network>）；本步骤不自行载入。
 cd "$PROJECT_ROOT"
-: "${ETHERSCAN_API_KEY:?Set an Etherscan API key; source verification has not run.}"
+
+# 链不支持开源验证时跳过，不视为失败，使一键部署在本地/未接入浏览器的链上仍可跑通。
 case "$CHAIN_ID" in
     56|97) ;;
-    *) echo "Error: Source verification is not configured for chain $CHAIN_ID"; exit 1 ;;
+    *) echo "Skip: source verification is not configured for chain $CHAIN_ID"; exit 0 ;;
 esac
+: "${ETHERSCAN_API_KEY:?Set an Etherscan API key; source verification has not run.}"
 
 require_core_addresses
 
