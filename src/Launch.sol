@@ -21,7 +21,7 @@ contract Launch is ILaunch {
     address public mintAddress;
     // used for member ownership checks
     address public memberNFTAddress;
-    // the root parent token, WBNB on BSC
+    // the root parent token, WETH
     address public rootParentTokenAddress;
     // the first token; its launch counts mirror 1:1 into root-level counts
     address public firstTokenAddress;
@@ -119,7 +119,7 @@ contract Launch is ILaunch {
     /**
      * @notice Whether the address is a LOVE20 token created and registered by Launch
      * @dev The first token is registered in `init`, sub-tokens in `launchToken`. The check reads the
-     *      parent ledger Launch maintains itself, so any address Launch did not create — WBNB, EOAs,
+     *      parent ledger Launch maintains itself, so any address Launch did not create — WETH, EOAs,
      *      unrelated contracts — returns false without an external call.
      */
     function isLOVE20Token(address tokenAddress) public view returns (bool) {

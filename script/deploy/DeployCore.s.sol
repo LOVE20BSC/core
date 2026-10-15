@@ -12,6 +12,11 @@ import {Submit} from "../../src/Submit.sol";
 import {Stake} from "../../src/Stake.sol";
 import {LaunchInitParams} from "../../src/interfaces/ILaunch.sol";
 
+// 部署脚本只从 Router 读取根父币地址；Stake 实际调用的 Router 接口见 src/interfaces/UniswapV2/。
+interface IUniswapV2RouterWeth {
+    function WETH() external view returns (address);
+}
+
 contract DeployCore is Script {
     struct DeploymentAddresses {
         address token;
@@ -29,25 +34,26 @@ contract DeployCore is Script {
         require(vm.envUint("MIN_PROPOSAL_VOTES") <= 1000, "Proposal threshold exceeds 1000");
         require(vm.envUint("LAUNCH_RATIO") <= 1e18, "Launch ratio exceeds 1e18");
 
-        // DEX 依赖必须是已部署合约。PARENT_TOKEN 只被记录、ROUTER_ADDRESS 只在提现时使用，
-        // 两者配错时模拟阶段不会回滚，会白广播 8 个合约（要到 99_check.sh 才拦下）。
-        address rootParent = vm.envAddress("PARENT_TOKEN");
+        // DEX 依赖必须是已部署合约。根父币从 Router.WETH() 读取，不在 core.params 重复登记；
+        // Factory 供 Launch/Stake 建池、Router 供提现兑换，三者配错时模拟阶段不会回滚，
+        // 会白广播 8 个合约（要到 21_check.sh 才拦下）。
         address factory = vm.envAddress("FACTORY_ADDRESS");
         address router = vm.envAddress("ROUTER_ADDRESS");
-        require(rootParent.code.length != 0, "WBNB must be a deployed contract");
         require(factory.code.length != 0, "Factory must be a deployed contract");
         require(router.code.length != 0, "Router must be a deployed contract");
+        address rootParent = IUniswapV2RouterWeth(router).WETH();
+        require(rootParent.code.length != 0, "WETH must be a deployed contract");
 
         vm.startBroadcast();
 
-        addrs = _deployContracts();
+        addrs = _deployContracts(rootParent);
 
         vm.stopBroadcast();
 
         _logDeploymentSummary(addrs);
     }
 
-    function _deployContracts() private returns (DeploymentAddresses memory addrs) {
+    function _deployContracts(address rootParent) private returns (DeploymentAddresses memory addrs) {
         // 部署 MemberNFT
         addrs.memberNFT = address(_deployMemberNFT());
         console2.log("MemberNFT deployed at:", addrs.memberNFT);
@@ -68,7 +74,7 @@ contract DeployCore is Script {
         LaunchInitParams memory launchParams = LaunchInitParams({
             mintAddress: addrs.mint,
             memberNFTAddress: addrs.memberNFT,
-            rootParentTokenAddress: vm.envAddress("PARENT_TOKEN"),
+            rootParentTokenAddress: rootParent,
             pairFactoryAddress: vm.envAddress("FACTORY_ADDRESS"),
             launchRatio: vm.envUint("LAUNCH_RATIO"),
             maxLaunchCount: vm.envUint("MAX_LAUNCH_COUNT"),

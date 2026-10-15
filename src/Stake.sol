@@ -431,7 +431,7 @@ contract Stake is IStake {
         if (!ILaunch(launchAddress).isLOVE20Token(tokenAddress)) revert InvalidTokenAddress();
     }
 
-    /// @dev Every token Stake moves — LOVE20 tokens, WBNB and the pair's LP token — reverts instead of
+    /// @dev Every token Stake moves — LOVE20 tokens, WETH and the pair's LP token — reverts instead of
     ///      returning false, so the boolean only has to be asserted, not converted into an own error.
     function _pull(address token, address from, uint256 amount) private {
         require(IERC20(token).transferFrom(from, address(this), amount));

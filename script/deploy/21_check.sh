@@ -1,7 +1,56 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 前置：环境已由入口脚本载入（source 00_init.sh <network>）；本步骤不自行载入。
+# 部署与初始化正确性校验：只读配置与链上状态，可重复运行。自行独立载入校验所需文件，
+# 不依赖调用方预载环境：network.params 提供 RPC 与链 ID，dex 的两个模块地址文件提供期望的
+# 绑定，core.params 提供期望的部署参数，addresses.core.params 提供待校验的已部署地址。
+# 根父币期望值取自链上 Router.WETH()（部署脚本的同源读取），不在配置中重复登记。
+# 用法：script/deploy/21_check.sh <network>
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+network="${1:?usage: script/deploy/21_check.sh <network>}"
+NETWORK_DIR="$PROJECT_ROOT/script/network/$network"
+if [ ! -d "$NETWORK_DIR" ]; then
+    echo "Error: Network directory not found: $NETWORK_DIR"
+    exit 1
+fi
+
+# 载入 dex UniswapV2 模块地址文件（FACTORY_ADDRESS / ROUTER_ADDRESS）与 core.params；
+# 根父币不配置，期望值取自链上 Router.WETH()，与 DeployCore.s.sol 同源。
+for config in network.params addresses.uniswapv2.params core.params addresses.core.params; do
+    if [ ! -f "$NETWORK_DIR/$config" ]; then
+        echo "Error: Missing required configuration: $NETWORK_DIR/$config"
+        exit 1
+    fi
+done
+
+set -a
+source "$NETWORK_DIR/network.params"
+source "$NETWORK_DIR/addresses.uniswapv2.params"
+source "$NETWORK_DIR/core.params"
+source "$NETWORK_DIR/addresses.core.params"
+set +a
+
+# 地址文件的键集合必须与期望合约集合一致：键名漏改会让后续变量静默为空，
+# 逐项 cast 调用要到很后面才以难以定位的形式失败，故在此显式断言。
+address_file="$NETWORK_DIR/addresses.core.params"
+expected_keys="LAUNCH_ADDRESS LOVE20TOKEN_ADDRESS MEMBERNFT_ADDRESS MINT_ADDRESS PHASE_ADDRESS STAKE_ADDRESS SUBMIT_ADDRESS VOTE_ADDRESS"
+actual_keys=$(grep -oE '^[A-Z0-9_]+=' "$address_file" | sed 's/=$//' | sort | tr '\n' ' ' || true)
+if [ "$actual_keys" != "$(printf '%s\n' $expected_keys | sort | tr '\n' ' ')" ]; then
+    echo "Error: $address_file key set mismatch"
+    echo "  expected: $(printf '%s\n' $expected_keys | sort | tr '\n' ' ')"
+    echo "  actual:   $actual_keys"
+    exit 1
+fi
+
+# 根父币期望值：链上 Router.WETH()，与 DeployCore.s.sol 同源。
+ROUTER_WETH=$(cast call "$ROUTER_ADDRESS" "WETH()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+if [ "$ROUTER_WETH" = "ERROR" ]; then
+    echo "Error: Failed to read WETH() from Router $ROUTER_ADDRESS"
+    exit 1
+fi
 
 # 颜色定义
 RED='\033[0;31m'
@@ -111,7 +160,7 @@ ACTUAL_MINTER=$(cast call "$LOVE20TOKEN_ADDRESS" "minter()(address)" --rpc-url "
 verify_value "minter" "$MINT_ADDRESS" "$ACTUAL_MINTER" || ((FAILED+=1))
 
 ACTUAL_PARENT=$(cast call "$LOVE20TOKEN_ADDRESS" "parentTokenAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "parentTokenAddress" "$PARENT_TOKEN" "$ACTUAL_PARENT" || ((FAILED+=1))
+verify_value "parentTokenAddress" "$ROUTER_WETH" "$ACTUAL_PARENT" || ((FAILED+=1))
 
 # 2. 验证 MemberNFT
 print_contract_header "2" "MemberNFT" "$MEMBERNFT_ADDRESS"
@@ -169,7 +218,7 @@ ACTUAL_LAUNCH_MEMBER=$(cast call "$LAUNCH_ADDRESS" "memberNFTAddress()(address)"
 verify_value "memberNFTAddress" "$MEMBERNFT_ADDRESS" "$ACTUAL_LAUNCH_MEMBER" || ((FAILED+=1))
 
 ACTUAL_ROOT_PARENT=$(cast call "$LAUNCH_ADDRESS" "rootParentTokenAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "rootParentTokenAddress" "$PARENT_TOKEN" "$ACTUAL_ROOT_PARENT" || ((FAILED+=1))
+verify_value "rootParentTokenAddress" "$ROUTER_WETH" "$ACTUAL_ROOT_PARENT" || ((FAILED+=1))
 ACTUAL_LAUNCH_FACTORY=$(cast call "$LAUNCH_ADDRESS" "pairFactoryAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "pairFactoryAddress" "$FACTORY_ADDRESS" "$ACTUAL_LAUNCH_FACTORY" || ((FAILED+=1))
 ACTUAL_SYMBOL_LENGTH=$(cast call "$LAUNCH_ADDRESS" "TOKEN_SYMBOL_LENGTH()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
@@ -347,20 +396,12 @@ else
     ((FAILED+=1))
 fi
 
-# 4. 验证 Router 使用配置中的 WBNB
+# 4. 验证根父币（Router.WETH() 读出的 WETH）本身是已部署合约
 echo -e "${GRAY}Checking Router WETH...${NC}"
-ROUTER_WETH=$(cast call "$ACTUAL_ROUTER" "WETH()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-if [ "$ROUTER_WETH" = "ERROR" ]; then
-    echo -e "  ${RED}✗${NC} Router.WETH() call failed"
-    ((FAILED+=1))
-else
-    ROUTER_WETH=$(normalize_output "$ROUTER_WETH")
-    verify_value "Router.WETH" "$WBNB_ADDRESS" "$ROUTER_WETH" || ((FAILED+=1))
-fi
-verify_deployed "WBNB" "$WBNB_ADDRESS" || ((FAILED+=1))
+verify_deployed "WETH" "$ROUTER_WETH" || ((FAILED+=1))
 verify_deployed "Factory" "$FACTORY_ADDRESS" || ((FAILED+=1))
 verify_deployed "Router" "$ROUTER_ADDRESS" || ((FAILED+=1))
-verify_value "root parent is WBNB" "$WBNB_ADDRESS" "$ACTUAL_ROOT_PARENT" || ((FAILED+=1))
+verify_value "root parent is router WETH" "$ROUTER_WETH" "$ACTUAL_ROOT_PARENT" || ((FAILED+=1))
 
 echo ""
 echo -e "${CYAN}════════════════════════════════════════${NC}"

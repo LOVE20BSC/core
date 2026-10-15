@@ -1323,7 +1323,7 @@ contract LaunchTest {
     }
 
     function testLaunchRootLevelTokenCreatesSiblingAndConsumesRootCount() public {
-        RootTokenMock rootToken = new RootTokenMock("WBNB");
+        RootTokenMock rootToken = new RootTokenMock("WETH");
         (Launch booted, LOVE20Token bootedToken, , uint256 memberId) =
             _bootSystemAtRoot(address(rootToken), "LOVE", carol, "dave");
 
@@ -1335,7 +1335,7 @@ contract LaunchTest {
         LOVE20Token siblingToken = LOVE20Token(sibling);
 
         // 名称按现有规则拼接：子币符号 + "@" + 根父币实际符号
-        require(keccak256(bytes(siblingToken.name())) == keccak256("AAA@WBNB"), "sibling name");
+        require(keccak256(bytes(siblingToken.name())) == keccak256("AAA@WETH"), "sibling name");
         require(keccak256(bytes(siblingToken.symbol())) == keccak256("AAA"), "sibling symbol");
         require(siblingToken.parentTokenAddress() == address(rootToken), "sibling token parent");
         require(booted.isLOVE20Token(sibling), "sibling registered");
@@ -1362,7 +1362,7 @@ contract LaunchTest {
     }
 
     function testRootLevelAndCommunityCountsAreIndependent() public {
-        RootTokenMock rootToken = new RootTokenMock("WBNB");
+        RootTokenMock rootToken = new RootTokenMock("WETH");
         (Launch booted, LOVE20Token bootedToken, , uint256 memberId) =
             _bootSystemAtRoot(address(rootToken), "LOVE", carol, "dave");
 
@@ -1384,7 +1384,7 @@ contract LaunchTest {
     }
 
     function testRootLevelLaunchPrefixUsesFirstTokenSymbol() public {
-        RootTokenMock rootToken = new RootTokenMock("WBNB");
+        RootTokenMock rootToken = new RootTokenMock("WETH");
         (Launch booted, LOVE20Token bootedToken, , uint256 memberId) =
             _bootSystemAtRoot(address(rootToken), "TestLOVE", carol, "dave");
 
@@ -1394,7 +1394,7 @@ contract LaunchTest {
 
         // 根父币符号不含 Test，但根级发射按首币符号判定，仍然加前缀
         require(keccak256(bytes(siblingToken.symbol())) == keccak256("TestAAA"), "prefixed symbol");
-        require(keccak256(bytes(siblingToken.name())) == keccak256("TestAAA@WBNB"), "prefixed name");
+        require(keccak256(bytes(siblingToken.name())) == keccak256("TestAAA@WETH"), "prefixed name");
         require(booted.tokenAddressBySymbol("TestAAA") == sibling, "final symbol ledger");
         require(booted.tokenAddressBySymbol("AAA") == address(0), "unprefixed symbol not registered");
     }

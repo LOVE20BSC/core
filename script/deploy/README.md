@@ -5,21 +5,18 @@
 ```
 script/
 ├── deploy/
-│   ├── one_click_deploy.sh    # 一键部署入口（编排下列步骤）
-│   ├── 00_init.sh             # 部署环境初始化
-│   ├── 01_deploy.sh           # 合约部署与初始化
-│   ├── 99_check.sh            # 部署与初始化正确性校验
-│   ├── verify.sh              # 合约开源验证
+│   ├── one_click_deploy.sh    # 一键部署入口（纯编排，不载入任何环境文件）
+│   ├── 11_deploy.sh           # 合约部署与初始化（自载入部署输入）
+│   ├── 21_check.sh            # 部署与初始化正确性校验（自载入校验文件）
+│   ├── 31_verify.sh           # 合约开源验证（自载入网络与地址文件）
 │   └── DeployCore.s.sol       # Foundry 部署脚本
 └── network/
-    ├── bsc97_dev/             # BSC 测试网配置
-    │   ├── .account           # 账户信息（敏感，已 gitignore）
-    │   ├── network.params     # 网络参数
-    │   ├── addresses.dex.params   # DEX 已部署地址（WBNB / Factory / Router），必需
-    │   ├── core.params        # 合约部署参数
-    │   └── addresses.core.params  # 本协议已部署地址，部署成功后自动写入
-    └── anvil31337_dev/        # 本地测试网配置
-        └── ...
+    └── anvil31337_dev/        # 本地测试网配置（后续网络按 <链名><链id>_<类型> 新建）
+        ├── .account           # 账户信息（敏感，已 gitignore）
+        ├── network.params     # 网络参数
+        ├── addresses.uniswapv2.params # dex UniswapV2 模块地址（Factory / Router），必需
+        ├── core.params        # 合约部署参数
+        └── addresses.core.params  # 本协议已部署地址，部署成功后自动写入
 ```
 
 ## 部署前准备
@@ -38,24 +35,23 @@ RPC_URL=https://data-seed-prebsc-1-s1.binance.org:8545
 ```bash
 KEYSTORE_ACCOUNT=keystore-file-name
 ACCOUNT_ADDRESS=0xYourAccountAddress
-KEYSTORE_PASSWORD=                        # 可选，留空即不启用
+KEYSTORE_PASSWORD=                        # 可选，留空走弹窗（仅 macOS）
 ```
 
-公共网络通过 Keystore 签名；仅 `CHAIN_ID=31337` 的本地网络可使用 `ACCOUNT_ADDRESS` 配合节点解锁账户。不要把明文私钥放进配置或命令参数。
+`.account` 是必需文件：本地链与公共网络统一走 keystore 签名，不提供 `--unlocked` 回退。不要把明文私钥放进配置或命令参数。
 
-`KEYSTORE_PASSWORD` 是可选项：填写非空值时直接用它解锁 keystore，整条部署链路无交互；留空或整行不写则保持原流程，由 forge 在终端询问密码。该值以明文保存在 `.account`，仅建议在受控机器或测试网使用；由助手操作且未配置该项时，在对话的密码输入框中提供，勿直接贴到消息中。
+`KEYSTORE_PASSWORD` 填写非空值时直接用它解锁 keystore，整条部署链路无交互；留空或整行不写时由 macOS `osascript` 弹窗读取。`one_click_deploy.sh` 入口把密码**只解析一次**（先重置、再读 `.account`、最后才交互）并导出给全部部署步骤；单独运行某个部署步骤时，该步骤按 环境变量 → `.account` → 交互 自行解析。**入口不接受通过环境变量传密码**：`KEYSTORE_PASSWORD=xxx ./script/deploy/one_click_deploy.sh <net>` 里的值会被入口重置掉（有意为之，避免上次运行的残留密码被静默复用），非交互场景请把密码写进 `.account` 的 `KEYSTORE_PASSWORD`。非 macOS 环境没有 `osascript`，必须填写该项，脚本会在缺失时明确报错。该值以明文保存在 `.account`，仅建议在受控机器或测试网使用；由助手操作且未配置该项时，在对话的密码输入框中提供，勿直接贴到消息中。
 
 ### 3. 配置 DEX 地址
 
-编辑 `script/network/<network>/addresses.dex.params`，写入 `dex/` 仓库**同网络**部署并验收过的三个地址：
+把 `dex/` 仓库**同网络** UniswapV2 模块部署并验收过的 `addresses.uniswapv2.params` 复制到本仓：
 
 ```bash
-WBNB_ADDRESS=0x...      # 该网络的 WBNB（BSC 主网/测试网用官方地址，本地用 dex 部署的 TestWBNB）
-FACTORY_ADDRESS=0x...   # dex 部署的 Uniswap V2 Factory
-ROUTER_ADDRESS=0x...    # dex 部署的 Uniswap V2 Router02
+FACTORY_ADDRESS=0x...    # dex 部署的 Uniswap V2 Factory
+ROUTER_ADDRESS=0x...     # dex 部署的 Uniswap V2 Router02
 ```
 
-该文件是 `00_init.sh` 的必需配置：缺失直接报错，三个地址为空或不是已部署合约会在广播前失败。
+该文件是 `11_deploy.sh` 的必需配置：缺失直接报错；两个地址为空或不是已部署合约会在广播前失败（`cast code` 校验）。根父币（WETH）不需要配置：`DeployCore` 从 `Router.WETH()` 现场读取，`21_check.sh` 与 `31_verify.sh` 按同一来源取用——WETH 模块的地址文件与 core 无关，不必复制。
 
 ### 4. 配置合约参数
 
@@ -68,7 +64,6 @@ TOKEN_SYMBOL=LOVE
 INITIAL_SUPPLY=1000000000000000000000000000  # 10亿（18位小数）
 MAX_SUPPLY=10000000000000000000000000000     # 100亿（18位小数）
 DISTRIBUTOR=0xYourDeployerAddressHere        # 初始代币接收地址
-PARENT_TOKEN=${WBNB_ADDRESS}                  # WBNB地址，取自 addresses.dex.params
 
 # MemberNFT 部署参数
 MEMBER_BASE_DIVISOR=100000000
@@ -110,10 +105,7 @@ MAX_WITHDRAWABLE_TO_FEE_RATIO=1000           # 每次处理 floor(withdrawableLp
 **重要参数说明：**
 - `DISTRIBUTOR`: 设置为部署钱包地址，接收初始代币
 - 首币 `minter` 自动绑定本次部署的 Mint 地址，无需配置 `MINTER`。
-- `PARENT_TOKEN`: 
-  - BSC 主网: 使用官方 WBNB `0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c`
-  - BSC 测试网: 使用测试 WBNB `0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd`
-  - Anvil 本地: 使用 `${WBNB_ADDRESS}` 引用 dex 部署的 TestWBNB
+- 根父币（WETH）无需配置：`DeployCore` 从 `Router.WETH()` 读取，BSC 主网/测试网即官方 WBNB，Anvil 本地即 dex 部署的 WETH9。
 - `PHASE_ORIGIN_PHASE_BLOCKS`: 以目标链实测出块间隔估算；不要将固定的“3 秒一块”当作发布依据。
 
 ## 部署流程
@@ -122,42 +114,45 @@ MAX_WITHDRAWABLE_TO_FEE_RATIO=1000           # 每次处理 floor(withdrawableLp
 
 ```bash
 cd core
-./script/deploy/one_click_deploy.sh bsc97_dev
+./script/deploy/one_click_deploy.sh anvil31337_dev
 ```
 
-该脚本依次调用下列单步骤脚本（各步骤只做自己那一步、互不调用，也不自行载入环境；单独执行见「分步部署」）：
+该脚本依次调用下列单步骤脚本（各步骤只做自己那一步、互不调用、自行载入输入；单独执行见「分步部署」）：
 
-1. `00_init.sh` —— 加载并校验环境配置
-2. `01_deploy.sh` —— 部署并初始化全部合约，写入合约地址
-3. `99_check.sh` —— 校验部署与初始化结果
-4. `verify.sh` —— 合约开源验证；链支持时执行（需 `ETHERSCAN_API_KEY`），链不支持时跳过
+1. `11_deploy.sh` —— 自载入部署输入并部署初始化全部合约，写入合约地址
+2. `21_check.sh` —— 自载入校验文件，校验部署与初始化结果
+3. `31_verify.sh` —— 自载入地址文件做合约开源验证；链支持时执行（需 `ETHERSCAN_API_KEY`），链不支持时跳过
 
-链 ID、全部初始化绑定及常量、DEX 地址关系任一不一致，部署入口返回失败，并回滚到上一次已保存的地址（校验失败不覆盖旧地址）。网络名必填，缺参直接报错。`PARENT_TOKEN`（WBNB）、`FACTORY_ADDRESS`、`ROUTER_ADDRESS` 在广播前即校验为已部署合约，配错不会产生任何交易。
+链 ID、全部初始化绑定及常量、DEX 地址关系任一不一致，部署入口返回失败，并回滚到上一次已保存的地址（校验失败不覆盖旧地址）。网络名必填，缺参直接报错。`FACTORY_ADDRESS`、`ROUTER_ADDRESS` 及 `Router.WETH()` 读出的根父币在广播前即校验为已部署合约，配错不会产生任何交易。
 
 DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2：交易手续费固定为 0.30%，Factory 的 `feeTo` 与 `feeToSetter` 均为零。地址应来自该仓库同网络的部署及验收结果，不使用旧 PancakeSwap 配置。
 
-`MAX_WITHDRAWABLE_TO_FEE_RATIO` 决定手续费销毁的触发阈值和单次处理量，不是交易费率。`99_check.sh` 中的 `ACTUAL_FEE_RATIO` 只是链上读取结果，用于与这个配置值比对。现有配置保持 `1000`；每社区每 Phase 至多实际结算一次，且单次处理量须足够让 Pair 两侧产出非零数量。
+`MAX_WITHDRAWABLE_TO_FEE_RATIO` 决定手续费销毁的触发阈值和单次处理量，不是交易费率。`21_check.sh` 中的 `ACTUAL_FEE_RATIO` 只是链上读取结果，用于与这个配置值比对。现有配置保持 `1000`；每社区每 Phase 至多实际结算一次，且单次处理量须足够让 Pair 两侧产出非零数量。
 
 ### 分步部署
 
-单步骤脚本互不调用、各自只做一步，也**不自行载入环境**：环境由调用方在调用前载入——由入口脚本负责，手工执行时由执行者负责（先 `source 00_init.sh <network>`，再在同一 shell 中运行步骤脚本）。
+每个步骤脚本统一 `<step>.sh <network>` 一种调用形态，**自行加载自己需要的文件**，没有任何文件互相 source，任一一步都可脱离入口单独执行：
 
-`00_init.sh` 与后续步骤之间靠同一 shell 的变量传递，必须在同一个 bash 子进程里顺序执行。不要把 `00_init.sh` `source` 进交互 shell —— 它的 `set -euo pipefail` 会留在当前终端（部分编辑器的终端集成会因此在每条命令前报 `RPROMPT: parameter not set`）。
+| 步骤 | 自行载入的输入 |
+| --- | --- |
+| `11_deploy.sh` | `network.params`、`addresses.uniswapv2.params`、`core.params`、`.account`；写入 `addresses.core.params` |
+| `21_check.sh` | `network.params`、`addresses.uniswapv2.params`、`core.params`、`addresses.core.params` |
+| `31_verify.sh` | `network.params`、`addresses.uniswapv2.params`、`core.params`、`addresses.core.params` |
+
+各步骤自行载入自己的输入（见上表），dex 的地址文件与 `core.params` 之间无引用关系，载入顺序不再敏感。`21_check.sh` 另断言 `addresses.core.params` 的键集合等于 8 个期望合约键。
 
 ```bash
 # 部署与初始化
-bash -c 'source script/deploy/00_init.sh bsc97_dev && bash script/deploy/01_deploy.sh'
-```
+./script/deploy/11_deploy.sh anvil31337_dev
 
-`01_deploy.sh` 只负责部署、初始化并写入地址，不再自行验收；验收由 `one_click_deploy.sh` 编排，或按下例单独运行：
-
-```bash
 # 校验部署与初始化结果（只读配置与链上状态，可重复运行）
-bash -c 'source script/deploy/00_init.sh bsc97_dev && bash script/deploy/99_check.sh'
+./script/deploy/21_check.sh anvil31337_dev
 
 # 合约开源验证
-bash -c 'source script/deploy/00_init.sh bsc97_dev && bash script/deploy/verify.sh'
+./script/deploy/31_verify.sh anvil31337_dev
 ```
+
+`11_deploy.sh` 只负责部署、初始化并写入地址，不再自行验收；验收由 `one_click_deploy.sh` 编排，或按上例单独运行。
 
 ## 合约开源验证
 
@@ -168,12 +163,12 @@ bash -c 'source script/deploy/00_init.sh bsc97_dev && bash script/deploy/verify.
 export ETHERSCAN_API_KEY=your-api-key
 
 # 执行验证
-./script/deploy/verify.sh bsc97_dev
+./script/deploy/31_verify.sh anvil31337_dev
 ```
 
 使用 Etherscan V2 API Key。缺少 Key、构造参数错误或任何一份合约验证失败均返回非零；链不支持开源验证时跳过并返回 0；只有 8 份全部成功才显示完成。API 入口依据 [Etherscan 官方文档](https://docs.etherscan.io/make-your-first-call)。
 
-API Key 只通过环境变量传入，不要写进 `network.params`：`00_init.sh` 会载入该文件，文件里的空值会覆盖已导出的环境变量。
+API Key 只通过环境变量传入，不要写进 `network.params`：步骤脚本会载入该文件，文件里的空值会覆盖已导出的环境变量。
 
 ## 部署输出
 
@@ -196,11 +191,11 @@ VOTE_ADDRESS=0x...
 
 `DeployCore` 先部署 Mint，再由 Launch 创建首币并绑定 Mint。Token 没有 `setMinter`，错误绑定必须重新部署。开源验证使用本次部署地址文件里的 `MINT_ADDRESS`。
 
-### 2. PARENT_TOKEN 配置
+### 2. 根父币（WETH）配置
 
-- 首个代币必须使用 WBNB 作为父币（协议树外根父币）
-- 发射的父币可以使用任意已部署的 LOVE20Token 地址，或根父币（WBNB）：父币为根父币的根级发射创建与首币平级的同级币，消耗首币次数 1:1 伴生出的根级次数
-- 部署后 `firstTokenAddress()` 必须等于 `tokens(0)` 的首币地址（`99_check.sh` 已校验）
+- 根父币无需配置：`DeployCore` 从 `Router.WETH()` 读取。首个代币必须使用 WETH 作为父币（协议树外根父币，BSC 上即官方 WBNB）
+- 发射的父币可以使用任意已部署的 LOVE20Token 地址，或根父币（WETH）：父币为根父币的根级发射创建与首币平级的同级币，消耗首币次数 1:1 伴生出的根级次数
+- 部署后 `firstTokenAddress()` 必须等于 `tokens(0)` 的首币地址（`21_check.sh` 已校验）
 
 ### 3. 区块数量配置
 

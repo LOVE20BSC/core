@@ -22,25 +22,33 @@ contract DeployCoreTest is Test {
         vm.expectRevert("Launch ratio exceeds 1e18");
         deployer.run();
 
-        // DEX 依赖地址必须是已部署合约：PARENT_TOKEN 只被记录、ROUTER_ADDRESS 只在提现时使用，
-        // 两者配错时模拟阶段不会回滚，会白广播 8 个合约，直到 99_check.sh 才拦下。
+        // DEX 依赖地址必须是已部署合约：FACTORY_ADDRESS 供 Launch/Stake 建池，
+        // ROUTER_ADDRESS 供提现兑换并读取根父币，两者配错时模拟阶段不会回滚，
+        // 会白广播 8 个合约，直到 21_check.sh 才拦下。
         vm.setEnv("LAUNCH_RATIO", "1000000000000000000");
-        address rootParent = makeAddr("rootParent");
         address factory = makeAddr("factory");
         address router = makeAddr("router");
-        vm.setEnv("PARENT_TOKEN", vm.toString(rootParent));
         vm.setEnv("FACTORY_ADDRESS", vm.toString(factory));
         vm.setEnv("ROUTER_ADDRESS", vm.toString(router));
 
-        vm.expectRevert("WBNB must be a deployed contract");
-        deployer.run();
-
-        vm.etch(rootParent, hex"00");
         vm.expectRevert("Factory must be a deployed contract");
         deployer.run();
 
         vm.etch(factory, hex"00");
         vm.expectRevert("Router must be a deployed contract");
         deployer.run();
+
+        // Router 已部署但 WETH() 返回零地址（MockRouter 存储未初始化）：根父币无效。
+        vm.etch(router, type(MockRouter).runtimeCode);
+        vm.expectRevert("WETH must be a deployed contract");
+        deployer.run();
+    }
+}
+
+contract MockRouter {
+    address public weth;
+
+    function WETH() external view returns (address) {
+        return weth;
     }
 }

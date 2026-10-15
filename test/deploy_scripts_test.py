@@ -19,7 +19,9 @@ def fake_tool(tool, args):
     data = json.loads(Path(os.environ["MOCK_DATA"]).read_text())
     with Path(os.environ["MOCK_LOG"]).open("a") as log:
         log.write(json.dumps([tool, *args]) + "\n")
-    if tool == "cast":
+    if tool == "osascript":
+        print("test-password")
+    elif tool == "cast":
         if args[0] == "chain-id":
             print(os.environ.get("RPC_CHAIN", data["env"]["CHAIN_ID"]))
         elif args[0] == "code":
@@ -59,7 +61,7 @@ def main():
         network.mkdir(parents=True)
         bin_dir = root / "bin"
         bin_dir.mkdir()
-        for tool in ("cast", "forge"):
+        for tool in ("cast", "forge", "osascript"):
             stub = bin_dir / tool
             stub.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + " "
                             + shlex.quote(str(Path(__file__).resolve())) + " --fake " + tool + ' "$@"\n')
@@ -68,8 +70,8 @@ def main():
         env = {name + "_ADDRESS": f"0x{index + 10:040x}" for index, name in enumerate(names)}
         contracts = list(env)
         env.update({"CHAIN_ID": "97", "RPC_URL": "http://invalid.local", "ETHERSCAN_API_KEY": "test-key",
-                    "WBNB_ADDRESS": "0x" + "ab" * 20, "FACTORY_ADDRESS": "0x" + "cd" * 20,
-                    "ROUTER_ADDRESS": "0x" + "ef" * 20, "TOKEN_NAME": "TestLOVE20", "TOKEN_SYMBOL": "TestLOVE20@WBNB",
+                    "WETH_ADDRESS": "0x" + "ab" * 20, "FACTORY_ADDRESS": "0x" + "cd" * 20,
+                    "ROUTER_ADDRESS": "0x" + "ef" * 20, "TOKEN_NAME": "TestLOVE20", "TOKEN_SYMBOL": "TestLOVE20@WETH",
                     "INITIAL_SUPPLY": "1000000000000000000000000000", "MAX_SUPPLY": "10000000000000000000000000000",
                     "DISTRIBUTOR": "0x" + "12" * 20, "MEMBER_BASE_DIVISOR": "100000000", "MEMBER_BYTES_THRESHOLD": "7",
                     "MEMBER_MULTIPLIER": "10", "MEMBER_MAX_NAME_LENGTH": "32", "PHASE_ORIGIN_BLOCKS": "1",
@@ -79,7 +81,6 @@ def main():
                     "MIN_PROPOSAL_VOTES": "50", "GOV_REWARD_RATIO": "100", "PROPOSAL_REWARD_RATIO": "100",
                     "MAX_BOOST_MULTIPLIER": "2", "SUBMIT_MIN_PER_THOUSAND": "10", "PROMISED_WAITING_PHASES_MIN": "1",
                     "PROMISED_WAITING_PHASES_MAX": "100", "MAX_WITHDRAWABLE_TO_FEE_RATIO": "1000"})
-        env["PARENT_TOKEN"] = env["WBNB_ADDRESS"]
         calls = {}
 
         def getters(contract, fields):
@@ -87,12 +88,12 @@ def main():
                 calls[env[contract + "_ADDRESS"].lower() + "/" + signature] = env.get(value, value)
 
         getters("LOVE20TOKEN", {"name()(string)": "TOKEN_NAME", "symbol()(string)": "TOKEN_SYMBOL",
-                "maxSupply()(uint256)": "MAX_SUPPLY", "minter()(address)": "MINT_ADDRESS", "parentTokenAddress()(address)": "PARENT_TOKEN"})
+                "maxSupply()(uint256)": "MAX_SUPPLY", "minter()(address)": "MINT_ADDRESS", "parentTokenAddress()(address)": "WETH_ADDRESS"})
         getters("MEMBERNFT", {key + "()(uint256)": "MEMBER_" + key for key in ("BASE_DIVISOR", "BYTES_THRESHOLD", "MULTIPLIER", "MAX_NAME_LENGTH")})
         getters("MEMBERNFT", {"LOVE20_TOKEN_ADDRESS()(address)": "LOVE20TOKEN_ADDRESS"})
         getters("PHASE", {key + "()(uint256)": "PHASE_" + key for key in ("ORIGIN_BLOCKS", "ORIGIN_PHASE_BLOCKS", "TARGET_SECONDS", "ADJUST_THRESHOLD", "SYNC_OBSERVATION_LIMIT")})
         getters("LAUNCH", {key + "()(uint256)": key for key in ("LAUNCH_RATIO", "MAX_LAUNCH_COUNT", "TOKEN_SYMBOL_LENGTH", "MAX_SUPPLY")})
-        getters("LAUNCH", {"LAUNCH_AMOUNT()(uint256)": "INITIAL_SUPPLY", "rootParentTokenAddress()(address)": "PARENT_TOKEN",
+        getters("LAUNCH", {"LAUNCH_AMOUNT()(uint256)": "INITIAL_SUPPLY", "rootParentTokenAddress()(address)": "WETH_ADDRESS",
                 "firstTokenAddress()(address)": "LOVE20TOKEN_ADDRESS", "pairFactoryAddress()(address)": "FACTORY_ADDRESS",
                 "isLOVE20Token(address)(bool)": "true"})
         getters("MINT", {key + "()(uint256)": value for key, value in {
@@ -107,20 +108,22 @@ def main():
                 "VOTE": ["phase", "stake", "submit", "memberNFT"]}.items():
             getters(name, {"initialized()(bool)": "true"})
             getters(name, {dep + "Address()(address)": dep.upper() + "_ADDRESS" for dep in dependencies})
-        getters("ROUTER", {"factory()(address)": "FACTORY_ADDRESS", "WETH()(address)": "WBNB_ADDRESS"})
+        getters("ROUTER", {"factory()(address)": "FACTORY_ADDRESS", "WETH()(address)": "WETH_ADDRESS"})
         data_path, log_path = root / "rpc.json", root / "calls.log"
         data_path.write_text(json.dumps({"env": env, "contracts": contracts, "calls": calls}))
         network.joinpath("network.params").write_text("\n".join(key + "=" + shlex.quote(value) for key, value in env.items()) + "\n")
-        for name in ("addresses.dex.params", "core.params"):
+        for name in ("addresses.uniswapv2.params", "core.params"):
             network.joinpath(name).write_text("")
         saved = network / "addresses.core.params"
+        # 步骤自行载入地址文件：先写入一份与 env 一致的已部署地址，供独立运行的 21_check / 31_verify 读取。
+        saved.write_text("\n".join(name + "_ADDRESS=" + env[name + "_ADDRESS"] for name in names) + "\n")
         base = {"PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "MOCK_DATA": str(data_path), "MOCK_LOG": str(log_path),
                 "PROJECT_ROOT": str(root), "NETWORK_DIR": str(network), "network": "test", **env}
         checks = 0
 
         def write_account(password_line=""):
             network.joinpath(".account").write_text(
-                "KEYSTORE_ACCOUNT=test-keystore\nPRIVATE_KEY=" + SECRET_KEY + "\n" + password_line)
+                "KEYSTORE_ACCOUNT=test-keystore\nACCOUNT_ADDRESS=0x" + "f5" * 20 + "\nPRIVATE_KEY=" + SECRET_KEY + "\n" + password_line)
 
         def run(script, success=True, args=(), **extra):
             nonlocal checks
@@ -131,38 +134,32 @@ def main():
             checks += 1
             return result, [json.loads(line) for line in log_path.read_text().splitlines()]
 
-        def run_sourced(script, success=True, **extra):
-            # 单步骤脚本不自行载入环境：由调用方先 source 00_init.sh，步骤脚本作为子进程运行。
-            nonlocal checks
-            log_path.write_text("")
-            command = f'source "{deploy}/00_init.sh" test && bash "{deploy}/{script}"'
-            result = subprocess.run(["bash", "-c", command], env={**base, **extra}, text=True, capture_output=True)
-            assert (result.returncode == 0) == success, (script, extra, result.stdout, result.stderr)
-            assert not any(secret in result.stdout + result.stderr for secret in (SECRET_KEY, SECRET_PASSWORD))
-            checks += 1
-            return result, [json.loads(line) for line in log_path.read_text().splitlines()]
-
         def forge_script_call(log):
             return next(call for call in log if call[:2] == ["forge", "script"])
 
         write_account()
 
-        run_sourced("99_check.sh")
+        run("21_check.sh", args=("test",))
+        # 地址文件键集合不符（漏改键名）必须显式失败。
+        saved.write_text("\n".join(name + "_ADDRESS=" + env[name + "_ADDRESS"] for name in names[:-1]) + "\nSTAKE_ADDR=" + env["STAKE_ADDRESS"] + "\n")
+        result, _ = run("21_check.sh", False, ("test",))
+        assert "key set mismatch" in result.stdout + result.stderr, result.stdout + result.stderr
+        saved.write_text("\n".join(name + "_ADDRESS=" + env[name + "_ADDRESS"] for name in names) + "\n")
         for contract, signature in [("LAUNCH", "rootParentTokenAddress()(address)"), ("LAUNCH", "firstTokenAddress()(address)"),
                 ("LAUNCH", "pairFactoryAddress()(address)"),
                 ("LAUNCH", "TOKEN_SYMBOL_LENGTH()(uint256)"), ("LAUNCH", "LAUNCH_AMOUNT()(uint256)"), ("LAUNCH", "MAX_SUPPLY()(uint256)"),
                 ("MEMBERNFT", "MAX_NAME_LENGTH()(uint256)"), ("PHASE", "ORIGIN_BLOCKS()(uint256)"),
                 ("PHASE", "ORIGIN_PHASE_BLOCKS()(uint256)"), ("PHASE", "SYNC_OBSERVATION_LIMIT()(uint256)"), ("ROUTER", "WETH()(address)")]:
             wrong_value = "0x" + "98" * 20 if signature.endswith("(address)") else "999"
-            run_sourced("99_check.sh", False, BAD_CALL=env[contract + "_ADDRESS"].lower() + "/" + signature, BAD_VALUE=wrong_value)
-        run_sourced("99_check.sh", False, RPC_CODE_ERROR="1")
-        run_sourced("99_check.sh", False, RPC_CHAIN="56")
-        run_sourced("99_check.sh", False, BAD_CALL=env["STAKE_ADDRESS"] + "/MAX_WITHDRAWABLE_TO_FEE_RATIO()(uint256)")
-        # 地址比较大小写不敏感：配置写大写、链上读到小写，仍应通过（配置值经 00_init.sh 载入）。
+            run("21_check.sh", False, ("test",), BAD_CALL=env[contract + "_ADDRESS"].lower() + "/" + signature, BAD_VALUE=wrong_value)
+        run("21_check.sh", False, ("test",), RPC_CODE_ERROR="1")
+        run("21_check.sh", False, ("test",), RPC_CHAIN="56")
+        run("21_check.sh", False, ("test",), BAD_CALL=env["STAKE_ADDRESS"] + "/MAX_WITHDRAWABLE_TO_FEE_RATIO()(uint256)")
+        # 地址比较大小写不敏感：配置写大写、链上读到小写，仍应通过（配置值由步骤自行载入）。
         params_path = network.joinpath("network.params")
         params_text = params_path.read_text()
-        params_path.write_text(params_text + "WBNB_ADDRESS=0x" + "AB" * 20 + "\n")
-        run_sourced("99_check.sh")
+        params_path.write_text(params_text + "WETH_ADDRESS=0x" + "AB" * 20 + "\n")
+        run("21_check.sh", args=("test",))
         params_path.write_text(params_text)
         saved.write_text("# previous deployment\n")
         for extra in ({"RPC_CHAIN": "56"}, {"DEPLOY_FAIL": "1"}, {"OMIT_ADDRESS": "VOTE_ADDRESS"},
@@ -173,44 +170,55 @@ def main():
         command = forge_script_call(log)
         assert command[command.index("--chain-id") + 1] == "97"
         assert command[command.index("--account") + 1] == "test-keystore"
-        assert "--unlocked" not in command and "--private-key" not in command and "--password" not in command
+        assert command[command.index("--sender") + 1] == "0x" + "f5" * 20
+        assert "--unlocked" not in command and "--private-key" not in command
+        # 留空 KEYSTORE_PASSWORD：弹窗一次读取（osascript），直接用读取值解锁。
+        assert command[command.index("--password") + 1] == "test-password"
+        assert len([call for call in log if call[0] == "osascript"]) == 1, log
         assert "VOTE_ADDRESS=" in saved.read_text()
-        # .account 配了非空 KEYSTORE_PASSWORD 就直接用它解锁；留空等同未配置，仍由 forge 交互询问。
+        # .account 配了非空 KEYSTORE_PASSWORD 就直接用它解锁，不弹窗。
         write_account("KEYSTORE_PASSWORD=" + SECRET_PASSWORD + "\n")
         _, log = run("one_click_deploy.sh", args=("test",))
         command = forge_script_call(log)
         assert command[command.index("--password") + 1] == SECRET_PASSWORD
+        assert not any(call[0] == "osascript" for call in log), log
+        # 显式留空等同未配置：仍走弹窗。
         write_account("KEYSTORE_PASSWORD=\n")
         _, log = run("one_click_deploy.sh", args=("test",))
-        assert "--password" not in forge_script_call(log)
+        assert forge_script_call(log)[forge_script_call(log).index("--password") + 1] == "test-password"
+        assert len([call for call in log if call[0] == "osascript"]) == 1, log
         write_account()
-        # 公共链必须配 KEYSTORE_ACCOUNT 才能签名；.account 里没有时 01_deploy.sh 直接失败。
+        # .account 缺 KEYSTORE_ACCOUNT / ACCOUNT_ADDRESS，或整个文件缺失：广播前即失败，不弹窗不广播。
         network.joinpath(".account").write_text("PRIVATE_KEY=" + SECRET_KEY + "\n")
-        run_sourced("01_deploy.sh", False)
+        run("11_deploy.sh", False, ("test",))
+        network.joinpath(".account").unlink()
+        run("11_deploy.sh", False, ("test",))
         write_account()
-        run_sourced("01_deploy.sh")
+        # DEX 依赖地址不是已部署合约：广播前失败（cast code 拿不到字节码）。
+        run("11_deploy.sh", False, ("test",), RPC_CODE_ERROR="1")
+        run("11_deploy.sh", args=("test",))
         saved_before = saved.read_text()
-        result, _ = run_sourced("01_deploy.sh", False, OMIT_ADDRESS="VOTE_ADDRESS")
+        result, _ = run("11_deploy.sh", False, ("test",), OMIT_ADDRESS="VOTE_ADDRESS")
         assert "VOTE_ADDRESS" in result.stdout + result.stderr, result.stdout + result.stderr
         assert saved.read_text() == saved_before, saved.read_text()
-        result, _ = run_sourced("verify.sh", False, VERIFY_FAIL="src/MemberNFT.sol:MemberNFT")
+        result, _ = run("31_verify.sh", False, ("test",), VERIFY_FAIL="src/MemberNFT.sol:MemberNFT")
         assert "all 8 contracts" not in result.stdout
-        result, log = run_sourced("verify.sh", False, VERIFY_FAIL="src/Vote.sol:Vote")
+        result, log = run("31_verify.sh", False, ("test",), VERIFY_FAIL="src/Vote.sol:Vote")
         assert "all 8 contracts" not in result.stdout
         assert len([call for call in log if call[:2] == ["forge", "verify-contract"]]) == 8
-        _, log = run_sourced("verify.sh")
+        _, log = run("31_verify.sh", args=("test",))
         assert len([call for call in log if call[:2] == ["forge", "verify-contract"]]) == 8
         token_args = next(call for call in log if call[:2] == ["cast", "abi-encode"] and "string,string" in call[2])
         assert token_args[-2] == env["MINT_ADDRESS"]
         for signature, label in [("constructor(uint256,uint256,uint256,uint256)", "MemberNFT"),
                                  ("constructor(uint256,uint256,uint256,uint256,uint256)", "Phase"),
                                  ("constructor(string,string,uint256,uint256,address,address,address)", "LOVE20Token")]:
-            result, log = run_sourced("verify.sh", False, ABI_ENCODE_FAIL=signature)
+            result, log = run("31_verify.sh", False, ("test",), ABI_ENCODE_FAIL=signature)
             assert f"Failed to encode {label}" in result.stdout, result.stdout
             assert not any(call[0] == "forge" for call in log)
         with network.joinpath("network.params").open("a") as config:
             config.write("ETHERSCAN_API_KEY=\n")
-        _, log = run_sourced("verify.sh", False)
+        _, log = run("31_verify.sh", False, ("test",))
         assert not any(call[0] == "forge" for call in log)
         print(f"Passed {checks} isolated deployment checks (no network calls or broadcasts).")
 
