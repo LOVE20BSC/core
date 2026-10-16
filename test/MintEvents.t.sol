@@ -3,7 +3,7 @@ pragma solidity =0.8.37;
 
 import {Mint} from "../src/Mint.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
-import {IMintErrors, IMintEvents} from "../src/interfaces/IMint.sol";
+import {IMintErrors, IMintEvents, BurnReason} from "../src/interfaces/IMint.sol";
 import {ISubmitErrors, TargetMode} from "../src/interfaces/ISubmit.sol";
 import {IERC721Errors} from "../lib/openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 
@@ -44,7 +44,7 @@ contract MintEventsTest {
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 indexed proposalId,
-        address target,
+        address recipient,
         uint256 amount
     );
 
@@ -52,7 +52,7 @@ contract MintEventsTest {
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 amount,
-        bytes32 reason
+        BurnReason reason
     );
 
     function setUp() public {
@@ -157,7 +157,7 @@ contract MintEventsTest {
             0
         );
 
-        mint.mintGovReward(address(token), 1, round);
+        mint.mintGovReward(address(token), 1, round, address(this));
     }
 
     /// @notice Verify GovernanceRewardMinted event with exact amounts
@@ -175,7 +175,7 @@ contract MintEventsTest {
         // If there's a burn, expect RewardBurned first
         if (burnReward > 0) {
             vm.expectEmit(true, true, false, true);
-            emit RewardBurned(address(token), round, burnReward, keccak256("boostOverflow"));
+            emit RewardBurned(address(token), round, burnReward, BurnReason.BoostOverflow);
         }
 
         // Then expect GovernanceRewardMinted
@@ -189,7 +189,7 @@ contract MintEventsTest {
             burnReward
         );
 
-        mint.mintGovReward(address(token), memberId, round);
+        mint.mintGovReward(address(token), memberId, round, address(this));
     }
 
     /// @notice Verify ProposalRewardMinted event with exact amount and target
@@ -210,7 +210,7 @@ contract MintEventsTest {
         );
 
         vm.prank(TARGET);
-        mint.mintProposalReward(address(token), round, proposalId);
+        mint.mintProposalReward(address(token), round, proposalId, TARGET);
     }
 
     /// @notice Verify RewardBurned event for boost overflow
@@ -243,10 +243,10 @@ contract MintEventsTest {
             address(token2),
             1,
             burnReward,
-            keccak256("boostOverflow")
+            BurnReason.BoostOverflow
         );
 
-        mint2.mintGovReward(address(token2), 1, 1);
+        mint2.mintGovReward(address(token2), 1, 1, address(this));
     }
 
     /// @notice Verify RewardBurned event for cancelled boost pool
@@ -296,7 +296,7 @@ contract MintEventsTest {
         // If there's a burn in first round, expect RewardBurned first
         if (burnReward1 > 0) {
             vm.expectEmit(true, true, false, true);
-            emit RewardBurned(address(token), 1, burnReward1, keccak256("boostOverflow"));
+            emit RewardBurned(address(token), 1, burnReward1, BurnReason.BoostOverflow);
         }
 
         vm.expectEmit(true, true, true, true);
@@ -304,28 +304,22 @@ contract MintEventsTest {
 
         // Note: Cannot verify all 3 events in one call with current tooling
         // This demonstrates the pattern for the first event
-        mint.mintGovRewards(address(token), memberId, rounds);
+        mint.mintGovRewards(address(token), memberId, rounds, address(this));
     }
 
-    /// @notice Verify RewardBurned event for an unallocatable proposal reward
-    function testEvent_RewardBurnedForUnallocatableProposalReward() public {
+    /// @notice Verify ProposalRewardMinted is the only settlement event for an unallocatable reward
+    /// @dev Mint no longer voids a proposal reward; an Executor destroys the tokens it received, so
+    ///      the token's own burn event carries that half and Mint emits only the settlement.
+    function testEvent_UnallocatableProposalRewardSettlesAsMinted() public {
         uint256 round = 1;
         uint256 proposalId = 1;
 
-        // Prepare the round with a sibling mint so the burn emits only its own event
         vm.prank(TARGET);
-        mint.mintProposalReward(address(token), round, proposalId + 1);
+        uint256 settled = mint.mintProposalReward(address(token), round, proposalId, TARGET);
 
-        (uint256 amount,) = mint.proposalRewardByProposalId(address(token), round, proposalId);
-        assertEq(amount, 33000, "expected burn amount");
-
-        vm.expectEmit(true, true, false, true);
-        emit RewardBurned(address(token), round, amount, keccak256("proposalRewardUnallocatable"));
-
-        vm.prank(TARGET);
-        uint256 burned = mint.burnUnmintedProposalReward(address(token), round, proposalId);
-        assertEq(burned, amount, "burned amount matches event");
-        assertEq(mint.rewardBurned(address(token)), amount, "burned ledger");
+        assertEq(settled, 33000, "settled amount");
+        assertEq(mint.rewardMinted(address(token)), settled, "minted ledger");
+        assertEq(token.balanceOf(TARGET), settled, "tokens held by the recipient");
     }
 }
 

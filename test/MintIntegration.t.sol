@@ -84,7 +84,7 @@ contract MintIntegrationTest {
 
         // Claim rewards (auto-prepare)
         vm.prank(member1);
-        mint.mintGovReward(address(token), 1, 1);
+        mint.mintGovReward(address(token), 1, 1, member1);
 
         assertTrue(mint.isRewardPrepared(address(token), 1), "Reward should be prepared");
 
@@ -95,7 +95,7 @@ contract MintIntegrationTest {
 
         uint256 balanceBefore2 = token.balanceOf(member2);
         vm.prank(member2);
-        mint.mintGovReward(address(token), 2, 1);
+        mint.mintGovReward(address(token), 2, 1, member2);
         uint256 balanceAfter2 = token.balanceOf(member2);
 
         assertEq(balanceAfter2 - balanceBefore2, voteReward2 + boostReward2, "Member2 rewards match");
@@ -106,7 +106,7 @@ contract MintIntegrationTest {
 
         uint256 targetBefore = token.balanceOf(target);
         vm.prank(target);
-        mint.mintProposalReward(address(token), 1, proposalId);
+        mint.mintProposalReward(address(token), 1, proposalId, target);
         uint256 targetAfter = token.balanceOf(target);
 
         assertEq(targetAfter - targetBefore, proposalAmount, "Target receives proposal reward");
@@ -148,11 +148,11 @@ contract MintIntegrationTest {
 
         // Claim token1
         vm.prank(member1);
-        mint.mintGovReward(address(token), 1, 1);
+        mint.mintGovReward(address(token), 1, 1, member1);
 
         // Claim token2
         vm.prank(member1);
-        mint.mintGovReward(address(token2), 1, 1);
+        mint.mintGovReward(address(token2), 1, 1, member1);
 
         assertTrue(token.balanceOf(member1) > 0, "Token1 balance increased");
         assertTrue(token2.balanceOf(member1) > 0, "Token2 balance increased");
@@ -188,7 +188,7 @@ contract MintIntegrationTest {
 
         vm.prank(member1);
         (uint256[] memory voteRewards, uint256[] memory boostRewards,) =
-            mint.mintGovRewards(address(token), 1, rounds);
+            mint.mintGovRewards(address(token), 1, rounds, member1);
 
         uint256 balanceAfter = token.balanceOf(member1);
 
@@ -222,7 +222,7 @@ contract MintIntegrationTest {
         uint256 countBefore = launch.launchCounts(address(token));
 
         vm.prank(member1);
-        mint.mintGovReward(address(token), 1, 1);
+        mint.mintGovReward(address(token), 1, 1, member1);
 
         uint256 countAfter = launch.launchCounts(address(token));
 
@@ -264,7 +264,7 @@ contract MintIntegrationTest {
         // Interleaved operations: mint token1 (auto-prepare), mint token2 (auto-prepare)
         uint256 balance1Before = token.balanceOf(member1);
         vm.prank(member1);
-        mint.mintGovReward(address(token), 1, 1);
+        mint.mintGovReward(address(token), 1, 1, member1);
         uint256 balance1After = token.balanceOf(member1);
         assertTrue(balance1After > balance1Before, "Token1 minted to member1");
 
@@ -272,7 +272,7 @@ contract MintIntegrationTest {
 
         uint256 balance2Before = token2.balanceOf(member1);
         vm.prank(member1);
-        mint.mintGovReward(address(token2), 1, 1);
+        mint.mintGovReward(address(token2), 1, 1, member1);
         uint256 balance2After = token2.balanceOf(member1);
         assertTrue(balance2After > balance2Before, "Token2 minted to member1");
 
@@ -298,7 +298,7 @@ contract MintIntegrationTest {
 
         // Member1 (owner of memberId 1) claims successfully
         vm.prank(member1);
-        mint.mintGovReward(address(token), 1, 1);
+        mint.mintGovReward(address(token), 1, 1, member1);
         assertTrue(token.balanceOf(member1) > 0, "Member1 received tokens for memberId 1");
 
         // Setup round 2 for member 2 (owned by member2)
@@ -315,7 +315,7 @@ contract MintIntegrationTest {
         // Member2 (owner of memberId 2) claims successfully
         uint256 balance2Before = token.balanceOf(member2);
         vm.prank(member2);
-        mint.mintGovReward(address(token), 2, 2);
+        mint.mintGovReward(address(token), 2, 2, member2);
         assertTrue(token.balanceOf(member2) > balance2Before, "Member2 received tokens for memberId 2");
 
         // Verify both members have independent balances
@@ -352,7 +352,7 @@ contract MintIntegrationTest {
 
         // Trigger auto-prepare by minting
         vm.prank(member1);
-        mint.mintGovReward(address(token), 1, 1);
+        mint.mintGovReward(address(token), 1, 1, member1);
 
         // Verify eligibleProposalVotes = 300 + 700 = 1000
         assertEq(mint.eligibleProposalVotes(address(token), 1), 1000, "Eligible votes should sum correctly");
@@ -373,11 +373,11 @@ contract MintIntegrationTest {
 
         // Claim both proposals with different targets
         vm.prank(target);
-        uint256 claimed1 = mint.mintProposalReward(address(token), 1, 1);
+        uint256 claimed1 = mint.mintProposalReward(address(token), 1, 1, target);
         assertEq(claimed1, amount1, "Claimed amount matches query");
 
         vm.prank(address(0x3002));
-        uint256 claimed2 = mint.mintProposalReward(address(token), 1, 2);
+        uint256 claimed2 = mint.mintProposalReward(address(token), 1, 2, address(this));
         assertEq(claimed2, amount2, "Claimed amount matches query");
     }
 
@@ -448,14 +448,14 @@ contract MintIntegrationTest {
         phase.setCurrentPhase(1);
         vm.prank(member1);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
-        mint.mintGovReward(address(token), 1, 1);
+        mint.mintGovReward(address(token), 1, 1, member1);
 
         // Now mark round as ended
         phase.setCurrentPhase(2);
 
         // Mint should succeed (auto-prepare)
         vm.prank(member1);
-        mint.mintGovReward(address(token), 1, 1);
+        mint.mintGovReward(address(token), 1, 1, member1);
 
         assertTrue(mint.isRewardPrepared(address(token), 1), "Round should be prepared after transition");
 
@@ -476,7 +476,7 @@ contract MintIntegrationTest {
 
         // First mint (triggers prepare)
         vm.prank(member1);
-        mint.mintGovReward(address(token), 1, 1);
+        mint.mintGovReward(address(token), 1, 1, member1);
 
         uint256 reserved1 = mint.rewardReserved(address(token));
         uint256 govReward1 = mint.govReward(address(token), 1);

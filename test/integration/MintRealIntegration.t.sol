@@ -472,14 +472,14 @@ contract MintRealIntegrationTest {
         // Claim and verify token transfers
         uint256 balanceBefore1 = token.balanceOf(member1);
         vm.prank(member1);
-        mint.mintGovReward(address(token), 1, currentRound);
+        mint.mintGovReward(address(token), 1, currentRound, member1);
         uint256 balanceAfter1 = token.balanceOf(member1);
         assertEq(balanceAfter1 - balanceBefore1, actualVoteReward1 + actualBoostReward1,
                  "Member1 must receive exact calculated rewards");
 
         uint256 balanceBefore2 = token.balanceOf(member2);
         vm.prank(member2);
-        mint.mintGovReward(address(token), 2, currentRound);
+        mint.mintGovReward(address(token), 2, currentRound, member2);
         uint256 balanceAfter2 = token.balanceOf(member2);
         assertEq(balanceAfter2 - balanceBefore2, actualVoteReward2 + actualBoostReward2,
                  "Member2 must receive exact calculated rewards");
@@ -492,7 +492,7 @@ contract MintRealIntegrationTest {
 
         uint256 targetBalanceBefore = token.balanceOf(proposalTarget);
         vm.prank(proposalTarget);
-        uint256 claimed = mint.mintProposalReward(address(token), currentRound, proposalId);
+        uint256 claimed = mint.mintProposalReward(address(token), currentRound, proposalId, proposalTarget);
         uint256 targetBalanceAfter = token.balanceOf(proposalTarget);
 
         assertEq(claimed, proposalAmount, "Claimed amount must match");
@@ -586,15 +586,15 @@ contract MintRealIntegrationTest {
 
         // Verify proposal rewards
         vm.prank(proposalTarget1);
-        uint256 claimed1 = mint.mintProposalReward(address(token), round1, proposalId1);
+        uint256 claimed1 = mint.mintProposalReward(address(token), round1, proposalId1, proposalTarget1);
         assertTrue(claimed1 > 0, "Round 1 proposal must have rewards");
 
         vm.prank(proposalTarget2);
-        uint256 claimed2 = mint.mintProposalReward(address(token), round2, proposalId2);
+        uint256 claimed2 = mint.mintProposalReward(address(token), round2, proposalId2, proposalTarget2);
         assertTrue(claimed2 > 0, "Round 2 proposal must have rewards");
 
         vm.prank(proposalTarget3);
-        uint256 claimed3 = mint.mintProposalReward(address(token), round3, proposalId3);
+        uint256 claimed3 = mint.mintProposalReward(address(token), round3, proposalId3, proposalTarget3);
         assertTrue(claimed3 > 0, "Round 3 proposal must have rewards");
     }
 
@@ -608,7 +608,7 @@ contract MintRealIntegrationTest {
         // Batch claim
         uint256 balanceBefore1 = token.balanceOf(member1);
         vm.prank(member1);
-        (uint256[] memory voteRewards1, uint256[] memory boostRewards1,) = mint.mintGovRewards(address(token), 1, rounds);
+        (uint256[] memory voteRewards1, uint256[] memory boostRewards1,) = mint.mintGovRewards(address(token), 1, rounds, member1);
         uint256 balanceAfter1 = token.balanceOf(member1);
         uint256 actualTotal1 = balanceAfter1 - balanceBefore1;
 
@@ -621,7 +621,7 @@ contract MintRealIntegrationTest {
         // Member2
         uint256 balanceBefore2 = token.balanceOf(member2);
         vm.prank(member2);
-        (uint256[] memory voteRewards2, uint256[] memory boostRewards2,) = mint.mintGovRewards(address(token), 2, rounds);
+        (uint256[] memory voteRewards2, uint256[] memory boostRewards2,) = mint.mintGovRewards(address(token), 2, rounds, member2);
         uint256 balanceAfter2 = token.balanceOf(member2);
         uint256 actualTotal2 = balanceAfter2 - balanceBefore2;
 
@@ -815,7 +815,7 @@ contract MintRealIntegrationTest {
     function _verifyAndClaimRewards(ThresholdTestData memory data) internal {
         // Trigger auto-prepare for round 1 before querying eligibleProposalVotes
         vm.prank(data.proposalTarget1);
-        uint256 claimed1 = mint.mintProposalReward(address(token), data.testRound, data.proposalId1);
+        uint256 claimed1 = mint.mintProposalReward(address(token), data.testRound, data.proposalId1, data.proposalTarget1);
 
         // Verify rewards with mathematical model for round 1
         uint256 eligibleVotesR1 = mint.eligibleProposalVotes(address(token), data.testRound);
@@ -837,7 +837,7 @@ contract MintRealIntegrationTest {
 
         uint256 bal2Before = token.balanceOf(data.proposalTarget2);
         vm.prank(data.proposalTarget2);
-        uint256 claimed2 = mint.mintProposalReward(address(token), data.testRound, data.proposalId2);
+        uint256 claimed2 = mint.mintProposalReward(address(token), data.testRound, data.proposalId2, data.proposalTarget2);
         assertEq(token.balanceOf(data.proposalTarget2) - bal2Before, claimed2, "Target 2 must receive exact reward");
         assertEq(claimed2, reward2, "Claimed amount must match stored reward");
 
@@ -847,7 +847,7 @@ contract MintRealIntegrationTest {
 
         uint256 bal3Before = token.balanceOf(data.proposalTarget3);
         vm.prank(data.proposalTarget3);
-        uint256 claimed3 = mint.mintProposalReward(address(token), data.round2, data.proposalId3);
+        uint256 claimed3 = mint.mintProposalReward(address(token), data.round2, data.proposalId3, data.proposalTarget3);
         assertEq(token.balanceOf(data.proposalTarget3) - bal3Before, claimed3, "Target 3 must receive exact reward");
     }
 
@@ -897,32 +897,32 @@ contract MintRealIntegrationTest {
         address wrongClaimer = address(0x7777);
         vm.prank(wrongClaimer);
         vm.expectRevert(abi.encodeWithSignature("UnauthorizedCaller()"));
-        mint.mintProposalReward(address(token), round1, proposalId);
+        mint.mintProposalReward(address(token), round1, proposalId, wrongClaimer);
 
         // Correct target can claim
         uint256 balBefore = token.balanceOf(proposalTarget);
         vm.prank(proposalTarget);
-        uint256 claimed = mint.mintProposalReward(address(token), round1, proposalId);
+        uint256 claimed = mint.mintProposalReward(address(token), round1, proposalId, proposalTarget);
         assertEq(token.balanceOf(proposalTarget) - balBefore, claimed, "Target must receive rewards");
 
         // Error 2: Non-owner cannot claim governance reward
         vm.prank(wrongClaimer);
         vm.expectRevert(abi.encodeWithSignature("NotMemberOwner(uint256)", 1));
-        mint.mintGovReward(address(token), 1, round1);
+        mint.mintGovReward(address(token), 1, round1, wrongClaimer);
 
         // Correct owner can claim
         vm.prank(member1);
-        mint.mintGovReward(address(token), 1, round1);
+        mint.mintGovReward(address(token), 1, round1, member1);
         assertTrue(token.balanceOf(member1) > 0, "Member1 must receive rewards");
 
         // Error 3: Double claim protection
         vm.prank(proposalTarget);
         vm.expectRevert(abi.encodeWithSignature("AlreadyMinted()"));
-        mint.mintProposalReward(address(token), round1, proposalId);
+        mint.mintProposalReward(address(token), round1, proposalId, proposalTarget);
 
         vm.prank(member1);
         vm.expectRevert(abi.encodeWithSignature("AlreadyMinted()"));
-        mint.mintGovReward(address(token), 1, round1);
+        mint.mintGovReward(address(token), 1, round1, member1);
     }
 
     // ==================== Test 5: Unstake and Re-vote ====================
@@ -1048,11 +1048,11 @@ contract MintRealIntegrationTest {
         uint256 balBefore = token.balanceOf(member1);
 
         vm.prank(member1);
-        (uint256 vr1, uint256 br1,) = mint.mintGovReward(address(token), 1, data.round1);
+        (uint256 vr1, uint256 br1,) = mint.mintGovReward(address(token), 1, data.round1, member1);
         uint256 round1Reward = vr1 + br1;
 
         vm.prank(member1);
-        (uint256 vr2, uint256 br2,) = mint.mintGovReward(address(token), 1, data.round4);
+        (uint256 vr2, uint256 br2,) = mint.mintGovReward(address(token), 1, data.round4, member1);
         uint256 round4Reward = vr2 + br2;
 
         uint256 balAfter = token.balanceOf(member1);
@@ -1091,8 +1091,8 @@ contract MintRealIntegrationTest {
 
         _setupBurnUnmintedStakes();
         _setupBurnUnmintedProposals(data);
-        _burnUnmintedProposal(data);
-        _verifySiblingProposalUnaffected(data);
+        uint256 destroyedShare = _settleThenDestroyProposal(data);
+        _verifySiblingProposalUnaffected(data, destroyedShare);
     }
 
     function _setupBurnUnmintedStakes() internal {
@@ -1162,48 +1162,55 @@ contract MintRealIntegrationTest {
         vote.vote(address(token), 2, proposalIds, voteAmounts, new bytes[][](0));
     }
 
-    function _burnUnmintedProposal(BurnUnmintedTestData memory data) internal {
+    function _settleThenDestroyProposal(BurnUnmintedTestData memory data) internal returns (uint256 settled) {
         vm.roll(block.number + BLOCKS_PER_ROUND);
         assertEq(phase.currentPhase(), data.round1 + 1, "Round must advance");
 
-        // Non-target callers cannot burn
+        // Non-target callers cannot settle
         vm.prank(address(0xBAD));
         vm.expectRevert(abi.encodeWithSignature("UnauthorizedCaller()"));
-        mint.burnUnmintedProposalReward(address(token), data.round1, data.proposalId1);
+        mint.mintProposalReward(address(token), data.round1, data.proposalId1, data.proposalTarget1);
 
-        // Target burns its unminted proposal reward; the call auto-prepares the round
+        // The target settles to itself; the call auto-prepares the round
         uint256 totalSupplyBefore = token.totalSupply();
         vm.prank(data.proposalTarget1);
-        uint256 burned = mint.burnUnmintedProposalReward(address(token), data.round1, data.proposalId1);
-        assertTrue(burned > 0, "Burn amount must be positive");
-        assertEq(token.totalSupply(), totalSupplyBefore, "Burn must not mint tokens");
-        assertEq(mint.rewardBurned(address(token)), burned, "Burned ledger");
+        settled = mint.mintProposalReward(address(token), data.round1, data.proposalId1, data.proposalTarget1);
+        assertTrue(settled > 0, "Settled amount must be positive");
+        assertEq(token.totalSupply(), totalSupplyBefore + settled, "Settlement mints to the recipient");
+        assertEq(mint.rewardMinted(address(token)), settled, "Minted ledger");
         assertTrue(mint.isRewardPrepared(address(token), data.round1), "Round must be prepared");
         assertTrue(vote.stakedAmountOfVoters(address(token), data.round1) > 0, "Boost snapshot recorded");
 
-        // Burned amount matches the independent proposal-reward model
-        uint256 expectedBurn = _calculateExpectedProposalReward(
+        // Settled amount matches the independent proposal-reward model
+        uint256 expected = _calculateExpectedProposalReward(
             mint.proposalReward(address(token), data.round1),
             vote.votesNumByProposalId(address(token), data.round1, data.proposalId1),
             mint.eligibleProposalVotes(address(token), data.round1)
         );
-        assertEq(burned, expectedBurn, "Burn must match math model");
+        assertEq(settled, expected, "Settlement must match math model");
 
-        // Settled by burn: frozen amount still queryable, late mint and second burn rejected
+        // No protocol path burns an unallocatable reward (ADR-004): the Executor never receives
+        // those tokens. Burning a settled reward here only probes the Mint ledger — supply returns
+        // to where it started and the share goes back to `rewardAvailable`, the same budget effect
+        // the settle-by-burn path this replaced had.
+        uint256 availableAfterSettle = mint.rewardAvailable(address(token));
+        vm.prank(data.proposalTarget1);
+        token.burn(settled);
+        assertEq(token.totalSupply(), totalSupplyBefore, "Destroying restores supply");
+        assertEq(mint.rewardAvailable(address(token)), availableAfterSettle + settled, "Share back in circulation");
+
+        // Settled once: the frozen amount stays queryable and a repeat is rejected
         (uint256 frozenAmount, bool minted) =
             mint.proposalRewardByProposalId(address(token), data.round1, data.proposalId1);
-        assertEq(frozenAmount, burned, "Frozen amount after burn");
+        assertEq(frozenAmount, settled, "Frozen amount after settlement");
         assertTrue(minted, "Proposal must be settled");
 
         vm.prank(data.proposalTarget1);
         vm.expectRevert(abi.encodeWithSignature("AlreadyMinted()"));
-        mint.mintProposalReward(address(token), data.round1, data.proposalId1);
-        vm.prank(data.proposalTarget1);
-        vm.expectRevert(abi.encodeWithSignature("AlreadyMinted()"));
-        mint.burnUnmintedProposalReward(address(token), data.round1, data.proposalId1);
+        mint.mintProposalReward(address(token), data.round1, data.proposalId1, data.proposalTarget1);
     }
 
-    function _verifySiblingProposalUnaffected(BurnUnmintedTestData memory data) internal {
+    function _verifySiblingProposalUnaffected(BurnUnmintedTestData memory data, uint256 destroyedShare) internal {
         uint256 expectedSibling = _calculateExpectedProposalReward(
             mint.proposalReward(address(token), data.round1),
             vote.votesNumByProposalId(address(token), data.round1, data.proposalId2),
@@ -1212,11 +1219,13 @@ contract MintRealIntegrationTest {
 
         uint256 balanceBefore = token.balanceOf(data.proposalTarget2);
         vm.prank(data.proposalTarget2);
-        uint256 claimed = mint.mintProposalReward(address(token), data.round1, data.proposalId2);
+        uint256 claimed = mint.mintProposalReward(address(token), data.round1, data.proposalId2, data.proposalTarget2);
         assertEq(claimed, expectedSibling, "Sibling share unchanged");
         assertEq(token.balanceOf(data.proposalTarget2) - balanceBefore, expectedSibling, "Sibling exact transfer");
 
-        assertEq(mint.rewardMinted(address(token)), expectedSibling, "Minted ledger");
+        // The destroyed proposal settled before its tokens were burned, so its share stays in the
+        // minted ledger: the reservation is released through `rewardMinted`, not `rewardBurned`.
+        assertEq(mint.rewardMinted(address(token)), destroyedShare + expectedSibling, "Minted ledger");
         assertEq(
             mint.reservedAvailable(address(token)),
             mint.govReward(address(token), data.round1),
@@ -1274,7 +1283,7 @@ contract MintRealIntegrationTest {
         assertEq(round2, 2, "Must be at round 2");
 
         vm.prank(member1);
-        mint.mintGovReward(address(token), 1, 1);
+        mint.mintGovReward(address(token), 1, 1, member1);
 
         uint256 launchCredits = launch.launchCount(address(token), 1);
         assertTrue(launchCredits > 0, "Must earn launch credits from gov reward");

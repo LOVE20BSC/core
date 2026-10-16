@@ -146,14 +146,14 @@ contract MintCoverageTest {
     function testProposalMintUnauthorized() public {
         setupMint(1000, 10000, 0, 100);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.UnauthorizedCaller.selector));
-        mint.mintProposalReward(address(token), 1, 1);
+        mint.mintProposalReward(address(token), 1, 1, address(this));
     }
 
     function testProposalMintRoundNotReady() public {
         setupMint(1000, 10000, 0, 100);
         vm.prank(TARGET);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
-        mint.mintProposalReward(address(token), 0, 1);
+        mint.mintProposalReward(address(token), 0, 1, TARGET);
     }
 
     // This test is no longer valid after auto-prepare feature
@@ -164,7 +164,7 @@ contract MintCoverageTest {
         setupMint(1000, 10000, 0, 100);
         vm.prank(TARGET);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
-        mint.mintProposalReward(address(token), 1, 1);
+        mint.mintProposalReward(address(token), 1, 1, TARGET);
     }
     */
 
@@ -173,9 +173,34 @@ contract MintCoverageTest {
         vm.prank(TARGET);
         // Before auto-prepare, this would fail with RoundNotReadyToMint
         // Now it should succeed and automatically prepare rewards
-        uint256 amount = mint.mintProposalReward(address(token), 1, 1);
+        uint256 amount = mint.mintProposalReward(address(token), 1, 1, TARGET);
         // Verify reward was calculated and minted
         require(amount > 0, "proposal reward should be non-zero");
+    }
+
+    function testProposalMintRejectsZeroRecipient() public {
+        setupMint(1000, 10000, 0, 100);
+        vm.prank(TARGET);
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAddress.selector));
+        mint.mintProposalReward(address(token), 1, 1, address(0));
+    }
+
+    function testExecutorStyleDestroyReleasesTheReservation() public {
+        setupMint(1000, 10000, 0, 100);
+        vm.prank(TARGET);
+        uint256 settled = mint.mintProposalReward(address(token), 1, 1, TARGET);
+        require(settled > 0, "settled amount");
+        require(mint.rewardMinted(address(token)) == settled, "minted ledger");
+
+        // Destroying the tokens releases the reservation through `rewardMinted`, so the budget
+        // effect matches the settle-by-burn path while supply returns to where it started.
+        uint256 availableAfterSettle = mint.rewardAvailable(address(token));
+        vm.prank(TARGET);
+        token.burn(settled);
+        require(token.totalSupply() == 1000, "supply restored");
+        require(
+            mint.rewardAvailable(address(token)) == availableAfterSettle + settled, "share back in circulation"
+        );
     }
 
     function testPrepareBurnsBothPoolsWhenEligibleVotesZero() public {
@@ -186,9 +211,9 @@ contract MintCoverageTest {
         setupMint(1000, 10000, 100, 100);
         uint256 burnedBefore = mint.rewardBurned(address(token));
         vm.recordLogs();
-        mint.mintGovReward(address(token), 1, 1);
+        mint.mintGovReward(address(token), 1, 1, address(this));
         MintVm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,bytes32)");
+        bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,uint8)");
         uint256 burnedCount;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].emitter == address(mint) && logs[i].topics[0] == burnedSig) {
@@ -207,7 +232,7 @@ contract MintCoverageTest {
         uint256 burnedBefore = mint.rewardBurned(address(token));
         vm.recordLogs();
         MintVm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,bytes32)");
+        bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,uint8)");
         uint256 burnedCount;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].emitter == address(mint) && logs[i].topics[0] == burnedSig) {
@@ -227,7 +252,7 @@ contract MintCoverageTest {
         uint256 burnedBefore = mint.rewardBurned(address(token));
         vm.recordLogs();
         MintVm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,bytes32)");
+        bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,uint8)");
         uint256 burnedCount;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].emitter == address(mint) && logs[i].topics[0] == burnedSig) {
@@ -241,7 +266,7 @@ contract MintCoverageTest {
     function testPrepareRoundNotReady() public {
         setupMint(1000, 10000, 100, 100);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
-        mint.mintGovReward(address(token), 1, 0);
+        mint.mintGovReward(address(token), 1, 0, address(this));
     }
 
     function testMultiProposalDustStaysInPool() public {
@@ -253,7 +278,7 @@ contract MintCoverageTest {
         uint256 sum;
         for (uint256 id = 1; id <= 3; id++) {
             vm.prank(TARGET);
-            sum += mint.mintProposalReward(address(token), 1, id);
+            sum += mint.mintProposalReward(address(token), 1, id, TARGET);
         }
         require(sum == 999, "dust stays in pool");
         require(mint.reservedAvailable(address(token)) == 1, "dust retained");
@@ -265,7 +290,7 @@ contract MintCoverageTest {
         totalBoost = 1000;
         memberBoost = 1000;
         setupMint(1000, 10000, 100, 0);
-        (uint256 v, uint256 b, uint256 burn) = mint.mintGovReward(address(token), 1, 1);
+        (uint256 v, uint256 b, uint256 burn) = mint.mintGovReward(address(token), 1, 1, address(this));
         require(v == 0 && b == 0 && burn == 450, "only burn recorded");
         require(token.totalSupply() == 1000, "nothing minted");
         require(mint.launchCredit(address(token), 1) == 0, "no credit without mint");
@@ -274,7 +299,7 @@ contract MintCoverageTest {
     function testGovRewardRoundNotReady() public {
         setupMint(1000, 10000, 100, 0);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
-        mint.mintGovReward(address(token), 1, 0);
+        mint.mintGovReward(address(token), 1, 0, address(this));
     }
 
     // This test is no longer valid after auto-prepare feature
@@ -284,7 +309,7 @@ contract MintCoverageTest {
     function testGovRewardRoundNotPrepared() public {
         setupMint(1000, 10000, 100, 0);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
-        mint.mintGovReward(address(token), 1, 2);
+        mint.mintGovReward(address(token), 1, 2, address(this));
     }
     */
 
@@ -292,7 +317,7 @@ contract MintCoverageTest {
         setupMint(1000, 10000, 100, 0);
         // Before auto-prepare, this would fail with RoundNotReadyToMint
         // Now it should succeed and automatically prepare rewards
-        (uint256 v, uint256 b, uint256 burn) = mint.mintGovReward(address(token), 1, 1);
+        (uint256 v, uint256 b, uint256 burn) = mint.mintGovReward(address(token), 1, 1, address(this));
         // Verify rewards were calculated and minted
         require(v > 0 || b > 0 || burn > 0, "rewards should be non-zero");
     }

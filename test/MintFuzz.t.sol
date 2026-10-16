@@ -126,13 +126,13 @@ contract MintFuzzTest {
 
         // Trigger auto-prepare by minting
         if (govRatio > 0) {
-            try mint.mintGovReward(address(token), 1, 1) {} catch {
+            try mint.mintGovReward(address(token), 1, 1, address(this)) {} catch {
                 // Zero reward is valid for small ratios, skip test
                 return;
             }
         } else if (proposalRatio > 0) {
             vm.prank(TARGET);
-            try mint.mintProposalReward(address(token), 1, 1) {} catch {
+            try mint.mintProposalReward(address(token), 1, 1, TARGET) {} catch {
                 // Zero reward is valid for small ratios, skip test
                 return;
             }
@@ -186,7 +186,7 @@ contract MintFuzzTest {
         // Skip if vote reward is zero (would cause NoRewardAvailable)
         if (expectedVote == 0 && expectedBoost == 0) return;
 
-        mint.mintGovReward(address(token), 1, 1);
+        mint.mintGovReward(address(token), 1, 1, address(this));
 
         uint256 votePool = govTotal / 2;
         uint256 calculatedVote = (votePool * memberVotes_) / totalVotes_;
@@ -225,7 +225,7 @@ contract MintFuzzTest {
 
         // Trigger auto-prepare by minting
         vm.prank(TARGET);
-        try mint.mintProposalReward(address(token), 1, 1) {} catch {}
+        try mint.mintProposalReward(address(token), 1, 1, TARGET) {} catch {}
 
         uint256 minVotes = (totalVotes_ * 50 + 999) / 1000; // Ceiling of 5%
         bool shouldQualify = proposalVotes_ >= minVotes;
@@ -260,7 +260,7 @@ contract MintFuzzTest {
         }
 
         uint256 supplyBefore = token.totalSupply();
-        (uint256[] memory votes,,) = mint.mintGovRewards(address(token), 1, rounds);
+        (uint256[] memory votes,,) = mint.mintGovRewards(address(token), 1, rounds, address(this));
 
         assertEq(votes.length, roundCount);
 

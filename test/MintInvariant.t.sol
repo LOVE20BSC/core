@@ -243,7 +243,7 @@ contract MintInvariantTest {
 
         // Trigger preparation by attempting to mint for member 1
         // Preparation happens inside mintGovReward via _prepareRewardIfNeeded
-        try mint.mintGovReward(address(token), 1, round) {
+        try mint.mintGovReward(address(token), 1, round, address(this)) {
             preparedRounds++;
             settledGovRewards++;
         } catch {
@@ -258,7 +258,7 @@ contract MintInvariantTest {
         memberId = bound(memberId, 1, 10);
         round = bound(round, 1, 10);
 
-        try mint.mintGovReward(address(token), memberId, round) {
+        try mint.mintGovReward(address(token), memberId, round, address(this)) {
             settledGovRewards++;
         } catch {
             // Ignore expected reverts (AlreadyMinted, NoRewardAvailable, etc.)
@@ -269,7 +269,7 @@ contract MintInvariantTest {
         round = bound(round, 1, 10);
         proposalId = bound(proposalId, 1, 5);
 
-        try mint.mintProposalReward(address(token), round, proposalId) {
+        try mint.mintProposalReward(address(token), round, proposalId, address(this)) {
             settledProposalRewards++;
         } catch {
             // Ignore expected reverts (UnauthorizedCaller, AlreadyMinted, NoRewardAvailable, etc.)
@@ -285,7 +285,7 @@ contract MintInvariantTest {
             rounds[i] = bound(rounds[i], 1, 10);
         }
 
-        try mint.mintGovRewards(address(token), memberId, rounds) {
+        try mint.mintGovRewards(address(token), memberId, rounds, address(this)) {
             settledGovRewards += rounds.length;
         } catch {
             // Ignore expected reverts

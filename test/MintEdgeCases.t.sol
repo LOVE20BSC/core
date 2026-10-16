@@ -122,34 +122,34 @@ contract MintEdgeCasesTest {
         setupMint(1000, 10000);
         currentPhaseValue = 5;
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
-        mint.mintGovReward(address(token), 1, 5);
+        mint.mintGovReward(address(token), 1, 5, address(this));
 
         currentPhaseValue = 6;
-        (uint256 voteReward,,) = mint.mintGovReward(address(token), 1, 5);
+        (uint256 voteReward,,) = mint.mintGovReward(address(token), 1, 5, address(this));
         require(voteReward > 0, "round settles once the derived phase advances");
     }
 
     function testProposalDoubleClaimReverts() public {
         setupMint(1000, 10000);
         vm.prank(TARGET);
-        mint.mintProposalReward(address(token), 1, 1);
+        mint.mintProposalReward(address(token), 1, 1, TARGET);
         vm.prank(TARGET);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.AlreadyMinted.selector));
-        mint.mintProposalReward(address(token), 1, 1);
+        mint.mintProposalReward(address(token), 1, 1, TARGET);
     }
 
     function testRewardReservedGetter() public {
         setupMint(1000, 10000);
         require(mint.rewardReserved(address(token)) == 0, "initial reserved");
         vm.prank(TARGET);
-        mint.mintProposalReward(address(token), 1, 1);
+        mint.mintProposalReward(address(token), 1, 1, TARGET);
         require(mint.rewardReserved(address(token)) > 0, "reserved after prepare");
     }
 
     function testGovRewardGetter() public {
         setupMint(1000, 10000);
         require(mint.govReward(address(token), 1) == 0, "initial gov reward");
-        mint.mintGovReward(address(token), 1, 1);
+        mint.mintGovReward(address(token), 1, 1, address(this));
         require(mint.govReward(address(token), 1) > 0, "gov reward after prepare");
     }
 
@@ -157,7 +157,7 @@ contract MintEdgeCasesTest {
         setupMint(1000, 10000);
         require(mint.proposalReward(address(token), 1) == 0, "initial proposal reward");
         vm.prank(TARGET);
-        mint.mintProposalReward(address(token), 1, 1);
+        mint.mintProposalReward(address(token), 1, 1, TARGET);
         require(mint.proposalReward(address(token), 1) > 0, "proposal reward after prepare");
     }
 
@@ -167,24 +167,24 @@ contract MintEdgeCasesTest {
         require(available == 9000, "available matches maxSupply - totalSupply");
     }
 
-    function testBurnUnmintedUnauthorizedReverts() public {
+    function testProposalMintUnauthorizedReverts() public {
         setupMint(1000, 10000);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.UnauthorizedCaller.selector));
-        mint.burnUnmintedProposalReward(address(token), 1, 1);
+        mint.mintProposalReward(address(token), 1, 1, TARGET);
     }
 
-    function testBurnUnmintedRoundNotReadyReverts() public {
+    function testProposalMintRoundNotReadyReverts() public {
         setupMint(1000, 10000);
         vm.prank(TARGET);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
-        mint.burnUnmintedProposalReward(address(token), 0, 1);
+        mint.mintProposalReward(address(token), 0, 1, TARGET);
     }
 
-    function testBurnUnmintedUnknownProposalReverts() public {
+    function testProposalMintUnknownProposalReverts() public {
         setupMint(1000, 10000);
         vm.prank(TARGET);
         vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, 2));
-        mint.burnUnmintedProposalReward(address(token), 1, 2);
+        mint.mintProposalReward(address(token), 1, 2, TARGET);
     }
 }
 

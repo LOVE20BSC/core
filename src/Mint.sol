@@ -8,7 +8,7 @@ import {ILaunch} from "./interfaces/ILaunch.sol";
 import {IPhase} from "./interfaces/IPhase.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
 import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
-import {IMint} from "./interfaces/IMint.sol";
+import {IMint, BurnReason} from "./interfaces/IMint.sol";
 
 contract Mint is IMint {
     // ------ 累计账本 ------
@@ -189,7 +189,7 @@ contract Mint is IMint {
                     tokenAddress,
                     round,
                     boostPoolAmount,
-                    keccak256("boostPoolCancelled")
+                    BurnReason.BoostPoolCancelled
                 );
             }
         }
@@ -202,7 +202,7 @@ contract Mint is IMint {
                     tokenAddress,
                     round,
                     proposalRewardAmount,
-                    keccak256("proposalPoolCancelled")
+                    BurnReason.ProposalPoolCancelled
                 );
             }
         }
@@ -225,7 +225,8 @@ contract Mint is IMint {
     function mintProposalReward(
         address tokenAddress,
         uint256 round,
-        uint256 proposalId
+        uint256 proposalId,
+        address recipient
     ) external returns (uint256 amount) {
         // Target mode governs Vote callbacks, not Mint authorization.
         // forge-lint: disable-next-line(unused-return)
@@ -233,6 +234,9 @@ contract Mint is IMint {
 
         if (msg.sender != target) {
             revert UnauthorizedCaller();
+        }
+        if (recipient == address(0)) {
+            revert InvalidAddress();
         }
 
         if (!_isRoundEnded(round)) {
@@ -255,11 +259,11 @@ contract Mint is IMint {
         _proposalMinted[tokenAddress][round][proposalId] = true;
         _rewardMinted[tokenAddress] += amount;
 
-        ILOVE20Token(tokenAddress).mint(target, amount);
+        ILOVE20Token(tokenAddress).mint(recipient, amount);
 
         // LOVE20Token.mint has no callbacks; report only after it succeeds.
         // forge-lint: disable-next-line(reentrancy-events)
-        emit ProposalRewardMinted(tokenAddress, round, proposalId, target, amount);
+        emit ProposalRewardMinted(tokenAddress, round, proposalId, recipient, amount);
 
         return amount;
     }
@@ -269,10 +273,14 @@ contract Mint is IMint {
     function mintGovReward(
         address tokenAddress,
         uint256 memberId,
-        uint256 round
+        uint256 round,
+        address recipient
     ) public returns (uint256 voteReward, uint256 boostReward, uint256 burnReward) {
         if (IMemberNFT(memberNFTAddress).ownerOf(memberId) != msg.sender) {
             revert NotMemberOwner(memberId);
+        }
+        if (recipient == address(0)) {
+            revert InvalidAddress();
         }
 
         if (!_isRoundEnded(round)) {
@@ -304,14 +312,14 @@ contract Mint is IMint {
         _rewardBurned[tokenAddress] += burnReward;
 
         if (mintAmount > 0) {
-            ILOVE20Token(tokenAddress).mint(msg.sender, mintAmount);
+            ILOVE20Token(tokenAddress).mint(recipient, mintAmount);
             _updateLaunchCredit(tokenAddress, memberId, mintAmount);
         }
 
         if (burnReward > 0) {
             // Token minting and Launch.addLaunchCount have no callbacks; all changes are atomic.
             // forge-lint: disable-next-line(reentrancy-events)
-            emit RewardBurned(tokenAddress, round, burnReward, keccak256("boostOverflow"));
+            emit RewardBurned(tokenAddress, round, burnReward, BurnReason.BoostOverflow);
         }
 
         // Report settlement after the callback-free Token and Launch interactions succeed.
@@ -324,7 +332,8 @@ contract Mint is IMint {
     function mintGovRewards(
         address tokenAddress,
         uint256 memberId,
-        uint256[] calldata rounds
+        uint256[] calldata rounds,
+        address recipient
     ) external returns (
         uint256[] memory voteRewards,
         uint256[] memory boostRewards,
@@ -337,50 +346,10 @@ contract Mint is IMint {
 
         for (uint256 i = 0; i < length; i++) {
             (voteRewards[i], boostRewards[i], burnRewards[i]) =
-                mintGovReward(tokenAddress, memberId, rounds[i]);
+                mintGovReward(tokenAddress, memberId, rounds[i], recipient);
         }
 
         return (voteRewards, boostRewards, burnRewards);
-    }
-
-    function burnUnmintedProposalReward(
-        address tokenAddress,
-        uint256 round,
-        uint256 proposalId
-    ) external returns (uint256 amount) {
-        // Only the proposal's registered Target may cancel its unminted incentive.
-        // forge-lint: disable-next-line(unused-return)
-        (address target, ) = ISubmit(submitAddress).proposalTarget(tokenAddress, proposalId);
-
-        if (msg.sender != target) {
-            revert UnauthorizedCaller();
-        }
-
-        if (!_isRoundEnded(round)) {
-            revert RoundNotReadyToMint();
-        }
-
-        // Automatically prepare rewards if not already done
-        _prepareRewardIfNeeded(tokenAddress, round);
-
-        if (_proposalMinted[tokenAddress][round][proposalId]) {
-            revert AlreadyMinted();
-        }
-
-        // Existence already verified above; skip redundant check in query.
-        (amount, ) = _proposalRewardCalculation(tokenAddress, round, proposalId);
-        if (amount == 0) {
-            revert NoRewardAvailable();
-        }
-
-        // Settle-by-burn: the proposal can never mint afterward; the reserved share
-        // returns to availability through the burned ledger.
-        _proposalMinted[tokenAddress][round][proposalId] = true;
-        _rewardBurned[tokenAddress] += amount;
-
-        emit RewardBurned(tokenAddress, round, amount, keccak256("proposalRewardUnallocatable"));
-
-        return amount;
     }
 
     function _calculateEligibleProposalVotes(

@@ -117,7 +117,7 @@ contract ProposalDoSTest is Test {
         vm.cool(launchAddress);
         vm.startPrank(actor);
         uint256 beforeGas = gasleft();
-        (uint256 govReward,,) = mint.mintGovReward{gas: 8_000_000}(address(token), 1, 1);
+        (uint256 govReward,,) = mint.mintGovReward{gas: 8_000_000}(address(token), 1, 1, actor);
         uint256 preparationGas = beforeGas - gasleft();
         vm.stopPrank();
         emit log_named_uint("proposals", count);
@@ -131,7 +131,7 @@ contract ProposalDoSTest is Test {
 
         uint256 reserved = mint.rewardReserved(address(token));
         vm.prank(actor);
-        uint256 reward = mint.mintProposalReward(address(token), 1, 1);
+        uint256 reward = mint.mintProposalReward(address(token), 1, 1, actor);
         assertEq(reward, (available / 10) * count * 1e18 / eligibleVotes);
         assertEq(mint.rewardReserved(address(token)), reserved, "prepared twice");
     }

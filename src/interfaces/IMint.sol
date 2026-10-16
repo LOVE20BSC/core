@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.37;
 
+enum BurnReason {
+    BoostPoolCancelled,
+    ProposalPoolCancelled,
+    BoostOverflow
+}
+
 interface IMintEvents {
     event RewardPrepared(
         address indexed tokenAddress,
@@ -23,14 +29,14 @@ interface IMintEvents {
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 indexed proposalId,
-        address target,
+        address recipient,
         uint256 amount
     );
     event RewardBurned(
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 amount,
-        bytes32 reason
+        BurnReason reason
     );
 }
 
@@ -69,18 +75,26 @@ interface IMint is IMintEvents, IMintErrors {
         uint256 roundRewardProposalPerThousand,
         uint256 maxGovBoostRewardMultiplier
     ) external;
-    function mintProposalReward(address tokenAddress, uint256 round, uint256 proposalId)
-        external returns (uint256 amount);
-    function mintGovReward(address tokenAddress, uint256 memberId, uint256 round)
+    function mintProposalReward(
+        address tokenAddress,
+        uint256 round,
+        uint256 proposalId,
+        address recipient
+    ) external returns (uint256 amount);
+    function mintGovReward(address tokenAddress, uint256 memberId, uint256 round, address recipient)
         external returns (uint256 voteReward, uint256 boostReward, uint256 burnReward);
-    function mintGovRewards(address tokenAddress, uint256 memberId, uint256[] calldata rounds)
-        external returns (
+    function mintGovRewards(
+        address tokenAddress,
+        uint256 memberId,
+        uint256[] calldata rounds,
+        address recipient
+    )
+        external
+        returns (
             uint256[] memory voteRewards,
             uint256[] memory boostRewards,
             uint256[] memory burnRewards
         );
-    function burnUnmintedProposalReward(address tokenAddress, uint256 round, uint256 proposalId)
-        external returns (uint256 amount);
     function rewardReserved(address tokenAddress) external view returns (uint256);
     function rewardMinted(address tokenAddress) external view returns (uint256);
     function rewardBurned(address tokenAddress) external view returns (uint256);
