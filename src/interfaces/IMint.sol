@@ -60,9 +60,9 @@ interface IMint is IMintEvents, IMintErrors {
     function memberNFTAddress() external view returns (address);
     function phaseAddress() external view returns (address);
 
-    function PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND() external view returns (uint256);
-    function ROUND_REWARD_GOV_PER_THOUSAND() external view returns (uint256);
-    function ROUND_REWARD_PROPOSAL_PER_THOUSAND() external view returns (uint256);
+    function PROPOSAL_REWARD_MIN_VOTE_RATIO() external view returns (uint256);
+    function ROUND_REWARD_GOV_RATIO() external view returns (uint256);
+    function ROUND_REWARD_PROPOSAL_RATIO() external view returns (uint256);
     function MAX_GOV_BOOST_REWARD_MULTIPLIER() external view returns (uint256);
     function initialized() external view returns (bool);
     function init(
@@ -70,9 +70,9 @@ interface IMint is IMintEvents, IMintErrors {
         address submitAddress,
         address launchAddress,
         address memberNFTAddress,
-        uint256 proposalRewardMinVotePerThousand,
-        uint256 roundRewardGovPerThousand,
-        uint256 roundRewardProposalPerThousand,
+        uint256 proposalRewardMinVoteRatio,
+        uint256 roundRewardGovRatio,
+        uint256 roundRewardProposalRatio,
         uint256 maxGovBoostRewardMultiplier
     ) external;
     function mintProposalReward(

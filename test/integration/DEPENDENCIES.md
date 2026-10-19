@@ -34,9 +34,9 @@ function init(
     address submitAddress_,
     address launchAddress_,
     address memberNFTAddress_,
-    uint256 proposalRewardMinVotePerThousand_,
-    uint256 roundRewardGovPerThousand_,
-    uint256 roundRewardProposalPerThousand_,
+    uint256 proposalRewardMinVoteRatio_,
+    uint256 roundRewardGovRatio_,
+    uint256 roundRewardProposalRatio_,
     uint256 maxGovBoostRewardMultiplier_
 ) external
 ```
@@ -60,7 +60,7 @@ function init(
     address phaseAddress_,
     address stakeAddress_,
     address memberNFTAddress_,
-    uint256 submitMinPerThousand
+    uint256 submitMinRatio
 ) external
 ```
 **依赖**: Phase, Stake, MemberNFT
@@ -165,7 +165,7 @@ submit.init(
     address(phase),
     address(stake),
     address(memberNFT),
-    50  // submitMinPerThousand: 5%
+    5e16  // submitMinRatio: 5%
 );
 
 // 3. 初始化 Stake（依赖 Phase, MemberNFT, Vote, Launch, Router, Factory）
@@ -178,7 +178,7 @@ stake.init(
     address(factory),
     1,    // promisedWaitingPhasesMin
     100,  // promisedWaitingPhasesMax
-    10    // maxWithdrawableToFeeRatio
+    10e18 // maxWithdrawableToFeeRatio: 10:1
 );
 
 // 4. 初始化 Vote（依赖 Phase, Stake, Submit, MemberNFT, Mint）
@@ -196,9 +196,9 @@ mint.init(
     address(submit),
     address(launch),
     address(memberNFT),
-    50,   // proposalRewardMinVotePerThousand: 5%
-    100,  // roundRewardGovPerThousand: 10%
-    100,  // roundRewardProposalPerThousand: 10%
+    5e16, // proposalRewardMinVoteRatio: 5%
+    1e17, // roundRewardGovRatio: 10%
+    1e17, // roundRewardProposalRatio: 10%
     2     // maxGovBoostRewardMultiplier: 2x
 );
 ```

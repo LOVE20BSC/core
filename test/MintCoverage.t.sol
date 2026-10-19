@@ -27,7 +27,7 @@ contract MintCoverageTest {
     uint256 memberVotes = 1;
     uint256 firstVotes = 1;
     uint256 proposalCount = 1;
-    uint256 minVoteRatio = 50;
+    uint256 minVoteRatio = 5e16;
     uint256 totalBoost;
     uint256 memberBoost;
     uint256 public LAUNCH_RATIO = 1e16;
@@ -109,48 +109,48 @@ contract MintCoverageTest {
     function testInitRejectsZeroAddress() public {
         Mint a = new Mint();
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAddress.selector));
-        a.init(address(0), address(this), address(this), address(this), 50, 100, 100, 2);
+        a.init(address(0), address(this), address(this), address(this), 5e16, 1e17, 1e17, 2);
     }
 
     function testInitRejectsBadRatioSum() public {
         Mint c = new Mint();
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAmount.selector));
-        c.init(address(this), address(this), address(this), address(this), 50, 600, 401, 2);
+        c.init(address(this), address(this), address(this), address(this), 5e16, 6e17, 401e15, 2);
     }
 
     function testInitProposalThresholdBounds() public {
         Mint bounded = new Mint();
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAmount.selector));
-        bounded.init(address(this), address(this), address(this), address(this), 1001, 100, 100, 2);
+        bounded.init(address(this), address(this), address(this), address(this), 1e18 + 1, 1e17, 1e17, 2);
         require(!bounded.initialized(), "invalid threshold must not initialize");
-        bounded.init(address(this), address(this), address(this), address(this), 1000, 100, 100, 2);
-        require(bounded.PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND() == 1000, "1000 is allowed");
+        bounded.init(address(this), address(this), address(this), address(this), 1e18, 1e17, 1e17, 2);
+        require(bounded.PROPOSAL_REWARD_MIN_VOTE_RATIO() == 1e18, "1e18 is allowed");
 
         bounded = new Mint();
-        bounded.init(address(this), address(this), address(this), address(this), 0, 100, 100, 2);
-        require(bounded.PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND() == 0, "zero threshold remains allowed");
+        bounded.init(address(this), address(this), address(this), address(this), 0, 1e17, 1e17, 2);
+        require(bounded.PROPOSAL_REWARD_MIN_VOTE_RATIO() == 0, "zero threshold remains allowed");
     }
 
     function testInitRejectsZeroMultiplier() public {
         Mint d = new Mint();
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAmount.selector));
-        d.init(address(this), address(this), address(this), address(this), 50, 100, 100, 0);
+        d.init(address(this), address(this), address(this), address(this), 5e16, 1e17, 1e17, 0);
     }
 
     function testInitRejectsMultiplierAbove1000() public {
         Mint e = new Mint();
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAmount.selector));
-        e.init(address(this), address(this), address(this), address(this), 50, 100, 100, 1001);
+        e.init(address(this), address(this), address(this), address(this), 5e16, 1e17, 1e17, 1001);
     }
 
     function testProposalMintUnauthorized() public {
-        setupMint(1000, 10000, 0, 100);
+        setupMint(1000, 10000, 0, 1e17);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.UnauthorizedCaller.selector));
         mint.mintProposalReward(address(token), 1, 1, address(this));
     }
 
     function testProposalMintRoundNotReady() public {
-        setupMint(1000, 10000, 0, 100);
+        setupMint(1000, 10000, 0, 1e17);
         vm.prank(TARGET);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
         mint.mintProposalReward(address(token), 0, 1, TARGET);
@@ -161,7 +161,7 @@ contract MintCoverageTest {
     // Keeping it as a comment for historical reference
     /*
     function testProposalMintRoundNotPrepared() public {
-        setupMint(1000, 10000, 0, 100);
+        setupMint(1000, 10000, 0, 1e17);
         vm.prank(TARGET);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
         mint.mintProposalReward(address(token), 1, 1, TARGET);
@@ -169,7 +169,7 @@ contract MintCoverageTest {
     */
 
     function testProposalMintAutoPrepare() public {
-        setupMint(1000, 10000, 0, 100);
+        setupMint(1000, 10000, 0, 1e17);
         vm.prank(TARGET);
         // Before auto-prepare, this would fail with RoundNotReadyToMint
         // Now it should succeed and automatically prepare rewards
@@ -179,14 +179,14 @@ contract MintCoverageTest {
     }
 
     function testProposalMintRejectsZeroRecipient() public {
-        setupMint(1000, 10000, 0, 100);
+        setupMint(1000, 10000, 0, 1e17);
         vm.prank(TARGET);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAddress.selector));
         mint.mintProposalReward(address(token), 1, 1, address(0));
     }
 
     function testExecutorStyleDestroyReleasesTheReservation() public {
-        setupMint(1000, 10000, 0, 100);
+        setupMint(1000, 10000, 0, 1e17);
         vm.prank(TARGET);
         uint256 settled = mint.mintProposalReward(address(token), 1, 1, TARGET);
         require(settled > 0, "settled amount");
@@ -207,8 +207,8 @@ contract MintCoverageTest {
         totalVotes = 100;
         firstVotes = 1;
         proposalCount = 1;
-        minVoteRatio = 50;
-        setupMint(1000, 10000, 100, 100);
+        minVoteRatio = 5e16;
+        setupMint(1000, 10000, 1e17, 1e17);
         uint256 burnedBefore = mint.rewardBurned(address(token));
         vm.recordLogs();
         mint.mintGovReward(address(token), 1, 1, address(this));
@@ -228,7 +228,7 @@ contract MintCoverageTest {
         totalVotes = 100;
         firstVotes = 100;
         proposalCount = 1;
-        setupMint(999, 1000, 1, 1);
+        setupMint(999, 1000, 1e15, 1e15);
         uint256 burnedBefore = mint.rewardBurned(address(token));
         vm.recordLogs();
         MintVm.Log[] memory logs = vm.getRecordedLogs();
@@ -247,8 +247,8 @@ contract MintCoverageTest {
         totalVotes = 999;
         firstVotes = 1;
         proposalCount = 1;
-        minVoteRatio = 999;
-        setupMint(999, 1000, 1, 1);
+        minVoteRatio = 999e15;
+        setupMint(999, 1000, 1e15, 1e15);
         uint256 burnedBefore = mint.rewardBurned(address(token));
         vm.recordLogs();
         MintVm.Log[] memory logs = vm.getRecordedLogs();
@@ -264,7 +264,7 @@ contract MintCoverageTest {
     }
 
     function testPrepareRoundNotReady() public {
-        setupMint(1000, 10000, 100, 100);
+        setupMint(1000, 10000, 1e17, 1e17);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
         mint.mintGovReward(address(token), 1, 0, address(this));
     }
@@ -274,7 +274,7 @@ contract MintCoverageTest {
         firstVotes = 1;
         proposalCount = 3;
         minVoteRatio = 0;
-        setupMint(1000, 11000, 0, 100);
+        setupMint(1000, 11000, 0, 1e17);
         uint256 sum;
         for (uint256 id = 1; id <= 3; id++) {
             vm.prank(TARGET);
@@ -289,7 +289,7 @@ contract MintCoverageTest {
         memberVotes = 1;
         totalBoost = 1000;
         memberBoost = 1000;
-        setupMint(1000, 10000, 100, 0);
+        setupMint(1000, 10000, 1e17, 0);
         (uint256 v, uint256 b, uint256 burn) = mint.mintGovReward(address(token), 1, 1, address(this));
         require(v == 0 && b == 0 && burn == 450, "only burn recorded");
         require(token.totalSupply() == 1000, "nothing minted");
@@ -297,7 +297,7 @@ contract MintCoverageTest {
     }
 
     function testGovRewardRoundNotReady() public {
-        setupMint(1000, 10000, 100, 0);
+        setupMint(1000, 10000, 1e17, 0);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
         mint.mintGovReward(address(token), 1, 0, address(this));
     }
@@ -307,14 +307,14 @@ contract MintCoverageTest {
     // Keeping it as a comment for historical reference
     /*
     function testGovRewardRoundNotPrepared() public {
-        setupMint(1000, 10000, 100, 0);
+        setupMint(1000, 10000, 1e17, 0);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
         mint.mintGovReward(address(token), 1, 2, address(this));
     }
     */
 
     function testGovRewardAutoPrepare() public {
-        setupMint(1000, 10000, 100, 0);
+        setupMint(1000, 10000, 1e17, 0);
         // Before auto-prepare, this would fail with RoundNotReadyToMint
         // Now it should succeed and automatically prepare rewards
         (uint256 v, uint256 b, uint256 burn) = mint.mintGovReward(address(token), 1, 1, address(this));

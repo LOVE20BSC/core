@@ -84,7 +84,7 @@ contract SubmitTest {
         stake = new MockStake();
         memberNFT = new MockMemberNFT();
         submit = new Submit();
-        submit.init(address(phase), address(stake), address(memberNFT), 10);
+        submit.init(address(phase), address(stake), address(memberNFT), 1e16);
 
         // Setup default member ownership and voting power
         memberNFT.setOwner(1, address(this));
@@ -101,15 +101,15 @@ contract SubmitTest {
         require(submit.phaseAddress() == address(phase), "wrong phase");
         require(submit.stakeAddress() == address(stake), "wrong stake");
         require(submit.memberNFTAddress() == address(memberNFT), "wrong memberNFT");
-        require(submit.SUBMIT_MIN_PER_THOUSAND() == 10, "wrong threshold");
+        require(submit.SUBMIT_MIN_RATIO() == 1e16, "wrong threshold");
     }
 
     function testInitCannotReinitialize() external {
         Submit newSubmit = new Submit();
-        newSubmit.init(address(phase), address(stake), address(memberNFT), 10);
+        newSubmit.init(address(phase), address(stake), address(memberNFT), 1e16);
         bytes memory expected = abi.encodeWithSelector(ISubmitErrors.AlreadyInitialized.selector);
         (bool ok, bytes memory data) = address(newSubmit).call(
-            abi.encodeCall(newSubmit.init, (address(phase), address(stake), address(memberNFT), 10))
+            abi.encodeCall(newSubmit.init, (address(phase), address(stake), address(memberNFT), 1e16))
         );
         require(!ok && keccak256(data) == keccak256(expected), "should revert AlreadyInitialized");
     }
@@ -119,26 +119,26 @@ contract SubmitTest {
         bytes memory expected = abi.encodeWithSelector(ISubmitErrors.InvalidAddress.selector);
 
         (bool ok, bytes memory data) = address(newSubmit).call(
-            abi.encodeCall(newSubmit.init, (address(0), address(stake), address(memberNFT), 10))
+            abi.encodeCall(newSubmit.init, (address(0), address(stake), address(memberNFT), 1e16))
         );
         require(!ok && keccak256(data) == keccak256(expected), "should reject zero phase");
 
         newSubmit = new Submit();
         (ok, data) = address(newSubmit).call(
-            abi.encodeCall(newSubmit.init, (address(phase), address(0), address(memberNFT), 10))
+            abi.encodeCall(newSubmit.init, (address(phase), address(0), address(memberNFT), 1e16))
         );
         require(!ok && keccak256(data) == keccak256(expected), "should reject zero stake");
 
         newSubmit = new Submit();
         (ok, data) = address(newSubmit).call(
-            abi.encodeCall(newSubmit.init, (address(phase), address(stake), address(0), 10))
+            abi.encodeCall(newSubmit.init, (address(phase), address(stake), address(0), 1e16))
         );
         require(!ok && keccak256(data) == keccak256(expected), "should reject zero memberNFT");
     }
 
     function testInitRejectsInvalidThreshold() external {
         Submit newSubmit = new Submit();
-        bytes memory expectedZero = abi.encodeWithSelector(ISubmitErrors.ZeroAmount.selector, "submitMinPerThousand");
+        bytes memory expectedZero = abi.encodeWithSelector(ISubmitErrors.ZeroAmount.selector, "submitMinRatio");
         (bool ok, bytes memory data) = address(newSubmit).call(
             abi.encodeCall(newSubmit.init, (address(phase), address(stake), address(memberNFT), 0))
         );
@@ -147,9 +147,9 @@ contract SubmitTest {
         newSubmit = new Submit();
         bytes memory expectedInvalid = abi.encodeWithSelector(ISubmitErrors.InvalidAmount.selector);
         (ok, data) = address(newSubmit).call(
-            abi.encodeCall(newSubmit.init, (address(phase), address(stake), address(memberNFT), 1001))
+            abi.encodeCall(newSubmit.init, (address(phase), address(stake), address(memberNFT), 1e18 + 1))
         );
-        require(!ok && keccak256(data) == keccak256(expectedInvalid), "should reject threshold > 1000");
+        require(!ok && keccak256(data) == keccak256(expectedInvalid), "should reject threshold > 1e18");
     }
 
     // ============ Permission Tests ============
@@ -176,6 +176,15 @@ contract SubmitTest {
     function testCanSubmitExactThreshold() external {
         stake.setValidGovVotes(TOKEN, 1, 10);
         require(submit.canSubmit(TOKEN, 1), "should submit at exact threshold");
+    }
+
+    function testCeilThresholdRoundsUpAgainstPartialVote() external {
+        stake.setGlobalGovVotes(TOKEN, 1001);
+        stake.setValidGovVotes(TOKEN, 1, 10);
+        require(!submit.canSubmit(TOKEN, 1), "10/1001 below the ceil threshold 11");
+
+        stake.setValidGovVotes(TOKEN, 1, 11);
+        require(submit.canSubmit(TOKEN, 1), "11/1001 reaches the ceil threshold");
     }
 
     // ============ Proposal Creation Tests ============

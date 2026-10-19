@@ -214,7 +214,7 @@ contract StakeTest {
     uint256 private constant MAX_NAME_LENGTH = 32;
     uint256 private constant PROMISED_WAITING_PHASES_MIN = 1;
     uint256 private constant PROMISED_WAITING_PHASES_MAX = 100;
-    uint256 private constant MAX_WITHDRAWABLE_TO_FEE_RATIO = 1000;
+    uint256 private constant MAX_WITHDRAWABLE_TO_FEE_RATIO = 1000e18;
 
     // Core contracts
     Stake public stake;

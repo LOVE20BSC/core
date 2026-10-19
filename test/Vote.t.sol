@@ -324,7 +324,7 @@ contract VoteTest {
         memberNFT.init(address(feeToken));
 
         submit = new Submit();
-        submit.init(address(phase), address(stake), address(memberNFT), 1);
+        submit.init(address(phase), address(stake), address(memberNFT), 1e15);
 
         vote = new Vote();
         vote.init(address(phase), address(stake), address(submit), address(memberNFT));

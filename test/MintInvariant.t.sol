@@ -33,9 +33,9 @@ contract MintInvariantTest {
             address(this),
             address(this),
             address(this),
-            50,
-            100,
-            100,
+            5e16,
+            1e17,
+            1e17,
             2
         );
         token = new LOVE20Token("Test", "TST", 10000, 1000000, address(this), address(mint), address(1));

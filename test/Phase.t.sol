@@ -47,6 +47,7 @@ contract PhaseTest {
         require(!_deploys(origin, 0, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT), "zero phase blocks");
         require(!_deploys(origin, PHASE_BLOCKS, 0, THRESHOLD, OBSERVATION_LIMIT), "zero target seconds");
         require(!_deploys(origin, PHASE_BLOCKS, TARGET_SECONDS, 0, OBSERVATION_LIMIT), "zero threshold");
+        require(!_deploys(origin, PHASE_BLOCKS, TARGET_SECONDS, 1e18 + 1, OBSERVATION_LIMIT), "threshold above 100%");
         require(!_deploys(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, 0), "zero observation limit");
     }
 
@@ -85,13 +86,13 @@ contract PhaseTest {
 
     function testThresholdCanSuppressAdjustment() external {
         uint256 origin = block.number + 1;
-        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_SECONDS, 100e18, OBSERVATION_LIMIT);
+        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_SECONDS, 1e18, OBSERVATION_LIMIT);
         uint256 timestamp = block.timestamp + 1000;
         vm.roll(origin);
         vm.warp(timestamp);
         phase.sync();
         vm.roll(origin + PHASE_BLOCKS + 1);
-        vm.warp(timestamp + 1000);
+        vm.warp(timestamp + 50000);
         (bool adjusted, uint256 length) = phase.sync();
         require(!adjusted && length == PHASE_BLOCKS);
         require(phase.phaseAtBlock(origin + PHASE_BLOCKS) == 2);
@@ -154,12 +155,12 @@ contract PhaseTest {
 
     function testCrossesEmptyPhasesWithoutRewritingHistory() external {
         uint256 origin = block.number + 1;
-        Phase phase = new Phase(origin, 10, TARGET_SECONDS, type(uint256).max, OBSERVATION_LIMIT);
+        Phase phase = new Phase(origin, 10, TARGET_SECONDS, 1e18, OBSERVATION_LIMIT);
         vm.roll(origin);
         vm.warp(block.timestamp + 1000);
         phase.sync();
         vm.roll(origin + 35);
-        vm.warp(block.timestamp + 1000);
+        vm.warp(block.timestamp + 200000);
         phase.sync();
         (uint256 start, uint256 blocks_) = phase.phaseInfo(4);
         require(start == origin + 30 && blocks_ == 10);

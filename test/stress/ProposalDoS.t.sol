@@ -63,9 +63,9 @@ contract ProposalDoSTest is Test {
         token = LOVE20Token(tokens[0]);
         stake.init(address(phase), address(memberNFT), address(vote), address(launch),
             address(new MockRouter()), address(factory), 1, 100, 1000);
-        submit.init(address(phase), address(stake), address(memberNFT), 10);
+        submit.init(address(phase), address(stake), address(memberNFT), 1e16);
         vote.init(address(phase), address(stake), address(submit), address(memberNFT));
-        mint.init(address(vote), address(submit), address(launch), address(memberNFT), 50, 100, 100, 2);
+        mint.init(address(vote), address(submit), address(launch), address(memberNFT), 5e16, 1e17, 1e17, 2);
         vm.startPrank(actor);
         token.approve(address(memberNFT), type(uint256).max);
         token.approve(address(stake), type(uint256).max);

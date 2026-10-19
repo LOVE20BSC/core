@@ -703,8 +703,9 @@ contract Stake is IStake {
 
         // The threshold doubles as the size of one settlement: a unit is the smallest fee worth burning,
         // so one settlement burns one unit and the rest stays pending for the next phase. That keeps a
-        // single settlement's price move at `withdrawableLp / (MAX_WITHDRAWABLE_TO_FEE_RATIO * pairTotalSupply)`.
-        uint256 settlementUnit = withdrawableLp / MAX_WITHDRAWABLE_TO_FEE_RATIO;
+        // single settlement's price move at
+        // `withdrawableLp * 1e18 / (MAX_WITHDRAWABLE_TO_FEE_RATIO * pairTotalSupply)`.
+        uint256 settlementUnit = Math.mulDiv(withdrawableLp, 1e18, MAX_WITHDRAWABLE_TO_FEE_RATIO);
         if (feeLp < settlementUnit) {
             return;
         }

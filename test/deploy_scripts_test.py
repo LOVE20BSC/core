@@ -78,9 +78,10 @@ def main():
                     "PHASE_ORIGIN_PHASE_BLOCKS": "100", "PHASE_TARGET_SECONDS": "300",
                     "PHASE_ADJUST_THRESHOLD": "600000000000000000", "PHASE_SYNC_OBSERVATION_LIMIT": "100",
                     "LAUNCH_RATIO": "1000000000000000000", "MAX_LAUNCH_COUNT": "1000", "TOKEN_SYMBOL_LENGTH": "4",
-                    "MIN_PROPOSAL_VOTES": "50", "GOV_REWARD_RATIO": "100", "PROPOSAL_REWARD_RATIO": "100",
-                    "MAX_BOOST_MULTIPLIER": "2", "SUBMIT_MIN_PER_THOUSAND": "10", "PROMISED_WAITING_PHASES_MIN": "1",
-                    "PROMISED_WAITING_PHASES_MAX": "100", "MAX_WITHDRAWABLE_TO_FEE_RATIO": "1000"})
+                    "PROPOSAL_REWARD_MIN_VOTE_RATIO": "50000000000000000", "GOV_REWARD_RATIO": "100000000000000000",
+                    "PROPOSAL_REWARD_RATIO": "100000000000000000",
+                    "MAX_BOOST_MULTIPLIER": "2", "SUBMIT_MIN_RATIO": "10000000000000000", "PROMISED_WAITING_PHASES_MIN": "1",
+                    "PROMISED_WAITING_PHASES_MAX": "100", "MAX_WITHDRAWABLE_TO_FEE_RATIO": "1000000000000000000000"})
         calls = {}
 
         def getters(contract, fields):
@@ -97,12 +98,12 @@ def main():
                 "firstTokenAddress()(address)": "LOVE20TOKEN_ADDRESS", "pairFactoryAddress()(address)": "FACTORY_ADDRESS",
                 "isLOVE20Token(address)(bool)": "true"})
         getters("MINT", {key + "()(uint256)": value for key, value in {
-            "PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND": "MIN_PROPOSAL_VOTES", "ROUND_REWARD_GOV_PER_THOUSAND": "GOV_REWARD_RATIO",
-            "ROUND_REWARD_PROPOSAL_PER_THOUSAND": "PROPOSAL_REWARD_RATIO", "MAX_GOV_BOOST_REWARD_MULTIPLIER": "MAX_BOOST_MULTIPLIER"}.items()})
+            "PROPOSAL_REWARD_MIN_VOTE_RATIO": "PROPOSAL_REWARD_MIN_VOTE_RATIO", "ROUND_REWARD_GOV_RATIO": "GOV_REWARD_RATIO",
+            "ROUND_REWARD_PROPOSAL_RATIO": "PROPOSAL_REWARD_RATIO", "MAX_GOV_BOOST_REWARD_MULTIPLIER": "MAX_BOOST_MULTIPLIER"}.items()})
         getters("MINT", {"phaseAddress()(address)": "PHASE_ADDRESS"})
         getters("STAKE", {key + "()(uint256)": key for key in ("PROMISED_WAITING_PHASES_MIN", "PROMISED_WAITING_PHASES_MAX", "MAX_WITHDRAWABLE_TO_FEE_RATIO")})
         getters("STAKE", {"routerAddress()(address)": "ROUTER_ADDRESS", "pairFactoryAddress()(address)": "FACTORY_ADDRESS"})
-        getters("SUBMIT", {"SUBMIT_MIN_PER_THOUSAND()(uint256)": "SUBMIT_MIN_PER_THOUSAND"})
+        getters("SUBMIT", {"SUBMIT_MIN_RATIO()(uint256)": "SUBMIT_MIN_RATIO"})
         for name, dependencies in {"MEMBERNFT": [], "LAUNCH": ["mint", "memberNFT"], "MINT": ["vote", "submit", "launch", "memberNFT"],
                 "STAKE": ["phase", "memberNFT", "vote", "launch"], "SUBMIT": ["phase", "stake", "memberNFT"],
                 "VOTE": ["phase", "stake", "submit", "memberNFT"]}.items():

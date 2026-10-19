@@ -65,7 +65,7 @@ interface ISubmit is ISubmitErrors, ISubmitEvents {
     function phaseAddress() external view returns (address);
     function memberNFTAddress() external view returns (address);
 
-    function SUBMIT_MIN_PER_THOUSAND() external view returns (uint256);
+    function SUBMIT_MIN_RATIO() external view returns (uint256);
 
     function initialized() external view returns (bool);
 
@@ -73,7 +73,7 @@ interface ISubmit is ISubmitErrors, ISubmitEvents {
         address phaseAddress,
         address stakeAddress,
         address memberNFTAddress,
-        uint256 submitMinPerThousand
+        uint256 submitMinRatio
     ) external;
 
     function currentRound() external view returns (uint256);

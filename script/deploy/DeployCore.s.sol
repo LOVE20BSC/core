@@ -31,7 +31,7 @@ contract DeployCore is Script {
 
     function run() external returns (DeploymentAddresses memory addrs) {
         require(block.chainid == vm.envUint("CHAIN_ID"), "Chain ID mismatch");
-        require(vm.envUint("MIN_PROPOSAL_VOTES") <= 1000, "Proposal threshold exceeds 1000");
+        require(vm.envUint("PROPOSAL_REWARD_MIN_VOTE_RATIO") <= 1e18, "Proposal threshold exceeds 1e18");
         require(vm.envUint("LAUNCH_RATIO") <= 1e18, "Launch ratio exceeds 1e18");
 
         // DEX 依赖必须是已部署合约。根父币从 Router.WETH() 读取，不在 core.params 重复登记；
@@ -123,7 +123,7 @@ contract DeployCore is Script {
             addrs.phase,
             addrs.stake,
             addrs.memberNFT,
-            vm.envUint("SUBMIT_MIN_PER_THOUSAND")
+            vm.envUint("SUBMIT_MIN_RATIO")
         );
         console2.log("Submit initialized");
 
@@ -142,7 +142,7 @@ contract DeployCore is Script {
             addrs.submit,
             addrs.launch,
             addrs.memberNFT,
-            vm.envUint("MIN_PROPOSAL_VOTES"),
+            vm.envUint("PROPOSAL_REWARD_MIN_VOTE_RATIO"),
             vm.envUint("GOV_REWARD_RATIO"),
             vm.envUint("PROPOSAL_REWARD_RATIO"),
             vm.envUint("MAX_BOOST_MULTIPLIER")

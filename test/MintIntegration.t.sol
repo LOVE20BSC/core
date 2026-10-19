@@ -48,9 +48,9 @@ contract MintIntegrationTest {
             address(submit), // submitAddress
             address(launch), // launchAddress
             address(this), // memberNFTAddress (test contract implements ownerOf)
-            50, // 5% min proposal votes
-            100, // 10% gov reward ratio
-            100, // 10% proposal reward ratio
+            5e16, // 5% min proposal votes
+            1e17, // 10% gov reward ratio
+            1e17, // 10% proposal reward ratio
             2 // 2x max boost multiplier
         );
 

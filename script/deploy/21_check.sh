@@ -254,14 +254,14 @@ verify_value "memberNFTAddress" "$MEMBERNFT_ADDRESS" "$ACTUAL_MINT_MEMBER" || ((
 ACTUAL_MINT_PHASE=$(cast call "$MINT_ADDRESS" "phaseAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "phaseAddress" "$PHASE_ADDRESS" "$ACTUAL_MINT_PHASE" || ((FAILED+=1))
 
-ACTUAL_MIN_PROPOSAL=$(cast call "$MINT_ADDRESS" "PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND" "$MIN_PROPOSAL_VOTES" "$ACTUAL_MIN_PROPOSAL" || ((FAILED+=1))
+ACTUAL_MIN_PROPOSAL=$(cast call "$MINT_ADDRESS" "PROPOSAL_REWARD_MIN_VOTE_RATIO()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "PROPOSAL_REWARD_MIN_VOTE_RATIO" "$PROPOSAL_REWARD_MIN_VOTE_RATIO" "$ACTUAL_MIN_PROPOSAL" || ((FAILED+=1))
 
-ACTUAL_GOV_REWARD=$(cast call "$MINT_ADDRESS" "ROUND_REWARD_GOV_PER_THOUSAND()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "ROUND_REWARD_GOV_PER_THOUSAND" "$GOV_REWARD_RATIO" "$ACTUAL_GOV_REWARD" || ((FAILED+=1))
+ACTUAL_GOV_REWARD=$(cast call "$MINT_ADDRESS" "ROUND_REWARD_GOV_RATIO()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "ROUND_REWARD_GOV_RATIO" "$GOV_REWARD_RATIO" "$ACTUAL_GOV_REWARD" || ((FAILED+=1))
 
-ACTUAL_PROPOSAL_REWARD=$(cast call "$MINT_ADDRESS" "ROUND_REWARD_PROPOSAL_PER_THOUSAND()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "ROUND_REWARD_PROPOSAL_PER_THOUSAND" "$PROPOSAL_REWARD_RATIO" "$ACTUAL_PROPOSAL_REWARD" || ((FAILED+=1))
+ACTUAL_PROPOSAL_REWARD=$(cast call "$MINT_ADDRESS" "ROUND_REWARD_PROPOSAL_RATIO()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "ROUND_REWARD_PROPOSAL_RATIO" "$PROPOSAL_REWARD_RATIO" "$ACTUAL_PROPOSAL_REWARD" || ((FAILED+=1))
 
 ACTUAL_MAX_BOOST=$(cast call "$MINT_ADDRESS" "MAX_GOV_BOOST_REWARD_MULTIPLIER()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "MAX_GOV_BOOST_REWARD_MULTIPLIER" "$MAX_BOOST_MULTIPLIER" "$ACTUAL_MAX_BOOST" || ((FAILED+=1))
@@ -316,8 +316,8 @@ verify_value "stakeAddress" "$STAKE_ADDRESS" "$ACTUAL_SUBMIT_STAKE" || ((FAILED+
 ACTUAL_SUBMIT_MEMBER=$(cast call "$SUBMIT_ADDRESS" "memberNFTAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "memberNFTAddress" "$MEMBERNFT_ADDRESS" "$ACTUAL_SUBMIT_MEMBER" || ((FAILED+=1))
 
-ACTUAL_MIN_PER_THOUSAND=$(cast call "$SUBMIT_ADDRESS" "SUBMIT_MIN_PER_THOUSAND()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "SUBMIT_MIN_PER_THOUSAND" "$SUBMIT_MIN_PER_THOUSAND" "$ACTUAL_MIN_PER_THOUSAND" || ((FAILED+=1))
+ACTUAL_MIN_RATIO=$(cast call "$SUBMIT_ADDRESS" "SUBMIT_MIN_RATIO()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "SUBMIT_MIN_RATIO" "$SUBMIT_MIN_RATIO" "$ACTUAL_MIN_RATIO" || ((FAILED+=1))
 
 ACTUAL_SUBMIT_INIT=$(cast call "$SUBMIT_ADDRESS" "initialized()(bool)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "initialized" "true" "$ACTUAL_SUBMIT_INIT" || ((FAILED+=1))
@@ -373,9 +373,9 @@ verify_boundary() {
     fi
 }
 
-# 1. 验证 PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND <= 1000
-echo -e "${GRAY}Checking PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND...${NC}"
-verify_boundary "PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND" "$ACTUAL_MIN_PROPOSAL" "1000" || ((FAILED+=1))
+# 1. 验证 PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18
+echo -e "${GRAY}Checking PROPOSAL_REWARD_MIN_VOTE_RATIO...${NC}"
+verify_boundary "PROPOSAL_REWARD_MIN_VOTE_RATIO" "$ACTUAL_MIN_PROPOSAL" "1000000000000000000" || ((FAILED+=1))
 
 # 2. 验证 LAUNCH_RATIO <= 1e18
 echo -e "${GRAY}Checking LAUNCH_RATIO...${NC}"

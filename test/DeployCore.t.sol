@@ -13,11 +13,11 @@ contract DeployCoreTest is Test {
         deployer.run();
 
         vm.setEnv("CHAIN_ID", vm.toString(block.chainid));
-        vm.setEnv("MIN_PROPOSAL_VOTES", "1001");
-        vm.expectRevert("Proposal threshold exceeds 1000");
+        vm.setEnv("PROPOSAL_REWARD_MIN_VOTE_RATIO", "1000000000000000001");
+        vm.expectRevert("Proposal threshold exceeds 1e18");
         deployer.run();
 
-        vm.setEnv("MIN_PROPOSAL_VOTES", "1000");
+        vm.setEnv("PROPOSAL_REWARD_MIN_VOTE_RATIO", "1000000000000000000");
         vm.setEnv("LAUNCH_RATIO", "1000000000000000001");
         vm.expectRevert("Launch ratio exceeds 1e18");
         deployer.run();

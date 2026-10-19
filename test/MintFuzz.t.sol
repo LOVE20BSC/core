@@ -39,7 +39,7 @@ contract MintFuzzTest {
             address(this),
             address(this),
             address(this),
-            50,
+            5e16,
             govRatio,
             propRatio,
             2
@@ -116,8 +116,8 @@ contract MintFuzzTest {
         currentSupply = bound(currentSupply, 100, maxSupply - 100);
         vm.assume(maxSupply > currentSupply);
         vm.assume(maxSupply - currentSupply >= 100);
-        govRatio = bound(govRatio, 0, 1000);
-        proposalRatio = bound(proposalRatio, 0, 1000 - govRatio);
+        govRatio = bound(govRatio, 0, 1e18);
+        proposalRatio = bound(proposalRatio, 0, 1e18 - govRatio);
 
         mockTotalVotes = 100;
         mockProposalVotes = 10;
@@ -142,8 +142,8 @@ contract MintFuzzTest {
         }
 
         uint256 available = maxSupply - currentSupply;
-        uint256 expectedGov = (available * govRatio) / 1000;
-        uint256 expectedProposal = (available * proposalRatio) / 1000;
+        uint256 expectedGov = (available * govRatio) / 1e18;
+        uint256 expectedProposal = (available * proposalRatio) / 1e18;
 
         assertEq(mint.govReward(address(token), 1), expectedGov);
         assertEq(mint.proposalReward(address(token), 1), expectedProposal);
@@ -172,7 +172,7 @@ contract MintFuzzTest {
         mockProposalVotes = 10;
         proposalCount = 1;
 
-        setupFuzz(1000, 100000, 500, 0);
+        setupFuzz(1000, 100000, 5e17, 0);
 
         uint256 govTotal = mint.govReward(address(token), 1);
 
@@ -221,7 +221,7 @@ contract MintFuzzTest {
         mockTotalVotes = totalVotes_;
         mockProposalVotes = proposalVotes_;
 
-        setupFuzz(supply, supply * 10, 0, 500);
+        setupFuzz(supply, supply * 10, 0, 5e17);
 
         // Trigger auto-prepare by minting
         vm.prank(TARGET);
@@ -252,7 +252,7 @@ contract MintFuzzTest {
         mockTotalVotes = 100;
         mockMemberVotes = 50;
 
-        setupFuzz(1000, 100000, 100, 0);
+        setupFuzz(1000, 100000, 1e17, 0);
 
         uint256[] memory rounds = new uint256[](roundCount);
         for (uint256 i; i < roundCount; i++) {
@@ -286,7 +286,7 @@ contract MintFuzzTest {
         mockMemberBoost = 100;
         proposalCount = 1;
 
-        setupFuzz(supply, maxSup, 500, 500);
+        setupFuzz(supply, maxSup, 5e17, 5e17);
 
         uint256 govPool = mint.govReward(address(token), 1);
         uint256 propPool = mint.proposalReward(address(token), 1);

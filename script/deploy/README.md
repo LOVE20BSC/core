@@ -83,24 +83,24 @@ LAUNCH_RATIO=1000000000000000000             # 1e18，上限即 1e18
 MAX_LAUNCH_COUNT=1000
 TOKEN_SYMBOL_LENGTH=4                        # 子币符号 UTF-8 字节长度（首币不受此限；汉字占 3 字节）
 
-# Mint 部署参数
-MIN_PROPOSAL_VOTES=50                        # 提案奖励门槛（千分比，须 <= 1000）
-GOV_REWARD_RATIO=100                         # 治理奖池占比（千分比）
-PROPOSAL_REWARD_RATIO=100                    # 提案奖池占比（千分比）
+# Mint 部署参数（比例以 1e18 表示 100%）
+PROPOSAL_REWARD_MIN_VOTE_RATIO=50000000000000000  # 提案奖励门槛（5%，须 <= 1e18）
+GOV_REWARD_RATIO=100000000000000000              # 治理奖池占比（10%）
+PROPOSAL_REWARD_RATIO=100000000000000000         # 提案奖池占比（10%）
 MAX_BOOST_MULTIPLIER=2
 
-# Submit 部署参数
-SUBMIT_MIN_PER_THOUSAND=10                   # 推举门槛（千分比）
+# Submit 部署参数（比例以 1e18 表示 100%）
+SUBMIT_MIN_RATIO=10000000000000000               # 推举门槛（1%）
 
 # Stake 部署参数
 PROMISED_WAITING_PHASES_MIN=1
 PROMISED_WAITING_PHASES_MAX=100
 
 # Stake 手续费销毁阈值及单次处理量的分母
-MAX_WITHDRAWABLE_TO_FEE_RATIO=1000           # 每次处理 floor(withdrawableLp / 1000) 个手续费 LP 最小单位
+MAX_WITHDRAWABLE_TO_FEE_RATIO=1000000000000000000000  # 可提取 LP : 手续费 LP 上限（1000:1）；每次处理 floor(withdrawableLp * 1e18 / 该值) 个手续费 LP 最小单位
 ```
 
-`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；取值上下界由对应合约的 `init` 校验（例：`LAUNCH_RATIO` 上限 `1e18`、`MIN_PROPOSAL_VOTES <= 1000`、`GOV_REWARD_RATIO + PROPOSAL_REWARD_RATIO <= 1000`、`PROMISED_WAITING_PHASES_MIN <= MAX`），部署脚本另在广播前重复校验 `LAUNCH_RATIO` 与 `MIN_PROPOSAL_VOTES`。
+`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；取值上下界由对应合约的 `init` 校验（例：`LAUNCH_RATIO` 上限 `1e18`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、`GOV_REWARD_RATIO + PROPOSAL_REWARD_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN <= MAX`），部署脚本另在广播前重复校验 `LAUNCH_RATIO` 与 `PROPOSAL_REWARD_MIN_VOTE_RATIO`。
 
 **重要参数说明：**
 - `DISTRIBUTOR`: 设置为部署钱包地址，接收初始代币
@@ -127,7 +127,7 @@ cd core
 
 DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2：交易手续费固定为 0.30%，Factory 的 `feeTo` 与 `feeToSetter` 均为零。地址应来自该仓库同网络的部署及验收结果，不使用旧 PancakeSwap 配置。
 
-`MAX_WITHDRAWABLE_TO_FEE_RATIO` 决定手续费销毁的触发阈值和单次处理量，不是交易费率。`21_check.sh` 中的 `ACTUAL_FEE_RATIO` 只是链上读取结果，用于与这个配置值比对。现有配置保持 `1000`；每社区每 Phase 至多实际结算一次，且单次处理量须足够让 Pair 两侧产出非零数量。
+`MAX_WITHDRAWABLE_TO_FEE_RATIO` 决定手续费销毁的触发阈值和单次处理量，不是交易费率。它以 `1e18` 表示 1:1，即「可提取 LP : 手续费 LP」的比值上限；`21_check.sh` 中的 `ACTUAL_FEE_RATIO` 只是链上读取结果，用于与这个配置值比对。现有配置 `1000e18` 表示 1000:1；每社区每 Phase 至多实际结算一次，且单次处理量须足够让 Pair 两侧产出非零数量。
 
 ### 分步部署
 

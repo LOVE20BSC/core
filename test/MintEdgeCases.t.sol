@@ -25,9 +25,9 @@ contract MintEdgeCasesTest {
             address(this),
             address(this),
             address(this),
-            50,
-            100,
-            100,
+            5e16,
+            1e17,
+            1e17,
             2
         );
         token = new LOVE20Token("Test", "TST", supply, maxSupply, address(this), address(mint), address(1));
@@ -102,7 +102,7 @@ contract MintEdgeCasesTest {
     function testRepeatedInitReverts() public {
         setupMint(1000, 10000);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.AlreadyInitialized.selector));
-        mint.init(address(this), address(this), address(this), address(this), 50, 100, 100, 2);
+        mint.init(address(this), address(this), address(this), address(this), 5e16, 1e17, 1e17, 2);
     }
 
     function testInitDerivesPhaseFromVote() public {

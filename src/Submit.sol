@@ -8,6 +8,7 @@ import {ISubmit, ProposalHead, ProposalBody, ProposalInfo, SubmitInfo, TargetMod
 import {IProposalTarget} from "./interfaces/IProposalTarget.sol";
 
 import {Pagination} from "../lib/libs/src/Pagination.sol";
+import {Math} from "../lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
 
 contract Submit is ISubmit {
     using Pagination for uint256[];
@@ -15,7 +16,7 @@ contract Submit is ISubmit {
     address public phaseAddress;
     address public stakeAddress;
     address public memberNFTAddress;
-    uint256 public SUBMIT_MIN_PER_THOUSAND;
+    uint256 public SUBMIT_MIN_RATIO;
 
     // tokenAddress => ProposalInfo[]
     mapping(address => ProposalInfo[]) internal _proposals;
@@ -40,7 +41,7 @@ contract Submit is ISubmit {
         address phaseAddress_,
         address stakeAddress_,
         address memberNFTAddress_,
-        uint256 submitMinPerThousand
+        uint256 submitMinRatio
     ) external {
         if (initialized) {
             revert AlreadyInitialized();
@@ -48,17 +49,17 @@ contract Submit is ISubmit {
         if (phaseAddress_ == address(0) || stakeAddress_ == address(0) || memberNFTAddress_ == address(0)) {
             revert InvalidAddress();
         }
-        if (submitMinPerThousand == 0) {
-            revert ZeroAmount("submitMinPerThousand");
+        if (submitMinRatio == 0) {
+            revert ZeroAmount("submitMinRatio");
         }
-        if (submitMinPerThousand > 1000) {
+        if (submitMinRatio > 1e18) {
             revert InvalidAmount();
         }
         initialized = true;
         phaseAddress = phaseAddress_;
         stakeAddress = stakeAddress_;
         memberNFTAddress = memberNFTAddress_;
-        SUBMIT_MIN_PER_THOUSAND = submitMinPerThousand;
+        SUBMIT_MIN_RATIO = submitMinRatio;
     }
 
     function canSubmit(
@@ -76,7 +77,7 @@ contract Submit is ISubmit {
             return false;
         }
 
-        return ((validVotes * 1000) / total) >= SUBMIT_MIN_PER_THOUSAND;
+        return validVotes >= Math.mulDiv(total, SUBMIT_MIN_RATIO, 1e18, Math.Rounding.Ceil);
     }
 
     function submitNewProposal(

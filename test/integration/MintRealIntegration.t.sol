@@ -43,9 +43,9 @@ contract MintRealIntegrationTest {
     uint256 constant BOOST_AMOUNT = 1000;
 
     // Configuration constants - must match init() parameters
-    uint256 constant ROUND_REWARD_GOV_PER_THOUSAND = 100;        // 10%
-    uint256 constant ROUND_REWARD_PROPOSAL_PER_THOUSAND = 100;   // 10%
-    uint256 constant PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND = 50; // 5%
+    uint256 constant ROUND_REWARD_GOV_RATIO = 1e17;              // 10%
+    uint256 constant ROUND_REWARD_PROPOSAL_RATIO = 1e17;         // 10%
+    uint256 constant PROPOSAL_REWARD_MIN_VOTE_RATIO = 5e16;      // 5%
     uint256 constant MAX_GOV_BOOST_REWARD_MULTIPLIER = 2;        // 2x
 
     // Real contracts
@@ -140,7 +140,7 @@ contract MintRealIntegrationTest {
             address(phase),
             address(stake),
             address(memberNFT),
-            50  // submitMinPerThousand: 5%
+            5e16  // submitMinRatio: 5%
         );
 
         // 3. Initialize Stake (depends on: Phase, MemberNFT, Vote, Router, Factory)
@@ -153,7 +153,7 @@ contract MintRealIntegrationTest {
             address(factory),
             1,    // promisedWaitingPhasesMin
             100,  // promisedWaitingPhasesMax
-            10    // maxWithdrawableToFeeRatio
+            10e18 // maxWithdrawableToFeeRatio: 10:1
         );
 
         // 4. Initialize Vote (depends on: Phase, Stake, Submit, MemberNFT)
@@ -165,9 +165,9 @@ contract MintRealIntegrationTest {
             address(submit),
             address(launch),
             address(memberNFT),
-            PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND,   // 50: 5%
-            ROUND_REWARD_GOV_PER_THOUSAND,           // 100: 10%
-            ROUND_REWARD_PROPOSAL_PER_THOUSAND,      // 100: 10%
+            PROPOSAL_REWARD_MIN_VOTE_RATIO,   // 5e16: 5%
+            ROUND_REWARD_GOV_RATIO,           // 1e17: 10%
+            ROUND_REWARD_PROPOSAL_RATIO,      // 1e17: 10%
             MAX_GOV_BOOST_REWARD_MULTIPLIER          // 2: 2x
         );
 
@@ -303,8 +303,8 @@ contract MintRealIntegrationTest {
 
     /// @notice Mathematical model: Calculate minimum votes for 5% threshold (ceil)
     function _calculateMinVotes(uint256 totalVotes) internal pure returns (uint256) {
-        // ceil(totalVotes * 0.05) = ceil(totalVotes * 50 / 1000)
-        return (totalVotes * PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND + 999) / 1000;
+        // ceil(totalVotes * 0.05) = ceil(totalVotes * 5e16 / 1e18)
+        return (totalVotes * PROPOSAL_REWARD_MIN_VOTE_RATIO + 1e18 - 1) / 1e18;
     }
 
     // Helper functions
@@ -437,7 +437,7 @@ contract MintRealIntegrationTest {
     function _verifyRewardsWithBoost(uint256 /* currentRound */, GovRewardData memory data) internal view {
         // Calculate expected rewards using mathematical model
         uint256 available = mint.rewardAvailable(address(token));
-        uint256 govRewardAmount = (available * ROUND_REWARD_GOV_PER_THOUSAND) / 1000;
+        uint256 govRewardAmount = (available * ROUND_REWARD_GOV_RATIO) / 1e18;
 
         // Expected vote rewards
         uint256 expectedVoteReward1 = _calculateExpectedVoteReward(govRewardAmount, data.member1Votes, data.totalVotes);

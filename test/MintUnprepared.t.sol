@@ -32,7 +32,7 @@ contract MintUnpreparedTest {
             address(this),
             address(this),
             address(this),
-            50,
+            5e16,
             govRatio,
             proposalRatio,
             2
@@ -96,14 +96,14 @@ contract MintUnpreparedTest {
     }
 
     function testUnpreparedProposalRewardCalculatesRealtime() public {
-        setupMint(1000, 10000, 0, 100);
+        setupMint(1000, 10000, 0, 1e17);
         (uint256 amount, bool minted) = mint.proposalRewardByProposalId(address(token), 1, 1);
         require(amount == 900 && !minted, "only eligible proposal gets full pool: 900 * 20 / 20");
         require(!mint.isRewardPrepared(address(token), 1), "should not be prepared");
     }
 
     function testUnpreparedGovRewardCalculatesRealtime() public {
-        setupMint(1000, 10000, 100, 0);
+        setupMint(1000, 10000, 1e17, 0);
         (uint256 voteReward, uint256 boostReward, uint256 burnReward, bool minted) =
             mint.govRewardByMemberId(address(token), 1, 1);
         require(voteReward == 45 && boostReward == 45 && burnReward == 0 && !minted, "unprepared 10/100 * 900");
@@ -111,21 +111,21 @@ contract MintUnpreparedTest {
     }
 
     function testUnpreparedIsProposalIdWithRewardReturnsTrue() public {
-        setupMint(1000, 10000, 0, 100);
+        setupMint(1000, 10000, 0, 1e17);
         require(mint.isProposalIdWithReward(address(token), 1, 1), "20/100 >= 5% threshold");
         require(!mint.isRewardPrepared(address(token), 1), "should not be prepared");
     }
 
     function testUnpreparedBelowThresholdReturnsFalse() public {
         proposalVotes = 4;
-        setupMint(1000, 10000, 0, 100);
+        setupMint(1000, 10000, 0, 1e17);
         require(!mint.isProposalIdWithReward(address(token), 1, 1), "4/100 < 5% threshold");
         (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
         require(amount == 0, "ineligible returns zero");
     }
 
     function testPreparedAndUnpreparedQueryConsistency() public {
-        setupMint(1000, 10000, 100, 100);
+        setupMint(1000, 10000, 1e17, 1e17);
         (uint256 unprepGov,,,) = mint.govRewardByMemberId(address(token), 1, 1);
         (uint256 unprepProp,) = mint.proposalRewardByProposalId(address(token), 1, 1);
 
@@ -141,7 +141,7 @@ contract MintUnpreparedTest {
         totalVotes = 0;
         memberVotes = 0;
         proposalVotes = 0;
-        setupMint(1000, 10000, 100, 100);
+        setupMint(1000, 10000, 1e17, 1e17);
 
         (uint256 voteReward, uint256 boostReward, uint256 burnReward, bool minted) =
             mint.govRewardByMemberId(address(token), 1, 1);

@@ -36,9 +36,9 @@ contract Mint is IMint {
     address public launchAddress;
     address public memberNFTAddress;
     address public phaseAddress;
-    uint256 public PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND;
-    uint256 public ROUND_REWARD_GOV_PER_THOUSAND;
-    uint256 public ROUND_REWARD_PROPOSAL_PER_THOUSAND;
+    uint256 public PROPOSAL_REWARD_MIN_VOTE_RATIO;
+    uint256 public ROUND_REWARD_GOV_RATIO;
+    uint256 public ROUND_REWARD_PROPOSAL_RATIO;
     uint256 public MAX_GOV_BOOST_REWARD_MULTIPLIER;
 
     // ------ 显式 getter ------
@@ -79,9 +79,9 @@ contract Mint is IMint {
         address submitAddress_,
         address launchAddress_,
         address memberNFTAddress_,
-        uint256 proposalRewardMinVotePerThousand_,
-        uint256 roundRewardGovPerThousand_,
-        uint256 roundRewardProposalPerThousand_,
+        uint256 proposalRewardMinVoteRatio_,
+        uint256 roundRewardGovRatio_,
+        uint256 roundRewardProposalRatio_,
         uint256 maxGovBoostRewardMultiplier_
     ) external {
         if (initialized) {
@@ -103,11 +103,11 @@ contract Mint is IMint {
             revert InvalidAddress();
         }
 
-        if (proposalRewardMinVotePerThousand_ > 1000) {
+        if (proposalRewardMinVoteRatio_ > 1e18) {
             revert InvalidAmount();
         }
 
-        if (roundRewardGovPerThousand_ + roundRewardProposalPerThousand_ > 1000) {
+        if (roundRewardGovRatio_ + roundRewardProposalRatio_ > 1e18) {
             revert InvalidAmount();
         }
 
@@ -120,9 +120,9 @@ contract Mint is IMint {
         launchAddress = launchAddress_;
         memberNFTAddress = memberNFTAddress_;
         phaseAddress = phaseAddress_;
-        PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND = proposalRewardMinVotePerThousand_;
-        ROUND_REWARD_GOV_PER_THOUSAND = roundRewardGovPerThousand_;
-        ROUND_REWARD_PROPOSAL_PER_THOUSAND = roundRewardProposalPerThousand_;
+        PROPOSAL_REWARD_MIN_VOTE_RATIO = proposalRewardMinVoteRatio_;
+        ROUND_REWARD_GOV_RATIO = roundRewardGovRatio_;
+        ROUND_REWARD_PROPOSAL_RATIO = roundRewardProposalRatio_;
         MAX_GOV_BOOST_REWARD_MULTIPLIER = maxGovBoostRewardMultiplier_;
     }
 
@@ -165,8 +165,8 @@ contract Mint is IMint {
         uint256 eligibleVotes = _calculateEligibleProposalVotes(tokenAddress, round, minVotes);
 
         uint256 available = rewardAvailable(tokenAddress);
-        uint256 govRewardAmount = (available * ROUND_REWARD_GOV_PER_THOUSAND) / 1000;
-        uint256 proposalRewardAmount = (available * ROUND_REWARD_PROPOSAL_PER_THOUSAND) / 1000;
+        uint256 govRewardAmount = Math.mulDiv(available, ROUND_REWARD_GOV_RATIO, 1e18);
+        uint256 proposalRewardAmount = Math.mulDiv(available, ROUND_REWARD_PROPOSAL_RATIO, 1e18);
 
         _rewardReserved[tokenAddress] += govRewardAmount + proposalRewardAmount;
         _govReward[tokenAddress][round] = govRewardAmount;
@@ -423,7 +423,7 @@ contract Mint is IMint {
         } else {
             // Real-time calculation: scan all proposals
             uint256 available = rewardAvailable(tokenAddress);
-            proposalRewardAmount = (available * ROUND_REWARD_PROPOSAL_PER_THOUSAND) / 1000;
+            proposalRewardAmount = Math.mulDiv(available, ROUND_REWARD_PROPOSAL_RATIO, 1e18);
             eligibleVotes = _calculateEligibleProposalVotes(tokenAddress, round, minVotes);
         }
 
@@ -480,7 +480,7 @@ contract Mint is IMint {
             govRewardAmount = _govReward[tokenAddress][round];
         } else {
             uint256 available = rewardAvailable(tokenAddress);
-            govRewardAmount = (available * ROUND_REWARD_GOV_PER_THOUSAND) / 1000;
+            govRewardAmount = Math.mulDiv(available, ROUND_REWARD_GOV_RATIO, 1e18);
         }
 
         uint256 votePoolAmount = govRewardAmount / 2;
@@ -550,7 +550,7 @@ contract Mint is IMint {
     }
 
     function _minProposalVotes(uint256 totalVotes) internal view returns (uint256) {
-        return Math.mulDiv(totalVotes, PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND, 1000, Math.Rounding.Ceil);
+        return Math.mulDiv(totalVotes, PROPOSAL_REWARD_MIN_VOTE_RATIO, 1e18, Math.Rounding.Ceil);
     }
 
     function rewardAvailable(address tokenAddress) public view returns (uint256) {

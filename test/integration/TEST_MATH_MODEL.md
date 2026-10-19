@@ -6,9 +6,9 @@
 
 ### 1.1 配置参数
 ```
-ROUND_REWARD_GOV_PER_THOUSAND = 100           // 治理奖励池比例: 10%
-ROUND_REWARD_PROPOSAL_PER_THOUSAND = 100      // 提案奖励池比例: 10%
-PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND = 50   // 提案资格阈值: 5%
+ROUND_REWARD_GOV_RATIO = 1e17                 // 治理奖励池比例: 10%
+ROUND_REWARD_PROPOSAL_RATIO = 1e17            // 提案奖励池比例: 10%
+PROPOSAL_REWARD_MIN_VOTE_RATIO = 5e16        // 提案资格阈值: 5%
 MAX_GOV_BOOST_REWARD_MULTIPLIER = 2           // Boost 倍数上限: 2x
 ```
 
@@ -39,13 +39,13 @@ rewardAvailable = (maxSupply - currentSupply) - reservedAvailable
 
 ### 3.1 治理奖励池
 ```
-govRewardAmount = rewardAvailable × (ROUND_REWARD_GOV_PER_THOUSAND / 1000)
+govRewardAmount = rewardAvailable × (ROUND_REWARD_GOV_RATIO / 1e18)
                 = rewardAvailable × 0.1
 ```
 
 ### 3.2 提案奖励池
 ```
-proposalRewardAmount = rewardAvailable × (ROUND_REWARD_PROPOSAL_PER_THOUSAND / 1000)
+proposalRewardAmount = rewardAvailable × (ROUND_REWARD_PROPOSAL_RATIO / 1e18)
                      = rewardAvailable × 0.1
 ```
 
@@ -123,7 +123,7 @@ totalReward = voteReward + boostReward
 
 #### 5.1.1 最低票数阈值（向上取整）
 ```
-minVotes = ceil(totalVotes × (PROPOSAL_REWARD_MIN_VOTE_PER_THOUSAND / 1000))
+minVotes = ceil(totalVotes × (PROPOSAL_REWARD_MIN_VOTE_RATIO / 1e18))
          = ceil(totalVotes × 0.05)
 ```
 
