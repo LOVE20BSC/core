@@ -102,6 +102,7 @@ interface IMint is IMintEvents, IMintErrors {
     function proposalReward(address tokenAddress, uint256 round) external view returns (uint256);
     function eligibleProposalVotes(address tokenAddress, uint256 round)
         external view returns (uint256);
+    function isRewardPrepared(address tokenAddress, uint256 round) external view returns (bool);
     function proposalRewardByProposalId(address tokenAddress, uint256 round, uint256 proposalId)
         external view returns (uint256 amount, bool minted);
     function govRewardByMemberId(address tokenAddress, uint256 round, uint256 memberId)
