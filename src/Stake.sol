@@ -666,8 +666,17 @@ contract Stake is IStake {
         global.totalLiquidityShares -= liquidityShares;
 
         if (lpAmount > 0) {
-            _push(pair, pair, lpAmount);
-            (tokenAmount, parentTokenAmount) = _burnLp(IUniswapV2Pair(pair), tokenAddress, msg.sender);
+            (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
+            // `pair.burn` reverts when either side of the proportional payout floors to zero, and the
+            // withdrawal is atomic, so an unburnable payout would lock the position and its boost
+            // forever. The LP is handed over unburned instead, which keeps the contract balance equal
+            // to the ledger and leaves the withdrawer a claim they can exit once the pair splits again.
+            if (_canBurn(lpAmount, reserveToken, reserveParent, pairTotalSupply)) {
+                _push(pair, pair, lpAmount);
+                (tokenAmount, parentTokenAmount) = _burnLp(IUniswapV2Pair(pair), tokenAddress, msg.sender);
+            } else {
+                _push(pair, msg.sender, lpAmount);
+            }
         }
 
         _updateSqrtKBaseline(global, pair, tokenAddress);

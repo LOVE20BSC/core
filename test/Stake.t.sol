@@ -898,6 +898,57 @@ contract StakeTest {
     }
 
 
+    function testWithdrawHandsOverLpWhenItCannotBeSplit() external {
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 1);
+        (, uint256 shares) = stakeAsOwner(owner1, memberId3, 1001, 1001, 1);
+        require(shares > 0, "expected shares");
+        vm().prank(owner1);
+        childToken.approve(address(stake), 1e18);
+        vm().prank(owner1);
+        stake.stakeBoost(address(childToken), 1e18, 1, memberId3);
+
+        vm().prank(owner1);
+        stake.unstake(address(childToken), memberId3);
+        phase.setPhase(3);
+
+        (uint256 totalShares,, uint256 withdrawable,,,,) = stake.globalStakeData(address(childToken));
+        uint256 lpAmount = shares * withdrawable / totalShares;
+        require(lpAmount > 0, "expected a positive LP payout");
+        require(lpAmount < pair.totalSupply(), "payout must stay below the pair supply");
+
+        // Both reserves are now below `pairSupply / lpAmount`, so `pair.burn` would floor one side
+        // to zero and revert. The withdrawal has to hand the LP over unburned instead of reverting.
+        pair.setReserves(1, 1);
+
+        uint256 tokenBefore = childToken.balanceOf(owner1);
+        uint256 parentBefore = parentToken.balanceOf(owner1);
+        uint256 lpStakeBefore = pair.balanceOf(address(stake));
+        uint256 lpUserBefore = pair.balanceOf(owner1);
+        vm().prank(owner1);
+        stake.withdraw(address(childToken), memberId3);
+
+        require(childToken.balanceOf(owner1) == tokenBefore + 1e18, "boost must be returned");
+        require(parentToken.balanceOf(owner1) == parentBefore, "no parent payout");
+        require(pair.balanceOf(owner1) == lpUserBefore + lpAmount, "LP must be handed to the withdrawer");
+        require(pair.balanceOf(address(stake)) == lpStakeBefore - lpAmount, "contract LP must match the ledger");
+        (uint256 sharedAfter, uint256 boostAfter, uint256 waitingAfter, uint256 requestedAfter,,) =
+            stake.stakeData(address(childToken), memberId3);
+        require(
+            sharedAfter == 0 && boostAfter == 0 && waitingAfter == 0 && requestedAfter == 0, "position cleared"
+        );
+        (uint256 sharesLeft,,,,,) = stake.stakeData(address(childToken), memberId1);
+        require(sharesLeft == 1000e18, "other position untouched");
+
+        // The handed-over LP is a live claim: once the pair can be split again the withdrawer exits it directly.
+        pair.setReserves(1000e18, 1000e18);
+        vm().prank(owner1);
+        pair.transfer(address(pair), lpAmount);
+        vm().prank(owner1);
+        (uint256 burned0, uint256 burned1) = pair.burn(owner1);
+        require(burned0 > 0 && burned1 > 0, "LP must be redeemable after recovery");
+        require(childToken.balanceOf(owner1) > tokenBefore + 1e18, "redeemed child tokens");
+    }
+
     function testCanWithdrawMatchesWithdrawBehavior() external {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 
