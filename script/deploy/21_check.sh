@@ -297,8 +297,8 @@ verify_value "PROMISED_WAITING_PHASES_MIN" "$PROMISED_WAITING_PHASES_MIN" "$ACTU
 ACTUAL_WAITING_MAX=$(cast call "$STAKE_ADDRESS" "PROMISED_WAITING_PHASES_MAX()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "PROMISED_WAITING_PHASES_MAX" "$PROMISED_WAITING_PHASES_MAX" "$ACTUAL_WAITING_MAX" || ((FAILED+=1))
 
-ACTUAL_FEE_RATIO=$(cast call "$STAKE_ADDRESS" "MAX_WITHDRAWABLE_TO_FEE_RATIO()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "MAX_WITHDRAWABLE_TO_FEE_RATIO" "$MAX_WITHDRAWABLE_TO_FEE_RATIO" "$ACTUAL_FEE_RATIO" || ((FAILED+=1))
+ACTUAL_FEE_RATIO=$(cast call "$STAKE_ADDRESS" "FEE_SETTLEMENT_RATIO()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "FEE_SETTLEMENT_RATIO" "$FEE_SETTLEMENT_RATIO" "$ACTUAL_FEE_RATIO" || ((FAILED+=1))
 
 ACTUAL_STAKE_INIT=$(cast call "$STAKE_ADDRESS" "initialized()(bool)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "initialized" "true" "$ACTUAL_STAKE_INIT" || ((FAILED+=1))

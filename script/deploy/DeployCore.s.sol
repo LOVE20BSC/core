@@ -114,7 +114,7 @@ contract DeployCore is Script {
             vm.envAddress("FACTORY_ADDRESS"),
             vm.envUint("PROMISED_WAITING_PHASES_MIN"),
             vm.envUint("PROMISED_WAITING_PHASES_MAX"),
-            vm.envUint("MAX_WITHDRAWABLE_TO_FEE_RATIO")
+            vm.envUint("FEE_SETTLEMENT_RATIO")
         );
         console2.log("Stake initialized");
 

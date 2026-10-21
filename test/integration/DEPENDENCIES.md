@@ -76,7 +76,7 @@ function init(
     address pairFactoryAddress_,
     uint256 promisedWaitingPhasesMin,
     uint256 promisedWaitingPhasesMax,
-    uint256 maxWithdrawableToFeeRatio
+    uint256 feeSettlementRatio
 ) external
 ```
 **依赖**: Phase, MemberNFT, Vote, Launch, UniswapV2Router, UniswapV2Factory
@@ -178,7 +178,7 @@ stake.init(
     address(factory),
     1,    // promisedWaitingPhasesMin
     100,  // promisedWaitingPhasesMax
-    10e18 // maxWithdrawableToFeeRatio: 10:1
+    3e15 // feeSettlementRatio: 0.3% of the withdrawable basis per settlement
 );
 
 // 4. 初始化 Vote（依赖 Phase, Stake, Submit, MemberNFT, Mint）

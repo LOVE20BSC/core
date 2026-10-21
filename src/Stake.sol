@@ -43,7 +43,7 @@ contract Stake is IStake {
     address public pairFactoryAddress;
     uint256 public PROMISED_WAITING_PHASES_MIN;
     uint256 public PROMISED_WAITING_PHASES_MAX;
-    uint256 public MAX_WITHDRAWABLE_TO_FEE_RATIO;
+    uint256 public FEE_SETTLEMENT_RATIO;
 
     mapping(address => address) internal _pairAddress;
     mapping(address => GlobalStake) internal _globalStake;
@@ -65,7 +65,7 @@ contract Stake is IStake {
         address pairFactoryAddress_,
         uint256 promisedWaitingPhasesMin,
         uint256 promisedWaitingPhasesMax,
-        uint256 maxWithdrawableToFeeRatio
+        uint256 feeSettlementRatio
     ) external {
         if (initialized) revert AlreadyInitialized();
         if (
@@ -77,7 +77,8 @@ contract Stake is IStake {
             pairFactoryAddress_ == address(0)
         ) revert InvalidAddress();
         if (promisedWaitingPhasesMin == 0) revert ZeroAmount("promisedWaitingPhasesMin");
-        if (maxWithdrawableToFeeRatio == 0) revert ZeroAmount("maxWithdrawableToFeeRatio");
+        if (feeSettlementRatio == 0) revert ZeroAmount("feeSettlementRatio");
+        if (feeSettlementRatio > 1e18) revert FeeSettlementRatioOutOfRange();
         if (promisedWaitingPhasesMin > promisedWaitingPhasesMax) revert InvalidAmount();
 
         initialized = true;
@@ -89,7 +90,7 @@ contract Stake is IStake {
         pairFactoryAddress = pairFactoryAddress_;
         PROMISED_WAITING_PHASES_MIN = promisedWaitingPhasesMin;
         PROMISED_WAITING_PHASES_MAX = promisedWaitingPhasesMax;
-        MAX_WITHDRAWABLE_TO_FEE_RATIO = maxWithdrawableToFeeRatio;
+        FEE_SETTLEMENT_RATIO = feeSettlementRatio;
     }
 
     function settleFees(address tokenAddress) external {
@@ -180,6 +181,8 @@ contract Stake is IStake {
         if (member.liquidityShares == 0) revert NoStakedLiquidity();
 
         uint256 round = _currentRound();
+        if (_hasUsedStakeRights(tokenAddress, round, memberId)) revert MemberHasUsedStakeRightsInCurrentRound();
+
         uint256 govVotes = member.liquidityShares * member.promisedWaitingPhases;
         uint256 boostShares = member.boostShares;
 
@@ -260,12 +263,7 @@ contract Stake is IStake {
         if (source.liquidityShares == 0) revert NoStakedLiquidity();
 
         uint256 round = _currentRound();
-        if (
-            IVote(voteAddress).votesNumByMemberId(tokenAddress, round, sourceMemberId) != 0
-                || ISubmit(IVote(voteAddress).submitAddress()).proposalIdBySubmitter(
-                    tokenAddress, round, sourceMemberId
-                ) != 0
-        ) {
+        if (_hasUsedStakeRights(tokenAddress, round, sourceMemberId)) {
             revert SourceHasUsedStakeRightsInCurrentRound();
         }
 
@@ -429,6 +427,15 @@ contract Stake is IStake {
 
     function _requireToken(address tokenAddress) private view {
         if (!ILaunch(launchAddress).isLOVE20Token(tokenAddress)) revert InvalidTokenAddress();
+    }
+
+    function _hasUsedStakeRights(
+        address tokenAddress,
+        uint256 round,
+        uint256 memberId
+    ) private view returns (bool) {
+        if (IVote(voteAddress).votesNumByMemberId(tokenAddress, round, memberId) != 0) return true;
+        return ISubmit(IVote(voteAddress).submitAddress()).proposalIdBySubmitter(tokenAddress, round, memberId) != 0;
     }
 
     /// @dev Every token Stake moves — LOVE20 tokens, WETH and the pair's LP token — reverts instead of
@@ -706,11 +713,7 @@ contract Stake is IStake {
         global.lastSqrtKOfLp = sqrtKOfLp;
         global.totalLp = feeLp + withdrawableLp;
 
-        // The threshold doubles as the size of one settlement: a unit is the smallest fee worth burning,
-        // so one settlement burns one unit and the rest stays pending for the next phase. That keeps a
-        // single settlement's price move at
-        // `withdrawableLp * 1e18 / (MAX_WITHDRAWABLE_TO_FEE_RATIO * pairTotalSupply)`.
-        uint256 settlementUnit = Math.mulDiv(withdrawableLp, 1e18, MAX_WITHDRAWABLE_TO_FEE_RATIO);
+        uint256 settlementUnit = Math.mulDiv(withdrawableLp, FEE_SETTLEMENT_RATIO, 1e18);
         if (feeLp < settlementUnit) {
             return;
         }

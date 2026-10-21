@@ -153,7 +153,7 @@ contract MintRealIntegrationTest {
             address(factory),
             1,    // promisedWaitingPhasesMin
             100,  // promisedWaitingPhasesMax
-            10e18 // maxWithdrawableToFeeRatio: 10:1
+            3e15  // feeSettlementRatio: 0.3% of the withdrawable basis per settlement
         );
 
         // 4. Initialize Vote (depends on: Phase, Stake, Submit, MemberNFT)

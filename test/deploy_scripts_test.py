@@ -81,7 +81,7 @@ def main():
                     "PROPOSAL_REWARD_MIN_VOTE_RATIO": "50000000000000000", "GOV_REWARD_RATIO": "100000000000000000",
                     "PROPOSAL_REWARD_RATIO": "100000000000000000",
                     "MAX_BOOST_MULTIPLIER": "2", "SUBMIT_MIN_RATIO": "10000000000000000", "PROMISED_WAITING_PHASES_MIN": "1",
-                    "PROMISED_WAITING_PHASES_MAX": "100", "MAX_WITHDRAWABLE_TO_FEE_RATIO": "1000000000000000000000"})
+                    "PROMISED_WAITING_PHASES_MAX": "100", "FEE_SETTLEMENT_RATIO": "3000000000000000"})
         calls = {}
 
         def getters(contract, fields):
@@ -101,7 +101,7 @@ def main():
             "PROPOSAL_REWARD_MIN_VOTE_RATIO": "PROPOSAL_REWARD_MIN_VOTE_RATIO", "ROUND_REWARD_GOV_RATIO": "GOV_REWARD_RATIO",
             "ROUND_REWARD_PROPOSAL_RATIO": "PROPOSAL_REWARD_RATIO", "MAX_GOV_BOOST_REWARD_MULTIPLIER": "MAX_BOOST_MULTIPLIER"}.items()})
         getters("MINT", {"phaseAddress()(address)": "PHASE_ADDRESS"})
-        getters("STAKE", {key + "()(uint256)": key for key in ("PROMISED_WAITING_PHASES_MIN", "PROMISED_WAITING_PHASES_MAX", "MAX_WITHDRAWABLE_TO_FEE_RATIO")})
+        getters("STAKE", {key + "()(uint256)": key for key in ("PROMISED_WAITING_PHASES_MIN", "PROMISED_WAITING_PHASES_MAX", "FEE_SETTLEMENT_RATIO")})
         getters("STAKE", {"routerAddress()(address)": "ROUTER_ADDRESS", "pairFactoryAddress()(address)": "FACTORY_ADDRESS"})
         getters("SUBMIT", {"SUBMIT_MIN_RATIO()(uint256)": "SUBMIT_MIN_RATIO"})
         for name, dependencies in {"MEMBERNFT": [], "LAUNCH": ["mint", "memberNFT"], "MINT": ["vote", "submit", "launch", "memberNFT"],
@@ -155,7 +155,7 @@ def main():
             run("21_check.sh", False, ("test",), BAD_CALL=env[contract + "_ADDRESS"].lower() + "/" + signature, BAD_VALUE=wrong_value)
         run("21_check.sh", False, ("test",), RPC_CODE_ERROR="1")
         run("21_check.sh", False, ("test",), RPC_CHAIN="56")
-        run("21_check.sh", False, ("test",), BAD_CALL=env["STAKE_ADDRESS"] + "/MAX_WITHDRAWABLE_TO_FEE_RATIO()(uint256)")
+        run("21_check.sh", False, ("test",), BAD_CALL=env["STAKE_ADDRESS"] + "/FEE_SETTLEMENT_RATIO()(uint256)")
         # 地址比较大小写不敏感：配置写大写、链上读到小写，仍应通过（配置值由步骤自行载入）。
         params_path = network.joinpath("network.params")
         params_text = params_path.read_text()

@@ -55,8 +55,20 @@ contract MockLaunch {
 }
 
 contract MockSubmit {
-    function proposalIdBySubmitter(address, uint256, uint256) external pure returns (uint256) {
-        return 0;
+    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) private _proposalIdBySubmitter;
+
+    function proposalIdBySubmitter(address tokenAddress, uint256 round, uint256 submitterId)
+        external
+        view
+        returns (uint256)
+    {
+        return _proposalIdBySubmitter[tokenAddress][round][submitterId];
+    }
+
+    function setProposalIdBySubmitter(address tokenAddress, uint256 round, uint256 submitterId, uint256 proposalId)
+        external
+    {
+        _proposalIdBySubmitter[tokenAddress][round][submitterId] = proposalId;
     }
 }
 
@@ -214,7 +226,7 @@ contract StakeTest {
     uint256 private constant MAX_NAME_LENGTH = 32;
     uint256 private constant PROMISED_WAITING_PHASES_MIN = 1;
     uint256 private constant PROMISED_WAITING_PHASES_MAX = 100;
-    uint256 private constant MAX_WITHDRAWABLE_TO_FEE_RATIO = 1000e18;
+    uint256 private constant FEE_SETTLEMENT_RATIO = 1e15;
 
     // Core contracts
     Stake public stake;
@@ -300,7 +312,7 @@ contract StakeTest {
             address(pairFactory),
             PROMISED_WAITING_PHASES_MIN,
             PROMISED_WAITING_PHASES_MAX,
-            MAX_WITHDRAWABLE_TO_FEE_RATIO
+            FEE_SETTLEMENT_RATIO
         );
 
         // Fund test accounts
@@ -357,6 +369,15 @@ contract StakeTest {
         );
     }
 
+    function tryUnstake(
+        address owner,
+        address tokenAddress,
+        uint256 memberId
+    ) private returns (bool success) {
+        vm().prank(owner);
+        (success,) = address(stake).call(abi.encodeWithSelector(Stake.unstake.selector, tokenAddress, memberId));
+    }
+
     // ============ Init Tests ============
 
     function testInitializesCorrectly() external view {
@@ -369,7 +390,7 @@ contract StakeTest {
         require(stake.pairFactoryAddress() == address(pairFactory), "PairFactory address mismatch");
         require(stake.PROMISED_WAITING_PHASES_MIN() == PROMISED_WAITING_PHASES_MIN, "Min phases mismatch");
         require(stake.PROMISED_WAITING_PHASES_MAX() == PROMISED_WAITING_PHASES_MAX, "Max phases mismatch");
-        require(stake.MAX_WITHDRAWABLE_TO_FEE_RATIO() == MAX_WITHDRAWABLE_TO_FEE_RATIO, "Fee ratio mismatch");
+        require(stake.FEE_SETTLEMENT_RATIO() == FEE_SETTLEMENT_RATIO, "Fee ratio mismatch");
     }
 
 
@@ -385,7 +406,7 @@ contract StakeTest {
                 address(pairFactory),
                 PROMISED_WAITING_PHASES_MIN,
                 PROMISED_WAITING_PHASES_MAX,
-                MAX_WITHDRAWABLE_TO_FEE_RATIO
+                FEE_SETTLEMENT_RATIO
             )
         );
         require(!success, "Should revert on double init");
@@ -404,7 +425,7 @@ contract StakeTest {
                 address(pairFactory),
                 PROMISED_WAITING_PHASES_MIN,
                 PROMISED_WAITING_PHASES_MAX,
-                MAX_WITHDRAWABLE_TO_FEE_RATIO
+                FEE_SETTLEMENT_RATIO
             )
         );
         require(!success, "Should revert with zero phase address");
@@ -423,7 +444,7 @@ contract StakeTest {
                 address(pairFactory),
                 PROMISED_WAITING_PHASES_MIN,
                 PROMISED_WAITING_PHASES_MAX,
-                MAX_WITHDRAWABLE_TO_FEE_RATIO
+                FEE_SETTLEMENT_RATIO
             )
         );
         require(!success, "Should revert with zero memberNFT address");
@@ -442,7 +463,7 @@ contract StakeTest {
                 address(pairFactory),
                 PROMISED_WAITING_PHASES_MIN,
                 PROMISED_WAITING_PHASES_MAX,
-                MAX_WITHDRAWABLE_TO_FEE_RATIO
+                FEE_SETTLEMENT_RATIO
             )
         );
         require(!success, "Should revert with zero vote address");
@@ -461,7 +482,7 @@ contract StakeTest {
                 address(pairFactory),
                 PROMISED_WAITING_PHASES_MIN,
                 PROMISED_WAITING_PHASES_MAX,
-                MAX_WITHDRAWABLE_TO_FEE_RATIO
+                FEE_SETTLEMENT_RATIO
             )
         );
         require(!success, "Should revert with zero launch address");
@@ -480,7 +501,7 @@ contract StakeTest {
                 address(pairFactory),
                 PROMISED_WAITING_PHASES_MIN,
                 PROMISED_WAITING_PHASES_MAX,
-                MAX_WITHDRAWABLE_TO_FEE_RATIO
+                FEE_SETTLEMENT_RATIO
             )
         );
         require(!success, "Should revert with zero router address");
@@ -499,7 +520,7 @@ contract StakeTest {
                 address(0), // zero pair factory address
                 PROMISED_WAITING_PHASES_MIN,
                 PROMISED_WAITING_PHASES_MAX,
-                MAX_WITHDRAWABLE_TO_FEE_RATIO
+                FEE_SETTLEMENT_RATIO
             )
         );
         require(!success, "Should revert with zero pair factory address");
@@ -518,13 +539,13 @@ contract StakeTest {
                 address(pairFactory),
                 0, // zero min
                 PROMISED_WAITING_PHASES_MAX,
-                MAX_WITHDRAWABLE_TO_FEE_RATIO
+                FEE_SETTLEMENT_RATIO
             )
         );
         require(!success, "Should revert with zero min phases");
     }
 
-    function testInitRevertsWithZeroMaxWithdrawableToFeeRatio() external {
+    function testInitRevertsWithZeroFeeSettlementRatio() external {
         Stake newStake = new Stake();
         (bool success, ) = address(newStake).call(
             abi.encodeWithSelector(
@@ -543,6 +564,25 @@ contract StakeTest {
         require(!success, "Should revert with zero fee ratio");
     }
 
+    function testInitRevertsWhenFeeSettlementRatioExceedsMax() external {
+        Stake newStake = new Stake();
+        (bool success, ) = address(newStake).call(
+            abi.encodeWithSelector(
+                Stake.init.selector,
+                address(phase),
+                address(memberNFT),
+                address(vote),
+                address(mockLaunch),
+                address(router),
+                address(pairFactory),
+                PROMISED_WAITING_PHASES_MIN,
+                PROMISED_WAITING_PHASES_MAX,
+                1e18 + 1
+            )
+        );
+        require(!success, "Should revert when fee ratio exceeds 100%");
+    }
+
     function testInitRevertsWhenMinGreaterThanMax() external {
         Stake newStake = new Stake();
         (bool success, ) = address(newStake).call(
@@ -556,7 +596,7 @@ contract StakeTest {
                 address(pairFactory),
                 100, // min > max
                 10,
-                MAX_WITHDRAWABLE_TO_FEE_RATIO
+                FEE_SETTLEMENT_RATIO
             )
         );
         require(!success, "Should revert when min > max");
@@ -797,15 +837,46 @@ contract StakeTest {
         vm().prank(owner1);
         stake.unstake(address(childToken), memberId1);
 
-        vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.unstake.selector,
-                address(childToken),
-                memberId1
-            )
+        require(!tryUnstake(owner1, address(childToken), memberId1), "Should revert on second unstake request");
+    }
+
+    function testUnstakeRevertsIfMemberVotedInCurrentRound() external {
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+
+        vote.setVotesNum(address(childToken), 1, memberId1, 100);
+
+        require(
+            !tryUnstake(owner1, address(childToken), memberId1),
+            "Should revert when the member voted in the current round"
         );
-        require(!success, "Should revert on second unstake request");
+
+        (, , , uint256 unlockPhase, , ) = stake.stakeData(address(childToken), memberId1);
+        require(unlockPhase == 0, "Unlock must not be recorded");
+        require(stake.validGovVotes(address(childToken), memberId1) > 0, "Vote weight must stay live");
+    }
+
+    function testUnstakeRevertsIfMemberSubmittedInCurrentRound() external {
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+
+        mockSubmit.setProposalIdBySubmitter(address(childToken), 1, memberId1, 7);
+
+        require(
+            !tryUnstake(owner1, address(childToken), memberId1),
+            "Should revert when the member submitted in the current round"
+        );
+    }
+
+    function testUnstakeSucceedsWhenStakeRightsWereUsedInAPreviousRound() external {
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+
+        vote.setVotesNum(address(childToken), 1, memberId1, 100);
+        phase.setPhase(2);
+
+        vm().prank(owner1);
+        stake.unstake(address(childToken), memberId1);
+
+        (, , , uint256 unlockPhase, , ) = stake.stakeData(address(childToken), memberId1);
+        require(unlockPhase == 2, "Unlock should be recorded in the current round");
     }
 
     // ============ Withdraw Tests ============

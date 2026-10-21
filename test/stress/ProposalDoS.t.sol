@@ -62,8 +62,8 @@ contract ProposalDoSTest is Test {
         (address[] memory tokens,) = launch.tokens(0, 1, false);
         token = LOVE20Token(tokens[0]);
         stake.init(address(phase), address(memberNFT), address(vote), address(launch),
-            address(new MockRouter()), address(factory), 1, 100, 1000);
-        submit.init(address(phase), address(stake), address(memberNFT), 1e16);
+            address(new MockRouter()), address(factory), 1, 100, 3e15);
+        submit.init(address(phase), address(stake), address(memberNFT), 1);
         vote.init(address(phase), address(stake), address(submit), address(memberNFT));
         mint.init(address(vote), address(submit), address(launch), address(memberNFT), 5e16, 1e17, 1e17, 2);
         vm.startPrank(actor);
@@ -83,8 +83,10 @@ contract ProposalDoSTest is Test {
         // Build the history of many transactions without consuming the single test-call gas budget.
         vm.pauseGasMetering();
         vm.startPrank(actor);
+        uint256[] memory memberIds = new uint256[](count);
         for (uint256 i; i < count; i++) {
             (uint256 memberId,) = memberNFT.mint(string.concat("member", vm.toString(i)));
+            memberIds[i] = memberId;
             uint256 amount = i == 0 ? count * 1e18 : 1e18;
             stake.stakeLiquidity(address(token), amount, amount, 0, 1, memberId);
             ids[0] = submit.submitNewProposal(address(token), memberId, ProposalBody({
@@ -96,16 +98,19 @@ contract ProposalDoSTest is Test {
             }));
             amounts[0] = amount;
             vote.vote(address(token), memberId, ids, amounts, new bytes[][](0));
-            stake.unstake(address(token), memberId);
-            assertEq(stake.globalGovVotes(address(token)), 0);
+            assertEq(stake.validGovVotes(address(token), memberId), amount);
         }
+        vm.roll(1001);
+        for (uint256 i; i < count; i++) {
+            stake.unstake(address(token), memberIds[i]);
+        }
+        assertEq(stake.globalGovVotes(address(token)), 0);
         vm.stopPrank();
         vm.resumeGasMetering();
         (, uint256 actualCount) = vote.votedProposalIds(address(token), 1, 0, 0, false);
         assertEq(actualCount, count);
         assertEq(vote.votesNum(address(token), 1), (2 * count - 1) * 1e18);
 
-        vm.roll(1001);
         uint256 available = mint.rewardAvailable(address(token));
         address launchAddress = mint.launchAddress();
         // A fresh external call models cold reads instead of reusing warmed setup slots.

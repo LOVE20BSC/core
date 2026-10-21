@@ -24,6 +24,7 @@ interface IStakeErrors {
     error UnstakeAlreadyRequested();
     error UnstakeNotRequested();
     error PromisedWaitingPhasesOutOfRange();
+    error FeeSettlementRatioOutOfRange();
     error PromisedWaitingPhasesMustBeGreaterOrEqualThanBefore();
     error NoStakedLiquidity();
     error NotEnoughWaitingPhases();
@@ -32,6 +33,7 @@ interface IStakeErrors {
     error NotMemberOwner(uint256 memberId);
     error SourceAndTargetMustBeDifferent();
     error SourceHasUsedStakeRightsInCurrentRound();
+    error MemberHasUsedStakeRightsInCurrentRound();
     error TargetPromisedWaitingPhasesTooShort();
     error InvalidAddress();
     error ZeroAmount(string parameter);
@@ -119,7 +121,7 @@ interface IStake is IStakeErrors, IStakeEvents {
         address pairFactoryAddress,
         uint256 promisedWaitingPhasesMin,
         uint256 promisedWaitingPhasesMax,
-        uint256 maxWithdrawableToFeeRatio
+        uint256 feeSettlementRatio
     ) external;
     function settleFees(address tokenAddress) external;
     function stakeLiquidity(
@@ -142,7 +144,7 @@ interface IStake is IStakeErrors, IStakeEvents {
 
     function PROMISED_WAITING_PHASES_MIN() external view returns (uint256);
     function PROMISED_WAITING_PHASES_MAX() external view returns (uint256);
-    function MAX_WITHDRAWABLE_TO_FEE_RATIO() external view returns (uint256);
+    function FEE_SETTLEMENT_RATIO() external view returns (uint256);
     function pairAddress(address tokenAddress) external view returns (address);
     function totalBurnedToken(address tokenAddress) external view returns (uint256);
     function totalParentTokenBurned(address tokenAddress) external view returns (uint256);

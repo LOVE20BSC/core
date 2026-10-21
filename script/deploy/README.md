@@ -96,11 +96,11 @@ SUBMIT_MIN_RATIO=10000000000000000               # 推举门槛（1%）
 PROMISED_WAITING_PHASES_MIN=1
 PROMISED_WAITING_PHASES_MAX=100
 
-# Stake 手续费销毁阈值及单次处理量的分母
-MAX_WITHDRAWABLE_TO_FEE_RATIO=1000000000000000000000  # 可提取 LP : 手续费 LP 上限（1000:1）；每次处理 floor(withdrawableLp * 1e18 / 该值) 个手续费 LP 最小单位
+# 单笔手续费结算占可提取 LP 的比例（1e18 = 100%），同时是结算阈值
+FEE_SETTLEMENT_RATIO=3000000000000000  # 0.3%；每次处理 floor(withdrawableLp * 该值 / 1e18) 个手续费 LP 最小单位
 ```
 
-`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；取值上下界由对应合约的 `init` 校验（例：`LAUNCH_RATIO` 上限 `1e18`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、`GOV_REWARD_RATIO + PROPOSAL_REWARD_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN <= MAX`），部署脚本另在广播前重复校验 `LAUNCH_RATIO` 与 `PROPOSAL_REWARD_MIN_VOTE_RATIO`。
+`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；取值上下界由对应合约的 `init` 校验（例：`LAUNCH_RATIO` 上限 `1e18`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、`GOV_REWARD_RATIO + PROPOSAL_REWARD_RATIO <= 1e18`、`0 < FEE_SETTLEMENT_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN <= MAX`），部署脚本另在广播前重复校验 `LAUNCH_RATIO` 与 `PROPOSAL_REWARD_MIN_VOTE_RATIO`。
 
 **重要参数说明：**
 - `DISTRIBUTOR`: 设置为部署钱包地址，接收初始代币
@@ -127,7 +127,7 @@ cd core
 
 DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2：交易手续费固定为 0.30%，Factory 的 `feeTo` 与 `feeToSetter` 均为零。地址应来自该仓库同网络的部署及验收结果，不使用旧 PancakeSwap 配置。
 
-`MAX_WITHDRAWABLE_TO_FEE_RATIO` 决定手续费销毁的触发阈值和单次处理量，不是交易费率。它以 `1e18` 表示 1:1，即「可提取 LP : 手续费 LP」的比值上限；`21_check.sh` 中的 `ACTUAL_FEE_RATIO` 只是链上读取结果，用于与这个配置值比对。现有配置 `1000e18` 表示 1000:1；每社区每 Phase 至多实际结算一次，且单次处理量须足够让 Pair 两侧产出非零数量。
+`FEE_SETTLEMENT_RATIO` 是单笔手续费结算占可提取 LP 的比例，同时决定触发阈值和单次处理量，不是交易费率。它以 `1e18` 表示 100%；`21_check.sh` 中的 `ACTUAL_FEE_RATIO` 只是链上读取结果，用于与这个配置值比对。现有配置 `3e15` 表示 0.3%，等于目标池费率，是该约束的上界；单次价格移动严格小于一个池费，一次往返的夹子成本仍为两个池费。该值必须不大于目标池费率，否则单笔结算的价格移动会盖过池费、放大夹子敞口。每社区每 Phase 至多实际结算一次，且单次处理量须足够让 Pair 两侧产出非零数量。
 
 ### 分步部署
 

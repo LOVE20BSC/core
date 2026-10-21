@@ -12,6 +12,7 @@
 > - `99_check.sh` → `21_check.sh`
 > - `verify.sh` → `31_verify.sh`
 > - 网络 profile `bsc97_dev` 已在 `core`、`dex` 中整体删除，仅保留 `anvil31337_dev`（`compatibility` 仓库的 profile 不受影响）
+> - `MAX_WITHDRAWABLE_TO_FEE_RATIO` → `FEE_SETTLEMENT_RATIO`（刻度改为 `1e18` 比例，`init` 增加 `<= 1e18` 上界）
 >
 > 正文保留原始文件名以存史，不改写当日结论。
 
