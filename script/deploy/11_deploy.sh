@@ -84,7 +84,7 @@ require_dex_dependencies() {
 # 8 个核心合约地址：从部署日志提取后逐项校验，缺项即失败，不写半截地址文件。
 require_core_addresses() {
     local field
-    for field in LOVE20TOKEN_ADDRESS MEMBERNFT_ADDRESS PHASE_ADDRESS LAUNCH_ADDRESS \
+    for field in LOVE20_TOKEN_ADDRESS MEMBER_NFT_ADDRESS PHASE_ADDRESS LAUNCH_ADDRESS \
         MINT_ADDRESS STAKE_ADDRESS SUBMIT_ADDRESS VOTE_ADDRESS; do
         if [[ ! ${!field:-} =~ ^0x[0-9a-fA-F]{40}$ ]] || [[ ${!field:-} = 0x0000000000000000000000000000000000000000 ]]; then
             echo "Error: Missing or invalid $field extracted from deployment log"
@@ -112,8 +112,8 @@ fi
 
 # 从部署输出中提取地址（DeployCore.s.sol 的 _logDeploymentSummary 输出）。
 # grep 无匹配会让管道在 set -e 下静默中止，故逐个容错取值，缺项交由 require_core_addresses 报错。
-LOVE20TOKEN_ADDRESS=$(grep "LOVE20TOKEN_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 | xargs || true)
-MEMBERNFT_ADDRESS=$(grep "MEMBERNFT_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 | xargs || true)
+LOVE20_TOKEN_ADDRESS=$(grep "LOVE20_TOKEN_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 | xargs || true)
+MEMBER_NFT_ADDRESS=$(grep "MEMBER_NFT_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 | xargs || true)
 PHASE_ADDRESS=$(grep "PHASE_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 | xargs || true)
 LAUNCH_ADDRESS=$(grep "LAUNCH_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 | xargs || true)
 MINT_ADDRESS=$(grep "MINT_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 | xargs || true)
@@ -125,8 +125,8 @@ require_core_addresses
 
 # 写入地址文件
 cat > "$NETWORK_DIR/addresses.core.params" <<EOFADDR
-LOVE20TOKEN_ADDRESS=$LOVE20TOKEN_ADDRESS
-MEMBERNFT_ADDRESS=$MEMBERNFT_ADDRESS
+LOVE20_TOKEN_ADDRESS=$LOVE20_TOKEN_ADDRESS
+MEMBER_NFT_ADDRESS=$MEMBER_NFT_ADDRESS
 PHASE_ADDRESS=$PHASE_ADDRESS
 LAUNCH_ADDRESS=$LAUNCH_ADDRESS
 MINT_ADDRESS=$MINT_ADDRESS

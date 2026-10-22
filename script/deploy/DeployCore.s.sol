@@ -171,8 +171,8 @@ contract DeployCore is Script {
 
     function _logDeploymentSummary(DeploymentAddresses memory addrs) private pure {
         console2.log("\n=== Deployment Summary ===");
-        console2.log("LOVE20TOKEN_ADDRESS=", addrs.token);
-        console2.log("MEMBERNFT_ADDRESS=", addrs.memberNFT);
+        console2.log("LOVE20_TOKEN_ADDRESS=", addrs.token);
+        console2.log("MEMBER_NFT_ADDRESS=", addrs.memberNFT);
         console2.log("PHASE_ADDRESS=", addrs.phase);
         console2.log("LAUNCH_ADDRESS=", addrs.launch);
         console2.log("MINT_ADDRESS=", addrs.mint);

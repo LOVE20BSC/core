@@ -43,7 +43,7 @@ esac
 
 require_core_addresses() {
     local field
-    for field in LOVE20TOKEN_ADDRESS MEMBERNFT_ADDRESS PHASE_ADDRESS LAUNCH_ADDRESS \
+    for field in LOVE20_TOKEN_ADDRESS MEMBER_NFT_ADDRESS PHASE_ADDRESS LAUNCH_ADDRESS \
         MINT_ADDRESS STAKE_ADDRESS SUBMIT_ADDRESS VOTE_ADDRESS; do
         if [[ ! ${!field:-} =~ ^0x[0-9a-fA-F]{40}$ ]] || [[ ${!field:-} = 0x0000000000000000000000000000000000000000 ]]; then
             echo "Error: Missing or invalid $field in $NETWORK_DIR/addresses.core.params"
@@ -85,10 +85,10 @@ verify_contract() {
     forge verify-contract "$address" "src/$name.sol:$name" "${COMMON_ARGS[@]}" "$@"
 }
 
-verify_contract "$MEMBERNFT_ADDRESS" MemberNFT --constructor-args "$MEMBER_ARGS"
+verify_contract "$MEMBER_NFT_ADDRESS" MemberNFT --constructor-args "$MEMBER_ARGS"
 verify_contract "$PHASE_ADDRESS" Phase --constructor-args "$PHASE_ARGS"
 verify_contract "$LAUNCH_ADDRESS" Launch
-verify_contract "$LOVE20TOKEN_ADDRESS" LOVE20Token --constructor-args "$TOKEN_ARGS"
+verify_contract "$LOVE20_TOKEN_ADDRESS" LOVE20Token --constructor-args "$TOKEN_ARGS"
 verify_contract "$MINT_ADDRESS" Mint
 verify_contract "$STAKE_ADDRESS" Stake
 verify_contract "$SUBMIT_ADDRESS" Submit

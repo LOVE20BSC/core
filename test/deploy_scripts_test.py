@@ -66,7 +66,7 @@ def main():
             stub.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + " "
                             + shlex.quote(str(Path(__file__).resolve())) + " --fake " + tool + ' "$@"\n')
             stub.chmod(0o755)
-        names = ["LOVE20TOKEN", "MEMBERNFT", "PHASE", "LAUNCH", "MINT", "STAKE", "SUBMIT", "VOTE"]
+        names = ["LOVE20_TOKEN", "MEMBER_NFT", "PHASE", "LAUNCH", "MINT", "STAKE", "SUBMIT", "VOTE"]
         env = {name + "_ADDRESS": f"0x{index + 10:040x}" for index, name in enumerate(names)}
         contracts = list(env)
         env.update({"CHAIN_ID": "97", "RPC_URL": "http://invalid.local", "ETHERSCAN_API_KEY": "test-key",
@@ -88,14 +88,14 @@ def main():
             for signature, value in fields.items():
                 calls[env[contract + "_ADDRESS"].lower() + "/" + signature] = env.get(value, value)
 
-        getters("LOVE20TOKEN", {"name()(string)": "TOKEN_NAME", "symbol()(string)": "TOKEN_SYMBOL",
+        getters("LOVE20_TOKEN", {"name()(string)": "TOKEN_NAME", "symbol()(string)": "TOKEN_SYMBOL",
                 "maxSupply()(uint256)": "MAX_SUPPLY", "minter()(address)": "MINT_ADDRESS", "parentTokenAddress()(address)": "WETH_ADDRESS"})
-        getters("MEMBERNFT", {key + "()(uint256)": "MEMBER_" + key for key in ("BASE_DIVISOR", "BYTES_THRESHOLD", "MULTIPLIER", "MAX_NAME_LENGTH")})
-        getters("MEMBERNFT", {"LOVE20_TOKEN_ADDRESS()(address)": "LOVE20TOKEN_ADDRESS"})
+        getters("MEMBER_NFT", {key + "()(uint256)": "MEMBER_" + key for key in ("BASE_DIVISOR", "BYTES_THRESHOLD", "MULTIPLIER", "MAX_NAME_LENGTH")})
+        getters("MEMBER_NFT", {"LOVE20_TOKEN_ADDRESS()(address)": "LOVE20_TOKEN_ADDRESS"})
         getters("PHASE", {key + "()(uint256)": "PHASE_" + key for key in ("ORIGIN_BLOCKS", "ORIGIN_PHASE_BLOCKS", "TARGET_SECONDS", "ADJUST_THRESHOLD", "SYNC_OBSERVATION_LIMIT")})
         getters("LAUNCH", {key + "()(uint256)": key for key in ("LAUNCH_RATIO", "MAX_LAUNCH_COUNT", "TOKEN_SYMBOL_LENGTH", "MAX_SUPPLY")})
         getters("LAUNCH", {"LAUNCH_AMOUNT()(uint256)": "INITIAL_SUPPLY", "rootParentTokenAddress()(address)": "WETH_ADDRESS",
-                "firstTokenAddress()(address)": "LOVE20TOKEN_ADDRESS", "pairFactoryAddress()(address)": "FACTORY_ADDRESS",
+                "firstTokenAddress()(address)": "LOVE20_TOKEN_ADDRESS", "pairFactoryAddress()(address)": "FACTORY_ADDRESS",
                 "isLOVE20Token(address)(bool)": "true"})
         getters("MINT", {key + "()(uint256)": value for key, value in {
             "PROPOSAL_REWARD_MIN_VOTE_RATIO": "PROPOSAL_REWARD_MIN_VOTE_RATIO", "ROUND_REWARD_GOV_RATIO": "GOV_REWARD_RATIO",
@@ -104,11 +104,12 @@ def main():
         getters("STAKE", {key + "()(uint256)": key for key in ("PROMISED_WAITING_PHASES_MIN", "PROMISED_WAITING_PHASES_MAX", "FEE_SETTLEMENT_RATIO")})
         getters("STAKE", {"routerAddress()(address)": "ROUTER_ADDRESS", "pairFactoryAddress()(address)": "FACTORY_ADDRESS"})
         getters("SUBMIT", {"SUBMIT_MIN_RATIO()(uint256)": "SUBMIT_MIN_RATIO"})
-        for name, dependencies in {"MEMBERNFT": [], "LAUNCH": ["mint", "memberNFT"], "MINT": ["vote", "submit", "launch", "memberNFT"],
+        dep_keys = {"memberNFT": "MEMBER_NFT"}
+        for name, dependencies in {"MEMBER_NFT": [], "LAUNCH": ["mint", "memberNFT"], "MINT": ["vote", "submit", "launch", "memberNFT"],
                 "STAKE": ["phase", "memberNFT", "vote", "launch"], "SUBMIT": ["phase", "stake", "memberNFT"],
                 "VOTE": ["phase", "stake", "submit", "memberNFT"]}.items():
             getters(name, {"initialized()(bool)": "true"})
-            getters(name, {dep + "Address()(address)": dep.upper() + "_ADDRESS" for dep in dependencies})
+            getters(name, {dep + "Address()(address)": dep_keys.get(dep, dep.upper()) + "_ADDRESS" for dep in dependencies})
         getters("ROUTER", {"factory()(address)": "FACTORY_ADDRESS", "WETH()(address)": "WETH_ADDRESS"})
         data_path, log_path = root / "rpc.json", root / "calls.log"
         data_path.write_text(json.dumps({"env": env, "contracts": contracts, "calls": calls}))
@@ -149,7 +150,7 @@ def main():
         for contract, signature in [("LAUNCH", "rootParentTokenAddress()(address)"), ("LAUNCH", "firstTokenAddress()(address)"),
                 ("LAUNCH", "pairFactoryAddress()(address)"),
                 ("LAUNCH", "TOKEN_SYMBOL_LENGTH()(uint256)"), ("LAUNCH", "LAUNCH_AMOUNT()(uint256)"), ("LAUNCH", "MAX_SUPPLY()(uint256)"),
-                ("MEMBERNFT", "MAX_NAME_LENGTH()(uint256)"), ("PHASE", "ORIGIN_BLOCKS()(uint256)"),
+                ("MEMBER_NFT", "MAX_NAME_LENGTH()(uint256)"), ("PHASE", "ORIGIN_BLOCKS()(uint256)"),
                 ("PHASE", "ORIGIN_PHASE_BLOCKS()(uint256)"), ("PHASE", "SYNC_OBSERVATION_LIMIT()(uint256)"), ("ROUTER", "WETH()(address)")]:
             wrong_value = "0x" + "98" * 20 if signature.endswith("(address)") else "999"
             run("21_check.sh", False, ("test",), BAD_CALL=env[contract + "_ADDRESS"].lower() + "/" + signature, BAD_VALUE=wrong_value)
