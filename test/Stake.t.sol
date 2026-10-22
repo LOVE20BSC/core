@@ -846,10 +846,9 @@ contract StakeTest {
 
         vote.setVotesNum(address(childToken), 1, memberId1, 100);
 
-        require(
-            !tryUnstake(owner1, address(childToken), memberId1),
-            "Should revert when the member voted in the current round"
-        );
+        vm().prank(owner1);
+        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.StakeRightsUsedInCurrentRound.selector, memberId1));
+        stake.unstake(address(childToken), memberId1);
 
         (, , , uint256 unlockPhase, , ) = stake.stakeData(address(childToken), memberId1);
         require(unlockPhase == 0, "Unlock must not be recorded");
@@ -1103,15 +1102,8 @@ contract StakeTest {
         vote.setVotesNum(address(childToken), 1, memberId1, 100);
 
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.mergeStake.selector,
-                address(childToken),
-                memberId1,
-                memberId3
-            )
-        );
-        require(!success, "Should revert if source has voted in current round");
+        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.StakeRightsUsedInCurrentRound.selector, memberId1));
+        stake.mergeStake(address(childToken), memberId1, memberId3);
     }
 
     function testMergeStakeRevertsIfTargetPhasesTooShort() external {
@@ -2012,7 +2004,11 @@ contract StakeTest {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 
         vm().prank(owner1);
-        vm().expectRevert(IStakeErrors.SourceAndTargetMustBeDifferent.selector);
+        vm().expectRevert(
+            abi.encodeWithSelector(
+                IStakeErrors.SourceAndTargetMemberIdsMustBeDifferent.selector, memberId1, memberId1
+            )
+        );
         stake.mergeStake(address(childToken), memberId1, memberId1);
     }
 

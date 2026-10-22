@@ -1024,7 +1024,7 @@ contract LaunchTest {
 
         (bool ok, bytes memory data) = _merge(alice, address(firstToken), aliceMemberId, aliceMemberId, 1);
         require(!ok, "same member must revert");
-        require(_selector(data) == ILaunchErrors.SourceAndTargetMustBeDifferent.selector, "same member selector");
+        require(_selector(data) == ILaunchErrors.SourceAndTargetMemberIdsMustBeDifferent.selector, "same member selector");
 
         (ok, data) = _merge(alice, address(firstToken), aliceMemberId, bobMemberId, 0);
         require(!ok, "zero count must revert");
@@ -1105,7 +1105,7 @@ contract LaunchTest {
 
         // 参数优先：同成员 + count 为零
         (ok, data) = _merge(alice, address(firstToken), aliceMemberId, aliceMemberId, 0);
-        require(!ok && _selector(data) == ILaunchErrors.SourceAndTargetMustBeDifferent.selector, "same before count");
+        require(!ok && _selector(data) == ILaunchErrors.SourceAndTargetMemberIdsMustBeDifferent.selector, "same before count");
 
         // 参数优先于存在性：count 为零 + 未登记 token
         (ok, data) = _merge(alice, EOA, aliceMemberId, bobMemberId, 0);

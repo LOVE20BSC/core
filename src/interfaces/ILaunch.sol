@@ -33,7 +33,7 @@ interface ILaunchErrors {
     error UnauthorizedCaller();
     error NotMemberOwner(uint256 memberId);
     error CountMustBeGreaterThanZero();
-    error SourceAndTargetMustBeDifferent();
+    error SourceAndTargetMemberIdsMustBeDifferent(uint256 sourceMemberId, uint256 targetMemberId);
     error NotEnoughLaunchCount();
     error LaunchCountLimitReached();
     error InvalidAmount();

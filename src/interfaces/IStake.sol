@@ -30,9 +30,8 @@ interface IStakeErrors {
     error NotEnoughWaitingPhases();
     error InvalidTokenAddress();
     error NotMemberOwner(uint256 memberId);
-    error SourceAndTargetMustBeDifferent();
-    error SourceHasUsedStakeRightsInCurrentRound();
-    error MemberHasUsedStakeRightsInCurrentRound();
+    error SourceAndTargetMemberIdsMustBeDifferent(uint256 sourceMemberId, uint256 targetMemberId);
+    error StakeRightsUsedInCurrentRound(uint256 memberId);
     error TargetPromisedWaitingPhasesTooShort();
     error InvalidAddress();
     error ZeroAmount(string parameter);

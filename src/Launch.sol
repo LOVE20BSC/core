@@ -224,7 +224,7 @@ contract Launch is ILaunch {
         onlyMemberOwner(sourceMemberId)
     {
         if (sourceMemberId == targetMemberId) {
-            revert SourceAndTargetMustBeDifferent();
+            revert SourceAndTargetMemberIdsMustBeDifferent(sourceMemberId, targetMemberId);
         }
         if (count == 0) revert CountMustBeGreaterThanZero();
 

@@ -184,7 +184,7 @@ contract Stake is IStake {
         if (member.liquidityShares == 0) revert NoStakedLiquidity();
 
         uint256 round = _currentRound();
-        if (_hasUsedStakeRights(tokenAddress, round, memberId)) revert MemberHasUsedStakeRightsInCurrentRound();
+        if (_hasUsedStakeRights(tokenAddress, round, memberId)) revert StakeRightsUsedInCurrentRound(memberId);
 
         uint256 govVotes = member.liquidityShares * member.promisedWaitingPhases;
         uint256 boostShares = member.boostShares;
@@ -256,7 +256,9 @@ contract Stake is IStake {
         external
         onlyMemberOwner(sourceMemberId)
     {
-        if (sourceMemberId == targetMemberId) revert SourceAndTargetMustBeDifferent();
+        if (sourceMemberId == targetMemberId) {
+            revert SourceAndTargetMemberIdsMustBeDifferent(sourceMemberId, targetMemberId);
+        }
         _requireToken(tokenAddress);
         IMemberNFT(memberNFTAddress).ownerOf(targetMemberId);
 
@@ -267,7 +269,7 @@ contract Stake is IStake {
 
         uint256 round = _currentRound();
         if (_hasUsedStakeRights(tokenAddress, round, sourceMemberId)) {
-            revert SourceHasUsedStakeRightsInCurrentRound();
+            revert StakeRightsUsedInCurrentRound(sourceMemberId);
         }
 
         (uint256 liquiditySharesMerged, uint256 boostSharesMerged) =
