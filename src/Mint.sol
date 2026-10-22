@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.37;
 
-import {Math} from "../lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IVote} from "./interfaces/IVote.sol";
 import {ISubmit} from "./interfaces/ISubmit.sol";
 import {ILaunch} from "./interfaces/ILaunch.sol";

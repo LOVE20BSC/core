@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.37;
 
-import {Test} from "forge-std/Test.sol";
+import {Test} from "@forge-std/Test.sol";
 import {Mint} from "../../src/Mint.sol";
 import {Stake} from "../../src/Stake.sol";
 import {Submit} from "../../src/Submit.sol";

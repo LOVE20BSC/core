@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.37;
 
-import {Math} from "../lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
-import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {RoundHistoryUint256} from "../lib/libs/src/RoundHistoryUint256.sol";
-import {Pagination} from "../lib/libs/src/Pagination.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {RoundHistoryUint256} from "@libs/RoundHistoryUint256.sol";
+import {Pagination} from "@libs/Pagination.sol";
 import {IPhase} from "./interfaces/IPhase.sol";
 import {ILaunch} from "./interfaces/ILaunch.sol";
 import {ISubmit} from "./interfaces/ISubmit.sol";

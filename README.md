@@ -4,6 +4,16 @@ Core 负责 MemberNFT、Phase、Stake、Proposal、Vote、Mint、LOVE20Token 和
 
 迁移方式：每个合约先以固定旧提交建立原始快照，再按小步提交改造成 BSC 版本。旧代码来源：`LOVE20TKM/core@0e3efcc13a7b9e202033f62e4858795bf43b557e`。
 
+## 依赖
+
+| 子模块 | 用途 |
+| --- | --- |
+| `lib/libs` | 跨仓共享 Solidity 原语；本仓是 `action`、`group-chat` 的版本权威 |
+| `lib/openzeppelin-contracts` | 标准 ERC 与数学库；同上 |
+| `lib/forge-std` | 测试与脚本 |
+
+下游经嵌套依赖使用本仓的 `libs` 与 OpenZeppelin；版本见 `.gitmodules` + `foundry.lock`。生产源码通过 `@libs/`、`@openzeppelin/contracts/` 别名导入直接依赖，`remappings.txt` 是实际解析表。规则见 [合约开发规范](https://github.com/LOVE20BSC/matt-gov/blob/main/docs/dev-standards.md) §3.2。
+
 ## 当前状态
 
 - `src/LOVE20Token.sol`：已完成 BSC 版，构造函数接收名称、符号、首批供应量、最大供应量、`distributor`、`minter` 和父币。

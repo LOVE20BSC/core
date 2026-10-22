@@ -5,7 +5,7 @@ import {Mint} from "../src/Mint.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {IMintErrors} from "../src/interfaces/IMint.sol";
 import {ISubmitErrors, TargetMode} from "../src/interfaces/ISubmit.sol";
-import {IERC721Errors} from "../lib/openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
+import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 interface MintVm {
     struct Log {

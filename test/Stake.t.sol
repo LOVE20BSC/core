@@ -3,7 +3,7 @@ pragma solidity =0.8.37;
 
 import {Stake} from "../src/Stake.sol";
 import {IStake, IStakeErrors, MemberStake, GlobalStake} from "../src/interfaces/IStake.sol";
-import {IERC721Errors} from "../lib/openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
+import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {MemberNFT} from "../src/MemberNFT.sol";
 import {Phase} from "../src/Phase.sol";

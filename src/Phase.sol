@@ -2,9 +2,9 @@
 pragma solidity =0.8.37;
 
 import {IPhase} from "./interfaces/IPhase.sol";
-import {OrderedHistoryIndex} from "../lib/libs/src/OrderedHistoryIndex.sol";
-import {Pagination} from "../lib/libs/src/Pagination.sol";
-import {Math} from "../lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
+import {OrderedHistoryIndex} from "@libs/OrderedHistoryIndex.sol";
+import {Pagination} from "@libs/Pagination.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract Phase is IPhase {
     using OrderedHistoryIndex for OrderedHistoryIndex.Index;

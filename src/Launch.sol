@@ -7,7 +7,7 @@ import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
 import {IUniswapV2Factory} from "./interfaces/UniswapV2/IUniswapV2Factory.sol";
 import {LOVE20Token} from "./LOVE20Token.sol";
-import {Pagination} from "../lib/libs/src/Pagination.sol";
+import {Pagination} from "@libs/Pagination.sol";
 
 /**
  * @title Launch

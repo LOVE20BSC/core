@@ -4,7 +4,7 @@ pragma solidity =0.8.37;
 import {Mint} from "../src/Mint.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {ISubmitErrors, TargetMode} from "../src/interfaces/ISubmit.sol";
-import {IERC721Errors} from "../lib/openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
+import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 /// @title MintInvariant - Invariant tests for core accounting rules
 /// @notice Verifies that critical invariants hold across any sequence of operations

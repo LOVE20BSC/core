@@ -7,7 +7,7 @@ import {IStake} from "./interfaces/IStake.sol";
 import {ISubmit, TargetMode} from "./interfaces/ISubmit.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
 import {IProposalTarget} from "./interfaces/IProposalTarget.sol";
-import {Pagination} from "../lib/libs/src/Pagination.sol";
+import {Pagination} from "@libs/Pagination.sol";
 
 contract Vote is IVote {
     using Pagination for uint256[];

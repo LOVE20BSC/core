@@ -7,8 +7,8 @@ import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
 import {ISubmit, ProposalHead, ProposalBody, ProposalInfo, SubmitInfo, TargetMode} from "./interfaces/ISubmit.sol";
 import {IProposalTarget} from "./interfaces/IProposalTarget.sol";
 
-import {Pagination} from "../lib/libs/src/Pagination.sol";
-import {Math} from "../lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
+import {Pagination} from "@libs/Pagination.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract Submit is ISubmit {
     using Pagination for uint256[];
