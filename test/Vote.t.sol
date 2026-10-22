@@ -742,7 +742,7 @@ contract VoteTest {
         _assertAllVoteStateEmpty(TOKEN, vote.currentRound(), memberId);
     }
 
-    /// @dev Vote keeps no `InvalidMemberId` of its own: the member NFT is the one that rejects an
+    /// @dev Vote keeps no zero-member error of its own: the member NFT is the one that rejects an
     ///      unknown id, and that error is what surfaces.
     function testVoteRejectsMemberThatDoesNotExist() external {
         uint256 proposalId = _proposeNoCallback(TOKEN);

@@ -80,15 +80,19 @@ contract Submit is ISubmit {
         return validVotes >= Math.mulDiv(total, SUBMIT_MIN_RATIO, 1e18, Math.Rounding.Ceil);
     }
 
+    modifier onlyMemberOwner(uint256 memberId) {
+        if (IMemberNFT(memberNFTAddress).ownerOf(memberId) != msg.sender) {
+            revert NotMemberOwner(memberId);
+        }
+        _;
+    }
+
     function submitNewProposal(
         address tokenAddress,
         uint256 memberId,
         ProposalBody calldata proposalBody
-    ) external returns (uint256 proposalId) {
-        IMemberNFT memberNFT = IMemberNFT(memberNFTAddress);
-        if (memberNFT.ownerOf(memberId) != msg.sender) {
-            revert NotMemberOwner(memberId);
-        }
+    ) external onlyMemberOwner(memberId) returns (uint256 proposalId) {
+        _validateProposalBody(proposalBody);
         if (!canSubmit(tokenAddress, memberId)) revert CannotSubmitAction();
 
         proposalId = _createProposal(tokenAddress, memberId, proposalBody);
@@ -99,11 +103,11 @@ contract Submit is ISubmit {
         return proposalId;
     }
 
-    function submit(address tokenAddress, uint256 memberId, uint256 proposalId) external {
-        IMemberNFT memberNFT = IMemberNFT(memberNFTAddress);
-        if (memberNFT.ownerOf(memberId) != msg.sender) {
-            revert NotMemberOwner(memberId);
-        }
+    function submit(address tokenAddress, uint256 memberId, uint256 proposalId)
+        external
+        onlyMemberOwner(memberId)
+    {
+        _requireProposalExists(tokenAddress, proposalId);
         if (!canSubmit(tokenAddress, memberId)) revert CannotSubmitAction();
 
         _submitByProposalId(tokenAddress, memberId, proposalId);
@@ -200,17 +204,19 @@ contract Submit is ISubmit {
         return _submitInfoByProposalId[tokenAddress][round][proposalId].submitterId;
     }
 
-    function _createProposal(
-        address tokenAddress,
-        uint256 memberId,
-        ProposalBody memory proposalBody
-    ) internal returns (uint256 proposalId) {
+    function _validateProposalBody(ProposalBody calldata proposalBody) internal view {
         if (bytes(proposalBody.title).length == 0) revert EmptyString("title");
         if (proposalBody.target == address(0)) revert InvalidAddress();
         if (proposalBody.targetMode == TargetMode.Callback && proposalBody.target.code.length == 0) {
             revert InvalidTargetMode();
         }
+    }
 
+    function _createProposal(
+        address tokenAddress,
+        uint256 memberId,
+        ProposalBody memory proposalBody
+    ) internal returns (uint256 proposalId) {
         proposalId = _proposals[tokenAddress].length + 1;
         ProposalHead memory head = ProposalHead({
             id: proposalId,
@@ -234,14 +240,19 @@ contract Submit is ISubmit {
         return proposalId;
     }
 
+    function _requireProposalExists(address tokenAddress, uint256 proposalId) internal view {
+        if (proposalId == 0 || proposalId > _proposals[tokenAddress].length) {
+            revert ProposalNotFound(proposalId);
+        }
+    }
+
     function _submitByProposalId(
         address tokenAddress,
         uint256 memberId,
         uint256 proposalId
     ) internal {
         // Checks
-        if (proposalId == 0 || proposalId > _proposals[tokenAddress].length)
-            revert ProposalNotFound(proposalId);
+        _requireProposalExists(tokenAddress, proposalId);
 
         uint256 round = currentRound();
         if (isSubmitted(tokenAddress, round, proposalId))

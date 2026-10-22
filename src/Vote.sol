@@ -94,16 +94,20 @@ contract Vote is IVote {
         _memberNFTAddress = memberNFTAddress_;
     }
 
+    modifier onlyMemberOwner(uint256 memberId) {
+        if (IMemberNFT(_memberNFTAddress).ownerOf(memberId) != msg.sender) {
+            revert NotMemberOwner(memberId);
+        }
+        _;
+    }
+
     function vote(
         address tokenAddress,
         uint256 memberId,
         uint256[] calldata proposalIds,
         uint256[] calldata votes,
         bytes[][] calldata targetData
-    ) external {
-        if (IMemberNFT(_memberNFTAddress).ownerOf(memberId) != msg.sender) {
-            revert NotMemberOwner(memberId);
-        }
+    ) external onlyMemberOwner(memberId) {
         if (!canVote(tokenAddress, memberId)) {
             revert CannotVote();
         }

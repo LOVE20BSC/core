@@ -892,9 +892,13 @@ contract LaunchTest {
         require(launch.tokenAddressBySymbol("BBB") == address(0), "nothing created");
     }
 
-    function testLaunchTokenChecksParametersThenExistenceThenOwnershipThenLedger() public {
+    function testLaunchTokenChecksOwnershipThenParametersThenExistenceThenLedger() public {
+        // 鉴权优先：不持有成员时，先于任何参数校验报错
+        (bool ok, bytes memory data) = _launch(bob, "aa", address(0), aliceMemberId);
+        require(!ok && _selector(data) == ILaunchErrors.NotMemberOwner.selector, "ownership before parameters");
+
         // 参数优先：符号非法 + distributor 为零
-        (bool ok, bytes memory data) = alice.forward(
+        (ok, data) = alice.forward(
             address(launch),
             _launchCalldata(
                 "aa", address(firstToken), aliceMemberId, address(0), DistributorMode.NoCallback, _emptyData()
@@ -911,13 +915,9 @@ contract LaunchTest {
         );
         require(!ok && _selector(data) == ILaunchErrors.InvalidAddress.selector, "distributor before parent");
 
-        // 存在性优先于持有：父币未登记 + 调用者不持有该成员
-        (ok, data) = _launch(bob, "AAA", address(0), aliceMemberId);
-        require(!ok && _selector(data) == ILaunchErrors.InvalidParentToken.selector, "parent before ownership");
-
-        // 持有优先于账本：不持有成员 + 账本为零
-        (ok, data) = _launch(bob, "AAA", address(firstToken), aliceMemberId);
-        require(!ok && _selector(data) == ILaunchErrors.NotMemberOwner.selector, "ownership before ledger");
+        // 参数优先于存在性：父币未登记
+        (ok, data) = _launch(alice, "AAA", address(0), aliceMemberId);
+        require(!ok && _selector(data) == ILaunchErrors.InvalidParentToken.selector, "parent before ledger");
 
         require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "no state change");
         require(launch.tokenAddressBySymbol("AAA") == address(0), "no token created");
@@ -1094,22 +1094,26 @@ contract LaunchTest {
         require(launch.launchCount(address(firstToken), bobMemberId) == 0, "target untouched");
     }
 
-    function testMergeLaunchCountChecksParametersThenExistenceThenOwnershipThenLedger() public {
+    function testMergeLaunchCountChecksOwnershipThenParametersThenExistenceThenLedger() public {
+        // 鉴权优先：不持有源成员时，先于任何参数校验报错
+        (bool ok, bytes memory data) = _merge(bob, EOA, aliceMemberId, bobMemberId, 0);
+        require(!ok && _selector(data) == ILaunchErrors.NotMemberOwner.selector, "ownership before parameters");
+
+        // 零值 memberId 与不存在成员同走 ownerOf，鉴权先命中
+        (ok, data) = _merge(bob, EOA, 0, 0, 1);
+        require(!ok && _selector(data) == IERC721Errors.ERC721NonexistentToken.selector, "zero member");
+
         // 参数优先：同成员 + count 为零
-        (bool ok, bytes memory data) = _merge(alice, address(firstToken), aliceMemberId, aliceMemberId, 0);
+        (ok, data) = _merge(alice, address(firstToken), aliceMemberId, aliceMemberId, 0);
         require(!ok && _selector(data) == ILaunchErrors.SourceAndTargetMustBeDifferent.selector, "same before count");
 
         // 参数优先于存在性：count 为零 + 未登记 token
         (ok, data) = _merge(alice, EOA, aliceMemberId, bobMemberId, 0);
         require(!ok && _selector(data) == ILaunchErrors.CountMustBeGreaterThanZero.selector, "count before token");
 
-        // 存在性优先于持有：未登记 token + 不存在的成员
+        // 鉴权依赖的成员不存在：先于 token 登记校验报错
         (ok, data) = _merge(bob, EOA, 999, bobMemberId, 1);
-        require(!ok && _selector(data) == ILaunchErrors.InvalidTokenAddress.selector, "token before member");
-
-        // 存在性优先于持有：源成员不存在 + 调用者不持有
-        (ok, data) = _merge(bob, address(firstToken), 999, bobMemberId, 1);
-        require(!ok && _selector(data) == IERC721Errors.ERC721NonexistentToken.selector, "member before ownership");
+        require(!ok && _selector(data) == IERC721Errors.ERC721NonexistentToken.selector, "member before token");
 
         // 持有优先于账本：不持有源 + 源次数不足
         (ok, data) = _merge(bob, address(firstToken), aliceMemberId, bobMemberId, 1);
@@ -1263,20 +1267,20 @@ contract LaunchTest {
         Launch freshLaunch = new Launch();
         require(!freshLaunch.initialized(), "fixture");
 
-        // launchToken：先命中符号长度校验（未初始化时长度配置为 0），不是 AlreadyInitialized
+        // launchToken：先命中鉴权；未初始化时 memberNFTAddress 为零地址，ownerOf 退化为无数据 revert
         (bool ok, bytes memory data) = _launchAt(freshLaunch, alice, "AAA", address(firstToken), aliceMemberId);
         require(!ok, "uninitialized launch must revert");
-        require(_selector(data) == ILaunchErrors.InvalidTokenSymbol.selector, "symbol check first");
+        require(data.length == 0, "zero-address ownerOf revert");
 
-        // mergeLaunchCount：先命中代币登记校验（未初始化时无任何登记）
+        // mergeLaunchCount：同样先命中鉴权，零地址 ownerOf 退化
         (ok, data) = alice.forward(
             address(freshLaunch),
             abi.encodeWithSelector(ILaunch.mergeLaunchCount.selector, address(firstToken), aliceMemberId, bobMemberId, 1)
         );
         require(!ok, "uninitialized merge must revert");
-        require(_selector(data) == ILaunchErrors.InvalidTokenAddress.selector, "token check first");
+        require(data.length == 0, "zero-address ownerOf revert");
 
-        // addLaunchCount：先命中调用者校验（未初始化时 mintAddress 为零地址）
+        // addLaunchCount：先命中鉴权（未初始化时 mintAddress 为零地址）
         (ok, data) = mintAccount.forward(
             address(freshLaunch),
             abi.encodeWithSelector(ILaunch.addLaunchCount.selector, address(firstToken), aliceMemberId, 1)

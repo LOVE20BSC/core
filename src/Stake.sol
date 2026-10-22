@@ -98,6 +98,11 @@ contract Stake is IStake {
         _settleFees(tokenAddress, _pairFor(tokenAddress));
     }
 
+    modifier onlyMemberOwner(uint256 memberId) {
+        if (IMemberNFT(memberNFTAddress).ownerOf(memberId) != msg.sender) revert NotMemberOwner(memberId);
+        _;
+    }
+
     function stakeLiquidity(
         address tokenAddress,
         uint256 tokenAmount,
@@ -105,13 +110,12 @@ contract Stake is IStake {
         uint256 slippage,
         uint256 promisedWaitingPhases,
         uint256 memberId
-    ) external returns (uint256 govVotesAdded, uint256 liquiditySharesAdded) {
+    ) external onlyMemberOwner(memberId) returns (uint256 govVotesAdded, uint256 liquiditySharesAdded) {
         if (tokenAmount == 0 || parentTokenAmount == 0) revert StakeAmountMustBeSet();
         _checkPromisedWaitingPhases(promisedWaitingPhases);
         _requireToken(tokenAddress);
         address pair = _pairFor(tokenAddress);
         uint256 round = _requireActiveRound();
-        _requireMemberOwner(memberId);
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
         if (member.unlockRequestPhase != 0) revert UnstakeAlreadyRequested();
@@ -125,12 +129,12 @@ contract Stake is IStake {
 
     function stakeBoost(address tokenAddress, uint256 boostAmount, uint256 promisedWaitingPhases, uint256 memberId)
         external
+        onlyMemberOwner(memberId)
         returns (uint256 govVotesAdded)
     {
         if (boostAmount == 0) revert StakeAmountMustBeSet();
         _checkPromisedWaitingPhases(promisedWaitingPhases);
         _requireToken(tokenAddress);
-        _requireMemberOwner(memberId);
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
         if (member.unlockRequestPhase != 0) revert UnstakeAlreadyRequested();
@@ -172,9 +176,8 @@ contract Stake is IStake {
         });
     }
 
-    function unstake(address tokenAddress, uint256 memberId) external {
+    function unstake(address tokenAddress, uint256 memberId) external onlyMemberOwner(memberId) {
         _requireToken(tokenAddress);
-        _requireMemberOwner(memberId);
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
         if (member.unlockRequestPhase != 0) revert UnstakeAlreadyRequested();
@@ -207,10 +210,9 @@ contract Stake is IStake {
         });
     }
 
-    function withdraw(address tokenAddress, uint256 memberId) external {
+    function withdraw(address tokenAddress, uint256 memberId) external onlyMemberOwner(memberId) {
         _requireToken(tokenAddress);
         address pair = _pairFor(tokenAddress);
-        _requireMemberOwner(memberId);
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
         if (member.unlockRequestPhase == 0) revert UnstakeNotRequested();
@@ -250,12 +252,13 @@ contract Stake is IStake {
         });
     }
 
-    function mergeStake(address tokenAddress, uint256 sourceMemberId, uint256 targetMemberId) external {
+    function mergeStake(address tokenAddress, uint256 sourceMemberId, uint256 targetMemberId)
+        external
+        onlyMemberOwner(sourceMemberId)
+    {
         if (sourceMemberId == targetMemberId) revert SourceAndTargetMustBeDifferent();
         _requireToken(tokenAddress);
-        if (sourceMemberId == 0 || targetMemberId == 0) revert InvalidMemberId();
         IMemberNFT(memberNFTAddress).ownerOf(targetMemberId);
-        if (IMemberNFT(memberNFTAddress).ownerOf(sourceMemberId) != msg.sender) revert NotMemberOwner(sourceMemberId);
 
         MemberStake storage source = _memberStake[tokenAddress][sourceMemberId];
         MemberStake storage target = _memberStake[tokenAddress][targetMemberId];
@@ -418,11 +421,6 @@ contract Stake is IStake {
         if (promisedWaitingPhases < PROMISED_WAITING_PHASES_MIN || promisedWaitingPhases > PROMISED_WAITING_PHASES_MAX) {
             revert PromisedWaitingPhasesOutOfRange();
         }
-    }
-
-    function _requireMemberOwner(uint256 memberId) private view {
-        if (memberId == 0) revert InvalidMemberId();
-        if (IMemberNFT(memberNFTAddress).ownerOf(memberId) != msg.sender) revert NotMemberOwner(memberId);
     }
 
     function _requireToken(address tokenAddress) private view {

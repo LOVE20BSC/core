@@ -40,6 +40,16 @@ contract Launch is ILaunch {
     uint256 public MAX_SUPPLY;
     bool public initialized;
 
+    modifier onlyMint() {
+        if (msg.sender != mintAddress) revert UnauthorizedCaller();
+        _;
+    }
+
+    modifier onlyMemberOwner(uint256 memberId) {
+        if (_ownerOf(memberId) != msg.sender) revert NotMemberOwner(memberId);
+        _;
+    }
+
     // ============ State Variables ============
 
     // creation-ordered list of every launched token, the first token included
@@ -130,10 +140,10 @@ contract Launch is ILaunch {
 
     /**
      * @notice Launch a sub-token of the given community and consume one launch count
-     * @dev Check order: parameters, existence, ownership, ledger. The launch count is consumed before any
-     *      external call, so a failing call reverts the consumption, the registration and the token. The
-     *      root parent token is accepted as a parent for root-level launches and consumes the root-level
-     *      count; every other parent must be a registered LOVE20 token.
+     * @dev The launch count is consumed before any external call, so a failing call reverts the
+     *      consumption, the registration and the token. The root parent token is accepted as a parent
+     *      for root-level launches and consumes the root-level count; every other parent must be a
+     *      registered LOVE20 token.
      * @param tokenSymbol Sub-token symbol, validated against the configured length and character set
      * @param parentTokenAddress The community token, must be a registered LOVE20 token or the root parent token
      * @param memberId The member that consumes the launch count, must be held by the caller
@@ -149,7 +159,7 @@ contract Launch is ILaunch {
         address distributor,
         DistributorMode distributorMode,
         bytes[] calldata distributorData
-    ) external returns (address tokenAddress) {
+    ) external onlyMemberOwner(memberId) returns (address tokenAddress) {
         _checkValidTokenSymbol(tokenSymbol);
         if (distributor == address(0)) revert InvalidAddress();
         _checkDistributorMode(distributorMode, distributor);
@@ -157,8 +167,6 @@ contract Launch is ILaunch {
         if (parentTokenAddress != rootParentTokenAddress && !isLOVE20Token(parentTokenAddress)) {
             revert InvalidParentToken();
         }
-
-        if (_ownerOf(memberId) != msg.sender) revert NotMemberOwner(memberId);
 
         uint256 availableCount = _launchCount[parentTokenAddress][memberId];
         if (availableCount == 0) revert NotEnoughLaunchCount();
@@ -213,6 +221,7 @@ contract Launch is ILaunch {
      */
     function mergeLaunchCount(address tokenAddress, uint256 sourceMemberId, uint256 targetMemberId, uint256 count)
         external
+        onlyMemberOwner(sourceMemberId)
     {
         if (sourceMemberId == targetMemberId) {
             revert SourceAndTargetMustBeDifferent();
@@ -221,11 +230,8 @@ contract Launch is ILaunch {
 
         if (tokenAddress != rootParentTokenAddress && !isLOVE20Token(tokenAddress)) revert InvalidTokenAddress();
 
-        address sourceOwner = _ownerOf(sourceMemberId);
         // Existence check only: a missing target reverts with the MemberNFT error, Launch adds no own error.
         _ownerOf(targetMemberId);
-
-        if (sourceOwner != msg.sender) revert NotMemberOwner(sourceMemberId);
 
         uint256 sourceCount = _launchCount[tokenAddress][sourceMemberId];
         if (sourceCount < count) revert NotEnoughLaunchCount();
@@ -248,8 +254,10 @@ contract Launch is ILaunch {
      * @param memberId The member that receives the counts
      * @param count The added count, greater than zero
      */
-    function addLaunchCount(address tokenAddress, uint256 memberId, uint256 count) external {
-        if (msg.sender != mintAddress) revert UnauthorizedCaller();
+    function addLaunchCount(address tokenAddress, uint256 memberId, uint256 count)
+        external
+        onlyMint
+    {
         if (count == 0) revert CountMustBeGreaterThanZero();
         if (!isLOVE20Token(tokenAddress)) revert InvalidTokenAddress();
 

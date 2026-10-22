@@ -2,7 +2,8 @@
 pragma solidity =0.8.37;
 
 import {Stake} from "../src/Stake.sol";
-import {IStake, MemberStake, GlobalStake} from "../src/interfaces/IStake.sol";
+import {IStake, IStakeErrors, MemberStake, GlobalStake} from "../src/interfaces/IStake.sol";
+import {IERC721Errors} from "../lib/openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {MemberNFT} from "../src/MemberNFT.sol";
 import {Phase} from "../src/Phase.sol";
@@ -1977,48 +1978,62 @@ contract StakeTest {
         parentToken.approve(address(stake), 1000e18);
 
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector,
-                address(childToken),
-                1000e18,
-                1000e18,
-                0.05e18,
-                10,
-                0 // zero member id
-            )
+        vm().expectRevert(
+            abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, uint256(0))
         );
-        require(!success, "Should revert with zero member id");
+        stake.stakeLiquidity(address(childToken), 1000e18, 1000e18, 0.05e18, 10, 0);
+    }
+
+    function testStakeChecksOwnerBeforeAmount() external {
+        vm().prank(address(0xBEEF));
+        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.NotMemberOwner.selector, memberId1));
+        stake.stakeLiquidity(address(childToken), 0, 0, 0.05e18, 10, memberId1);
+    }
+
+    function testStakeBoostChecksOwnerBeforeAmount() external {
+        vm().prank(owner2);
+        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.NotMemberOwner.selector, memberId1));
+        stake.stakeBoost(address(childToken), 0, 10, memberId1);
+    }
+
+    function testUnstakeChecksOwnerBeforeToken() external {
+        vm().prank(owner2);
+        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.NotMemberOwner.selector, memberId1));
+        stake.unstake(address(0xDEAD), memberId1);
+    }
+
+    function testWithdrawChecksOwnerBeforeToken() external {
+        vm().prank(owner2);
+        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.NotMemberOwner.selector, memberId1));
+        stake.withdraw(address(0xDEAD), memberId1);
     }
 
     function testMergeRevertsWhenSourceEqualsTarget() external {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.mergeStake.selector,
-                address(childToken),
-                memberId1,
-                memberId1 // same as source
-            )
-        );
-        require(!success, "Should revert when source equals target");
+        vm().expectRevert(IStakeErrors.SourceAndTargetMustBeDifferent.selector);
+        stake.mergeStake(address(childToken), memberId1, memberId1);
     }
 
     function testMergeRevertsWithZeroTargetMemberId() external {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.mergeStake.selector,
-                address(childToken),
-                memberId1,
-                0 // zero target
-            )
+        vm().expectRevert(
+            abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, uint256(0))
         );
-        require(!success, "Should revert with zero target member id");
+        stake.mergeStake(address(childToken), memberId1, 0);
+    }
+
+    function testMergeRevertsWithZeroSourceMemberId() external {
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+
+        vm().prank(owner1);
+        vm().expectRevert(
+            abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, uint256(0))
+        );
+        stake.mergeStake(address(childToken), 0, memberId1);
     }
 
 
@@ -2685,4 +2700,5 @@ contract MockPairZeroMint {
 interface Vm {
     function prank(address) external;
     function expectRevert(bytes4) external;
+    function expectRevert(bytes calldata) external;
 }

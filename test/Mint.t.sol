@@ -135,9 +135,22 @@ contract MintTest {
     function testEmptyBatchHasNoSideEffects() public {
         setupMint(1000, 10000, 1e17, 0);
         (uint256[] memory votes, uint256[] memory boosts, uint256[] memory burns) =
-            mint.mintGovRewards(address(token), 999, new uint256[](0), address(this));
+            mint.mintGovRewards(address(token), 1, new uint256[](0), address(this));
         require(votes.length + boosts.length + burns.length == 0, "empty arrays");
         require(token.totalSupply() == 1000 && mint.rewardMinted(address(token)) == 0, "empty batch mutated");
+    }
+
+    function testEmptyBatchChecksOwner() public {
+        setupMint(1000, 10000, 1e17, 0);
+        vm.prank(address(0xBEEF));
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.NotMemberOwner.selector, 1));
+        mint.mintGovRewards(address(token), 1, new uint256[](0), address(this));
+    }
+
+    function testGovMintRejectsZeroRecipient() public {
+        setupMint(1000, 10000, 1e17, 0);
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAddress.selector));
+        mint.mintGovReward(address(token), 1, 1, address(0));
     }
 
     function testRewardLargerThanCurrentSupplyMustStillMint() public {

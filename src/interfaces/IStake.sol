@@ -29,7 +29,6 @@ interface IStakeErrors {
     error NoStakedLiquidity();
     error NotEnoughWaitingPhases();
     error InvalidTokenAddress();
-    error InvalidMemberId();
     error NotMemberOwner(uint256 memberId);
     error SourceAndTargetMustBeDifferent();
     error SourceHasUsedStakeRightsInCurrentRound();

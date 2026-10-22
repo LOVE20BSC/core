@@ -222,19 +222,24 @@ contract Mint is IMint {
         );
     }
 
+    // Target mode governs Vote callbacks, not Mint authorization.
+    modifier onlyProposalTarget(
+        address tokenAddress,
+        uint256 proposalId
+    ) {
+        (address target, ) = ISubmit(submitAddress).proposalTarget(tokenAddress, proposalId);
+        if (msg.sender != target) {
+            revert UnauthorizedCaller();
+        }
+        _;
+    }
+
     function mintProposalReward(
         address tokenAddress,
         uint256 round,
         uint256 proposalId,
         address recipient
-    ) external returns (uint256 amount) {
-        // Target mode governs Vote callbacks, not Mint authorization.
-        // forge-lint: disable-next-line(unused-return)
-        (address target, ) = ISubmit(submitAddress).proposalTarget(tokenAddress, proposalId);
-
-        if (msg.sender != target) {
-            revert UnauthorizedCaller();
-        }
+    ) external onlyProposalTarget(tokenAddress, proposalId) returns (uint256 amount) {
         if (recipient == address(0)) {
             revert InvalidAddress();
         }
@@ -268,65 +273,21 @@ contract Mint is IMint {
         return amount;
     }
 
-    // Batch settlement repeats all checks and interactions per round; any failure reverts the batch.
-    // forge-lint: disable-next-item(calls-loop, require-revert-in-loop)
+    // forge-lint: disable-next-item(require-revert-in-loop)
+    modifier onlyMemberOwner(uint256 memberId) {
+        if (IMemberNFT(memberNFTAddress).ownerOf(memberId) != msg.sender) {
+            revert NotMemberOwner(memberId);
+        }
+        _;
+    }
+
     function mintGovReward(
         address tokenAddress,
         uint256 memberId,
         uint256 round,
         address recipient
-    ) public returns (uint256 voteReward, uint256 boostReward, uint256 burnReward) {
-        if (IMemberNFT(memberNFTAddress).ownerOf(memberId) != msg.sender) {
-            revert NotMemberOwner(memberId);
-        }
-        if (recipient == address(0)) {
-            revert InvalidAddress();
-        }
-
-        if (!_isRoundEnded(round)) {
-            revert RoundNotReadyToMint();
-        }
-
-        // Automatically prepare rewards if not already done
-        _prepareRewardIfNeeded(tokenAddress, round);
-
-        if (_govMinted[tokenAddress][round][memberId]) {
-            revert AlreadyMinted();
-        }
-
-        // Existence already verified above; skip redundant check in query.
-        (voteReward, boostReward, burnReward, ) = _govRewardCalculation(tokenAddress, round, memberId);
-
-        if (voteReward + boostReward + burnReward == 0) {
-            revert NoRewardAvailable();
-        }
-
-        // GovernanceRewardMinted below records this member/round settlement.
-        // forge-lint: disable-next-line(missing-events-access-control)
-        _govMinted[tokenAddress][round][memberId] = true;
-
-        uint256 mintAmount = voteReward + boostReward;
-        _rewardMinted[tokenAddress] += mintAmount;
-        // Positive burns emit RewardBurned below; a zero burn changes nothing.
-        // forge-lint: disable-next-line(missing-events-access-control)
-        _rewardBurned[tokenAddress] += burnReward;
-
-        if (mintAmount > 0) {
-            ILOVE20Token(tokenAddress).mint(recipient, mintAmount);
-            _updateLaunchCredit(tokenAddress, memberId, mintAmount);
-        }
-
-        if (burnReward > 0) {
-            // Token minting and Launch.addLaunchCount have no callbacks; all changes are atomic.
-            // forge-lint: disable-next-line(reentrancy-events)
-            emit RewardBurned(tokenAddress, round, burnReward, BurnReason.BoostOverflow);
-        }
-
-        // Report settlement after the callback-free Token and Launch interactions succeed.
-        // forge-lint: disable-next-line(reentrancy-events)
-        emit GovernanceRewardMinted(tokenAddress, round, memberId, voteReward, boostReward, burnReward);
-
-        return (voteReward, boostReward, burnReward);
+    ) public onlyMemberOwner(memberId) returns (uint256 voteReward, uint256 boostReward, uint256 burnReward) {
+        return _mintGovReward(tokenAddress, memberId, round, recipient);
     }
 
     function mintGovRewards(
@@ -334,7 +295,7 @@ contract Mint is IMint {
         uint256 memberId,
         uint256[] calldata rounds,
         address recipient
-    ) external returns (
+    ) external onlyMemberOwner(memberId) returns (
         uint256[] memory voteRewards,
         uint256[] memory boostRewards,
         uint256[] memory burnRewards
@@ -346,7 +307,7 @@ contract Mint is IMint {
 
         for (uint256 i = 0; i < length; i++) {
             (voteRewards[i], boostRewards[i], burnRewards[i]) =
-                mintGovReward(tokenAddress, memberId, rounds[i], recipient);
+                _mintGovReward(tokenAddress, memberId, rounds[i], recipient);
         }
 
         return (voteRewards, boostRewards, burnRewards);
@@ -603,5 +564,62 @@ contract Mint is IMint {
             _launchCredit[tokenAddress][memberId] -= count * threshold;
             launch.addLaunchCount(tokenAddress, memberId, count);
         }
+    }
+    // Batch settlement repeats all checks and interactions per round; any failure reverts the batch.
+    // forge-lint: disable-next-item(calls-loop, require-revert-in-loop)
+    function _mintGovReward(
+        address tokenAddress,
+        uint256 memberId,
+        uint256 round,
+        address recipient
+    ) private returns (uint256 voteReward, uint256 boostReward, uint256 burnReward) {
+        if (recipient == address(0)) {
+            revert InvalidAddress();
+        }
+
+        if (!_isRoundEnded(round)) {
+            revert RoundNotReadyToMint();
+        }
+
+        // Automatically prepare rewards if not already done
+        _prepareRewardIfNeeded(tokenAddress, round);
+
+        if (_govMinted[tokenAddress][round][memberId]) {
+            revert AlreadyMinted();
+        }
+
+        // Existence already verified above; skip redundant check in query.
+        (voteReward, boostReward, burnReward, ) = _govRewardCalculation(tokenAddress, round, memberId);
+
+        if (voteReward + boostReward + burnReward == 0) {
+            revert NoRewardAvailable();
+        }
+
+        // GovernanceRewardMinted below records this member/round settlement.
+        // forge-lint: disable-next-line(missing-events-access-control)
+        _govMinted[tokenAddress][round][memberId] = true;
+
+        uint256 mintAmount = voteReward + boostReward;
+        _rewardMinted[tokenAddress] += mintAmount;
+        // Positive burns emit RewardBurned below; a zero burn changes nothing.
+        // forge-lint: disable-next-line(missing-events-access-control)
+        _rewardBurned[tokenAddress] += burnReward;
+
+        if (mintAmount > 0) {
+            ILOVE20Token(tokenAddress).mint(recipient, mintAmount);
+            _updateLaunchCredit(tokenAddress, memberId, mintAmount);
+        }
+
+        if (burnReward > 0) {
+            // Token minting and Launch.addLaunchCount have no callbacks; all changes are atomic.
+            // forge-lint: disable-next-line(reentrancy-events)
+            emit RewardBurned(tokenAddress, round, burnReward, BurnReason.BoostOverflow);
+        }
+
+        // Report settlement after the callback-free Token and Launch interactions succeed.
+        // forge-lint: disable-next-line(reentrancy-events)
+        emit GovernanceRewardMinted(tokenAddress, round, memberId, voteReward, boostReward, burnReward);
+
+        return (voteReward, boostReward, burnReward);
     }
 }

@@ -293,6 +293,64 @@ contract SubmitTest {
         require(!ok && keccak256(data) == keccak256(expected), "should reject insufficient votes");
     }
 
+    function testSubmitNewProposalChecksAuthBeforeParameters() external {
+        ProposalBody memory body = ProposalBody({
+            title: "",
+            details: "",
+            target: address(0),
+            targetMode: TargetMode.NoCallback,
+            targetData: new bytes[](0)
+        });
+        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.NotMemberOwner.selector, 2);
+        (bool ok, bytes memory data) = address(submit).call(
+            abi.encodeCall(submit.submitNewProposal, (TOKEN, 2, body))
+        );
+        require(!ok && keccak256(data) == keccak256(expected), "auth before parameters");
+    }
+
+    function testSubmitNewProposalChecksParametersBeforeThreshold() external {
+        stake.setValidGovVotes(TOKEN, 1, 9);
+        ProposalBody memory body = ProposalBody({
+            title: "",
+            details: "",
+            target: address(0),
+            targetMode: TargetMode.NoCallback,
+            targetData: new bytes[](0)
+        });
+        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.EmptyString.selector, "title");
+        (bool ok, bytes memory data) = address(submit).call(
+            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body))
+        );
+        require(!ok && keccak256(data) == keccak256(expected), "parameters before threshold");
+    }
+
+    function testSubmitChecksAuthBeforeProposalExistence() external {
+        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.NotMemberOwner.selector, 2);
+        (bool ok, bytes memory data) = address(submit).call(
+            abi.encodeCall(submit.submit, (TOKEN, 2, 999))
+        );
+        require(!ok && keccak256(data) == keccak256(expected), "auth before existence");
+    }
+
+    function testSubmitChecksProposalExistenceBeforeThreshold() external {
+        ProposalBody memory body = ProposalBody({
+            title: "Test",
+            details: "Details",
+            target: address(0x1),
+            targetMode: TargetMode.NoCallback,
+            targetData: new bytes[](0)
+        });
+        submit.submitNewProposal(TOKEN, 1, body);
+
+        vm.roll(200);
+        stake.setValidGovVotes(TOKEN, 1, 9);
+        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, uint256(999));
+        (bool ok, bytes memory data) = address(submit).call(
+            abi.encodeCall(submit.submit, (TOKEN, 1, 999))
+        );
+        require(!ok && keccak256(data) == keccak256(expected), "existence before threshold");
+    }
+
     // ============ Proposal Submission Tests ============
 
     function testOneBasedProposalIdsAcrossCreateReadAndResubmit() external {
