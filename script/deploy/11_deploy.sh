@@ -16,6 +16,9 @@ if [ ! -d "$NETWORK_DIR" ]; then
     exit 1
 fi
 
+# 上一次异常退出可能留下地址临时文件；只清理本模块的隐藏临时模式，不碰正式地址文件。
+rm -f "$NETWORK_DIR/.addresses.core.params."*
+
 # 必需配置。addresses.uniswapv2.params 是被依赖方（dex UniswapV2 模块）已部署地址：
 # FACTORY_ADDRESS 供建池、ROUTER_ADDRESS 供提现兑换；根父币不配置——DeployCore 从
 # Router.WETH() 现场读取。core.params 只含本模块参数。
@@ -93,22 +96,40 @@ require_core_addresses() {
     done
 }
 
-# 准备部署日志
+# 准备部署日志与密码文件。广播后失败必须留下日志与产物路径供人工恢复；广播前失败只清理本次临时文件。
+# 密码经临时文件传给 forge：--password 会把明文放进进程参数（/proc/<pid>/cmdline 权限 0444，
+# 本机所有用户可读）。trap 在写入密码之前安装，chmod/printf 失败也不会留下明文。
 DEPLOY_LOG=$(mktemp)
-trap "rm -f $DEPLOY_LOG" EXIT
+PASSWORD_FILE=$(mktemp)
+ADDRESS_TMP="$NETWORK_DIR/.addresses.core.params.$$"
+DEPLOY_SAVED=0
+DEPLOY_ATTEMPTED=0
+trap 'rm -f "$ADDRESS_TMP" "$PASSWORD_FILE"
+if [ "$DEPLOY_SAVED" = 1 ] || [ "$DEPLOY_ATTEMPTED" = 0 ]; then
+    rm -f "$DEPLOY_LOG"
+else
+    echo "  Addresses were not saved; contracts may already be on chain." >&2
+    echo "  Deployment log: $DEPLOY_LOG" >&2
+    echo "  Broadcast artifact: $PROJECT_ROOT/broadcast/DeployCore.s.sol/${CHAIN_ID:-unknown}/run-latest.json" >&2
+fi' EXIT
+chmod 600 "$PASSWORD_FILE"
+printf '%s' "$KEYSTORE_PASSWORD" > "$PASSWORD_FILE"
 
 # 构建 forge script 命令：keystore 签名（本地链同样如此，不用 --unlocked）。
-FORGE_CMD=(forge script script/deploy/DeployCore.s.sol:DeployCore --rpc-url "$RPC_URL" --chain-id "$CHAIN_ID" --account "$KEYSTORE_ACCOUNT" --sender "$ACCOUNT_ADDRESS" --password "$KEYSTORE_PASSWORD" --broadcast --slow -vvv)
+FORGE_CMD=(forge script script/deploy/DeployCore.s.sol:DeployCore --rpc-url "$RPC_URL" --chain-id "$CHAIN_ID" --account "$KEYSTORE_ACCOUNT" --sender "$ACCOUNT_ADDRESS" --password-file "$PASSWORD_FILE" --broadcast --slow -vvv)
 
 # DEX 依赖必须在广播前校验为已部署合约，避免白广播 8 个核心合约。
 require_dex_dependencies
 
 # 执行部署
 cd "$PROJECT_ROOT"
+DEPLOY_ATTEMPTED=1
 if ! { "${FORGE_CMD[@]}" 2>&1 | tee "$DEPLOY_LOG"; }; then
     echo "Error: Deployment failed; saved addresses were not changed."
     exit 1
 fi
+# 密码只在本次 forge 调用期间需要，广播结束立即删除。
+rm -f "$PASSWORD_FILE"
 
 # 从部署输出中提取地址（DeployCore.s.sol 的 _logDeploymentSummary 输出）。
 # grep 无匹配会让管道在 set -e 下静默中止，故逐个容错取值，缺项交由 require_core_addresses 报错。
@@ -124,7 +145,7 @@ VOTE_ADDRESS=$(grep "VOTE_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 | xa
 require_core_addresses
 
 # 写入地址文件
-cat > "$NETWORK_DIR/addresses.core.params" <<EOFADDR
+cat > "$ADDRESS_TMP" <<EOFADDR
 LOVE20_TOKEN_ADDRESS=$LOVE20_TOKEN_ADDRESS
 MEMBER_NFT_ADDRESS=$MEMBER_NFT_ADDRESS
 PHASE_ADDRESS=$PHASE_ADDRESS
@@ -134,5 +155,7 @@ STAKE_ADDRESS=$STAKE_ADDRESS
 SUBMIT_ADDRESS=$SUBMIT_ADDRESS
 VOTE_ADDRESS=$VOTE_ADDRESS
 EOFADDR
+mv "$ADDRESS_TMP" "$NETWORK_DIR/addresses.core.params"
 
+DEPLOY_SAVED=1
 echo "✓ Deployment completed and addresses saved"

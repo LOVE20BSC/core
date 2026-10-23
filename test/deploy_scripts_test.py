@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Deployment regression checks with isolated configs and fake RPC/signing tools."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -10,8 +11,7 @@ import sys
 import tempfile
 
 
-# 敏感值哨兵：任何一步把它们写进 stdout/stderr 都视为回归。
-SECRET_KEY = "do-not-print-this-key"
+# 敏感值哨兵：任何一步把它写进 stdout/stderr 都视为回归。
 SECRET_PASSWORD = "do-not-print-this-password"
 
 
@@ -37,7 +37,23 @@ def fake_tool(tool, args):
             print("0x1234")
         else:
             raise AssertionError(args)
+    elif tool == "mktemp":
+        if "-d" in args:
+            print(tempfile.mkdtemp(dir=os.environ["MOCK_TMP"]))
+        else:
+            fd, path = tempfile.mkstemp(dir=os.environ["MOCK_TMP"])
+            os.close(fd)
+            print(path)
     elif args[0] == "script":
+        # 凭据哨兵：密码不得进进程参数，密码文件必须已写入且非空。
+        if "--password" in args:
+            print("CREDENTIAL_IN_ARGV", file=sys.stderr)
+        password_file = args[args.index("--password-file") + 1] if "--password-file" in args else None
+        if not password_file or not Path(password_file).is_file() or not Path(password_file).read_text():
+            print("PASSWORD_FILE_MISSING", file=sys.stderr)
+        else:
+            print("PASSWORD_SHA=" + hashlib.sha256(Path(password_file).read_bytes()).hexdigest(),
+                  file=sys.stderr)
         if os.environ.get("DEPLOY_FAIL"):
             return 1
         for key, value in data["env"].items():
@@ -61,7 +77,7 @@ def main():
         network.mkdir(parents=True)
         bin_dir = root / "bin"
         bin_dir.mkdir()
-        for tool in ("cast", "forge", "osascript"):
+        for tool in ("cast", "forge", "osascript", "mktemp"):
             stub = bin_dir / tool
             stub.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + " "
                             + shlex.quote(str(Path(__file__).resolve())) + " --fake " + tool + ' "$@"\n')
@@ -112,6 +128,8 @@ def main():
             getters(name, {dep + "Address()(address)": dep_keys.get(dep, dep.upper()) + "_ADDRESS" for dep in dependencies})
         getters("ROUTER", {"factory()(address)": "FACTORY_ADDRESS", "WETH()(address)": "WETH_ADDRESS"})
         data_path, log_path = root / "rpc.json", root / "calls.log"
+        tmp_dir = root / "tmp"
+        tmp_dir.mkdir()
         data_path.write_text(json.dumps({"env": env, "contracts": contracts, "calls": calls}))
         network.joinpath("network.params").write_text("\n".join(key + "=" + shlex.quote(value) for key, value in env.items()) + "\n")
         for name in ("addresses.uniswapv2.params", "core.params"):
@@ -120,21 +138,30 @@ def main():
         # 步骤自行载入地址文件：先写入一份与 env 一致的已部署地址，供独立运行的 21_check / 31_verify 读取。
         saved.write_text("\n".join(name + "_ADDRESS=" + env[name + "_ADDRESS"] for name in names) + "\n")
         base = {"PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "MOCK_DATA": str(data_path), "MOCK_LOG": str(log_path),
-                "PROJECT_ROOT": str(root), "NETWORK_DIR": str(network), "network": "test", **env}
+                "MOCK_TMP": str(tmp_dir), "PROJECT_ROOT": str(root),
+                "NETWORK_DIR": str(network), "network": "test", **env}
         checks = 0
 
         def write_account(password_line=""):
+            # 正确用法：keystore 名称 + 账户地址 + 可选密码。
             network.joinpath(".account").write_text(
-                "KEYSTORE_ACCOUNT=test-keystore\nACCOUNT_ADDRESS=0x" + "f5" * 20 + "\nPRIVATE_KEY=" + SECRET_KEY + "\n" + password_line)
+                "KEYSTORE_ACCOUNT=test-keystore\nACCOUNT_ADDRESS=0x" + "f5" * 20 + "\n" + password_line)
 
         def run(script, success=True, args=(), **extra):
             nonlocal checks
             log_path.write_text("")
             result = subprocess.run(["bash", str(deploy / script), *args], env={**base, **extra}, text=True, capture_output=True)
             assert (result.returncode == 0) == success, (script, extra, result.stdout, result.stderr)
-            assert not any(secret in result.stdout + result.stderr for secret in (SECRET_KEY, SECRET_PASSWORD))
+            output = result.stdout + result.stderr
+            assert SECRET_PASSWORD not in output
+            for marker in ("CREDENTIAL_IN_ARGV", "PASSWORD_FILE_MISSING"):
+                assert marker not in output, (marker, output)
+            log = [json.loads(line) for line in log_path.read_text().splitlines()]
+            for call in log:
+                if call[:2] == ["forge", "script"] and "--password-file" in call:
+                    assert not Path(call[call.index("--password-file") + 1]).exists(), call
             checks += 1
-            return result, [json.loads(line) for line in log_path.read_text().splitlines()]
+            return result, log
 
         def forge_script_call(log):
             return next(call for call in log if call[:2] == ["forge", "script"])
@@ -166,42 +193,79 @@ def main():
         saved.write_text("# previous deployment\n")
         for extra in ({"RPC_CHAIN": "56"}, {"DEPLOY_FAIL": "1"}, {"OMIT_ADDRESS": "VOTE_ADDRESS"},
                       {"BAD_CALL": env["LAUNCH_ADDRESS"] + "/pairFactoryAddress()(address)"}):
-            run("one_click_deploy.sh", False, ("test",), **extra)
+            result, _ = run("one_click_deploy.sh", False, ("test",), **extra)
             assert saved.read_text() == "# previous deployment\n"
-        _, log = run("one_click_deploy.sh", args=("test",))
+            output = result.stdout + result.stderr
+            if "BAD_CALL" in extra:
+                assert "New deployment addresses" in output, output
+                assert "VOTE_ADDRESS=" in output, output
+                assert "Broadcast artifact:" in output, output
+                assert "The previously saved addresses were restored." in output, output
+            if "Deployment log:" in output:
+                kept_log = Path(output.split("Deployment log:", 1)[1].splitlines()[0].strip())
+                assert kept_log.exists(), kept_log
+                kept_log.unlink()
+        result, log = run("one_click_deploy.sh", args=("test",))
         command = forge_script_call(log)
+        assert not list(tmp_dir.iterdir()), list(tmp_dir.iterdir())
         assert command[command.index("--chain-id") + 1] == "97"
         assert command[command.index("--account") + 1] == "test-keystore"
         assert command[command.index("--sender") + 1] == "0x" + "f5" * 20
         assert "--unlocked" not in command and "--private-key" not in command
-        # 留空 KEYSTORE_PASSWORD：弹窗一次读取（osascript），直接用读取值解锁。
-        assert command[command.index("--password") + 1] == "test-password"
+        # 留空 KEYSTORE_PASSWORD：弹窗一次读取（osascript）。密码经临时文件传给 forge，不进 argv。
+        assert "--password" not in command, command
+        assert "PASSWORD_SHA=" + hashlib.sha256(b"test-password").hexdigest() in result.stdout + result.stderr, \
+            result.stdout + result.stderr
         assert len([call for call in log if call[0] == "osascript"]) == 1, log
         assert "VOTE_ADDRESS=" in saved.read_text()
         # .account 配了非空 KEYSTORE_PASSWORD 就直接用它解锁，不弹窗。
         write_account("KEYSTORE_PASSWORD=" + SECRET_PASSWORD + "\n")
-        _, log = run("one_click_deploy.sh", args=("test",))
+        result, log = run("one_click_deploy.sh", args=("test",))
         command = forge_script_call(log)
-        assert command[command.index("--password") + 1] == SECRET_PASSWORD
+        assert "--password" not in command, command
+        assert "PASSWORD_SHA=" + hashlib.sha256(SECRET_PASSWORD.encode()).hexdigest() in result.stdout + result.stderr, \
+            result.stdout + result.stderr
         assert not any(call[0] == "osascript" for call in log), log
         # 显式留空等同未配置：仍走弹窗。
         write_account("KEYSTORE_PASSWORD=\n")
-        _, log = run("one_click_deploy.sh", args=("test",))
-        assert forge_script_call(log)[forge_script_call(log).index("--password") + 1] == "test-password"
+        result, log = run("one_click_deploy.sh", args=("test",))
+        assert "--password" not in forge_script_call(log)
+        assert "PASSWORD_SHA=" + hashlib.sha256(b"test-password").hexdigest() in result.stdout + result.stderr, \
+            result.stdout + result.stderr
         assert len([call for call in log if call[0] == "osascript"]) == 1, log
         write_account()
         # .account 缺 KEYSTORE_ACCOUNT / ACCOUNT_ADDRESS，或整个文件缺失：广播前即失败，不弹窗不广播。
-        network.joinpath(".account").write_text("PRIVATE_KEY=" + SECRET_KEY + "\n")
+        network.joinpath(".account").write_text("UNRELATED=x\n")
         run("11_deploy.sh", False, ("test",))
         network.joinpath(".account").unlink()
         run("11_deploy.sh", False, ("test",))
         write_account()
-        # DEX 依赖地址不是已部署合约：广播前失败（cast code 拿不到字节码）。
-        run("11_deploy.sh", False, ("test",), RPC_CODE_ERROR="1")
+        # DEX 依赖地址不是已部署合约：广播前失败，不误报已上链、不保留日志。
+        result, _ = run("11_deploy.sh", False, ("test",), RPC_CODE_ERROR="1")
+        output = result.stdout + result.stderr
+        assert "contracts may already be on chain" not in output, output
+        assert "Deployment log:" not in output, output
+        # 广播失败：合约可能已部分上链，必须保留日志并打印路径。
+        saved_before = saved.read_text()
+        result, _ = run("11_deploy.sh", False, ("test",), DEPLOY_FAIL="1")
+        output = result.stdout + result.stderr
+        assert "contracts may already be on chain" in output, output
+        assert "Deployment log:" in output, output
+        kept_log = Path(output.split("Deployment log:", 1)[1].splitlines()[0].strip())
+        assert kept_log.exists(), kept_log
+        kept_log.unlink()
+        assert saved.read_text() == saved_before, saved.read_text()
         run("11_deploy.sh", args=("test",))
         saved_before = saved.read_text()
+        # 广播后地址提取失败：同样保留日志，且不写半截文件。
         result, _ = run("11_deploy.sh", False, ("test",), OMIT_ADDRESS="VOTE_ADDRESS")
-        assert "VOTE_ADDRESS" in result.stdout + result.stderr, result.stdout + result.stderr
+        output = result.stdout + result.stderr
+        assert "VOTE_ADDRESS" in output, output
+        assert "contracts may already be on chain" in output, output
+        assert "Deployment log:" in output, output
+        kept_log = Path(output.split("Deployment log:", 1)[1].splitlines()[0].strip())
+        assert kept_log.exists(), kept_log
+        kept_log.unlink()
         assert saved.read_text() == saved_before, saved.read_text()
         result, _ = run("31_verify.sh", False, ("test",), VERIFY_FAIL="src/MemberNFT.sol:MemberNFT")
         assert "all 8 contracts" not in result.stdout
@@ -222,6 +286,7 @@ def main():
             config.write("ETHERSCAN_API_KEY=\n")
         _, log = run("31_verify.sh", False, ("test",))
         assert not any(call[0] == "forge" for call in log)
+        assert not list(tmp_dir.iterdir()), list(tmp_dir.iterdir())
         print(f"Passed {checks} isolated deployment checks (no network calls or broadcasts).")
 
 

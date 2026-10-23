@@ -42,6 +42,8 @@ KEYSTORE_PASSWORD=                        # 可选，留空走弹窗（仅 macOS
 
 `KEYSTORE_PASSWORD` 填写非空值时直接用它解锁 keystore，整条部署链路无交互；留空或整行不写时由 macOS `osascript` 弹窗读取。`one_click_deploy.sh` 入口把密码**只解析一次**（先重置、再读 `.account`、最后才交互）并导出给全部部署步骤；单独运行某个部署步骤时，该步骤按 环境变量 → `.account` → 交互 自行解析。**入口不接受通过环境变量传密码**：`KEYSTORE_PASSWORD=xxx ./script/deploy/one_click_deploy.sh <net>` 里的值会被入口重置掉（有意为之，避免上次运行的残留密码被静默复用），非交互场景请把密码写进 `.account` 的 `KEYSTORE_PASSWORD`。非 macOS 环境没有 `osascript`，必须填写该项，脚本会在缺失时明确报错。该值以明文保存在 `.account`，仅建议在受控机器或测试网使用；由助手操作且未配置该项时，在对话的密码输入框中提供，勿直接贴到消息中。
 
+密码不会出现在进程参数里：`11_deploy.sh` 将其写入权限 600 的临时文件，以 `--password-file` 传给 forge，广播结束或脚本退出时删除。
+
 ### 3. 配置 DEX 地址
 
 把 `dex/` 仓库**同网络** UniswapV2 模块部署并验收过的 `addresses.uniswapv2.params` 复制到本仓：
@@ -123,7 +125,7 @@ cd core
 2. `21_check.sh` —— 自载入校验文件，校验部署与初始化结果
 3. `31_verify.sh` —— 自载入地址文件做合约开源验证；链支持时执行（需 `ETHERSCAN_API_KEY`），链不支持时跳过
 
-链 ID、全部初始化绑定及常量、DEX 地址关系任一不一致，部署入口返回失败，并回滚到上一次已保存的地址（校验失败不覆盖旧地址）。网络名必填，缺参直接报错。`FACTORY_ADDRESS`、`ROUTER_ADDRESS` 及 `Router.WETH()` 读出的根父币在广播前即校验为已部署合约，配错不会产生任何交易。
+链 ID、全部初始化绑定及常量、DEX 地址关系任一不一致，部署入口返回失败，并回滚到上一次已保存的地址（校验失败不覆盖旧地址）。广播阶段或其后的校验失败时，`11_deploy.sh` 保留部署日志并打印日志与 broadcast 产物路径；广播前失败只清理本次临时文件。网络名必填，缺参直接报错。`FACTORY_ADDRESS`、`ROUTER_ADDRESS` 及 `Router.WETH()` 读出的根父币在广播前即校验为已部署合约，配错不会产生任何交易。
 
 DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2：交易手续费固定为 0.30%，Factory 的 `feeTo` 与 `feeToSetter` 均为零。地址应来自该仓库同网络的部署及验收结果，不使用旧 PancakeSwap 配置。
 
