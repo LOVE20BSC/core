@@ -3,6 +3,7 @@ pragma solidity =0.8.37;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {RoundHistoryUint256} from "@libs/RoundHistoryUint256.sol";
 import {Pagination} from "@libs/Pagination.sol";
 import {IPhase} from "./interfaces/IPhase.sol";
@@ -31,6 +32,7 @@ struct AddedLiquidity {
 contract Stake is IStake {
     using RoundHistoryUint256 for RoundHistoryUint256.History;
     using Pagination for uint256[];
+    using SafeERC20 for IERC20;
 
     uint256 private constant SLIPPAGE_PRECISION = 1e18;
 
@@ -68,18 +70,18 @@ contract Stake is IStake {
         uint256 feeSettlementRatio
     ) external {
         if (initialized) revert AlreadyInitialized();
-        if (
-            phaseAddress_ == address(0) ||
-            memberNFTAddress_ == address(0) ||
-            voteAddress_ == address(0) ||
-            launchAddress_ == address(0) ||
-            routerAddress_ == address(0) ||
-            pairFactoryAddress_ == address(0)
-        ) revert InvalidAddress();
-        if (promisedWaitingPhasesMin == 0) revert ZeroAmount("promisedWaitingPhasesMin");
-        if (feeSettlementRatio == 0) revert ZeroAmount("feeSettlementRatio");
-        if (feeSettlementRatio > 1e18) revert FeeSettlementRatioOutOfRange();
-        if (promisedWaitingPhasesMin > promisedWaitingPhasesMax) revert InvalidAmount();
+        if (phaseAddress_.code.length == 0) revert DependencyNotContract(phaseAddress_);
+        if (memberNFTAddress_.code.length == 0) revert DependencyNotContract(memberNFTAddress_);
+        if (voteAddress_.code.length == 0) revert DependencyNotContract(voteAddress_);
+        if (launchAddress_.code.length == 0) revert DependencyNotContract(launchAddress_);
+        if (routerAddress_.code.length == 0) revert DependencyNotContract(routerAddress_);
+        if (pairFactoryAddress_.code.length == 0) revert DependencyNotContract(pairFactoryAddress_);
+        if (promisedWaitingPhasesMin == 0) revert ZeroPromisedWaitingPhasesMin();
+        if (feeSettlementRatio == 0) revert ZeroFeeSettlementRatio();
+        if (feeSettlementRatio > 1e18) revert InvalidFeeSettlementRatio(feeSettlementRatio);
+        if (promisedWaitingPhasesMin > promisedWaitingPhasesMax) {
+            revert InvalidPromisedWaitingPhasesRange(promisedWaitingPhasesMin, promisedWaitingPhasesMax);
+        }
 
         initialized = true;
         phaseAddress = phaseAddress_;
@@ -111,16 +113,17 @@ contract Stake is IStake {
         uint256 promisedWaitingPhases,
         uint256 memberId
     ) external onlyMemberOwner(memberId) returns (uint256 govVotesAdded, uint256 liquiditySharesAdded) {
-        if (tokenAmount == 0 || parentTokenAmount == 0) revert StakeAmountMustBeSet();
+        if (tokenAmount == 0) revert ZeroTokenAmount();
+        if (parentTokenAmount == 0) revert ZeroParentTokenAmount();
         _checkPromisedWaitingPhases(promisedWaitingPhases);
         _requireToken(tokenAddress);
         address pair = _pairFor(tokenAddress);
         uint256 round = _requireActiveRound();
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
-        if (member.unlockRequestPhase != 0) revert UnstakeAlreadyRequested();
+        if (member.unlockRequestPhase != 0) revert UnstakeAlreadyRequested(tokenAddress, memberId);
         if (promisedWaitingPhases < member.promisedWaitingPhases) {
-            revert PromisedWaitingPhasesMustBeGreaterOrEqualThanBefore();
+            revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, member.promisedWaitingPhases);
         }
 
         AddedLiquidity memory added = _addLiquidity(tokenAddress, pair, tokenAmount, parentTokenAmount, slippage);
@@ -132,15 +135,15 @@ contract Stake is IStake {
         onlyMemberOwner(memberId)
         returns (uint256 govVotesAdded)
     {
-        if (boostAmount == 0) revert StakeAmountMustBeSet();
+        if (boostAmount == 0) revert ZeroBoostAmount();
         _checkPromisedWaitingPhases(promisedWaitingPhases);
         _requireToken(tokenAddress);
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
-        if (member.unlockRequestPhase != 0) revert UnstakeAlreadyRequested();
-        if (member.liquidityShares == 0) revert NoStakedLiquidity();
+        if (member.unlockRequestPhase != 0) revert UnstakeAlreadyRequested(tokenAddress, memberId);
+        if (member.liquidityShares == 0) revert NoStakedLiquidity(tokenAddress, memberId);
         if (promisedWaitingPhases < member.promisedWaitingPhases) {
-            revert PromisedWaitingPhasesMustBeGreaterOrEqualThanBefore();
+            revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, member.promisedWaitingPhases);
         }
 
         uint256 round = _currentRound();
@@ -180,11 +183,13 @@ contract Stake is IStake {
         _requireToken(tokenAddress);
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
-        if (member.unlockRequestPhase != 0) revert UnstakeAlreadyRequested();
-        if (member.liquidityShares == 0) revert NoStakedLiquidity();
+        if (member.unlockRequestPhase != 0) revert UnstakeAlreadyRequested(tokenAddress, memberId);
+        if (member.liquidityShares == 0) revert NoStakedLiquidity(tokenAddress, memberId);
 
         uint256 round = _currentRound();
-        if (_hasUsedStakeRights(tokenAddress, round, memberId)) revert StakeRightsUsedInCurrentRound(memberId);
+        if (_hasUsedStakeRights(tokenAddress, round, memberId)) {
+            revert StakeRightsUsed(tokenAddress, round, memberId);
+        }
 
         uint256 govVotes = member.liquidityShares * member.promisedWaitingPhases;
         uint256 boostShares = member.boostShares;
@@ -215,8 +220,8 @@ contract Stake is IStake {
         address pair = _pairFor(tokenAddress);
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
-        if (member.unlockRequestPhase == 0) revert UnstakeNotRequested();
-        if (member.liquidityShares == 0) revert NoStakedLiquidity();
+        if (member.unlockRequestPhase == 0) revert UnstakeNotRequested(tokenAddress, memberId);
+        if (member.liquidityShares == 0) revert NoStakedLiquidity(tokenAddress, memberId);
 
         uint256 round = _currentRound();
         uint256 promisedWaitingPhases = member.promisedWaitingPhases;
@@ -224,7 +229,9 @@ contract Stake is IStake {
         uint256 boostShares = member.boostShares;
         // The promised waiting period is counted in whole phases beyond the request phase, matching the
         // old `LOVE20Stake.withdraw`: phase P after the request is still too early.
-        if (round <= member.unlockRequestPhase + promisedWaitingPhases) revert NotEnoughWaitingPhases();
+        if (round <= member.unlockRequestPhase + promisedWaitingPhases) {
+            revert InsufficientWaitingPhases(round, member.unlockRequestPhase + promisedWaitingPhases);
+        }
 
         (uint256 tokenAmountForLiquidity, uint256 parentTokenAmountForLiquidity) =
             _withdrawLiquidity(tokenAddress, pair, liquidityShares);
@@ -264,12 +271,13 @@ contract Stake is IStake {
 
         MemberStake storage source = _memberStake[tokenAddress][sourceMemberId];
         MemberStake storage target = _memberStake[tokenAddress][targetMemberId];
-        if (source.unlockRequestPhase != 0 || target.unlockRequestPhase != 0) revert UnstakeAlreadyRequested();
-        if (source.liquidityShares == 0) revert NoStakedLiquidity();
+        if (source.unlockRequestPhase != 0) revert UnstakeAlreadyRequested(tokenAddress, sourceMemberId);
+        if (target.unlockRequestPhase != 0) revert UnstakeAlreadyRequested(tokenAddress, targetMemberId);
+        if (source.liquidityShares == 0) revert NoStakedLiquidity(tokenAddress, sourceMemberId);
 
         uint256 round = _currentRound();
         if (_hasUsedStakeRights(tokenAddress, round, sourceMemberId)) {
-            revert StakeRightsUsedInCurrentRound(sourceMemberId);
+            revert StakeRightsUsed(tokenAddress, round, sourceMemberId);
         }
 
         (uint256 liquiditySharesMerged, uint256 boostSharesMerged) =
@@ -390,7 +398,7 @@ contract Stake is IStake {
     {
         // A round that has not started has no record yet: reverting keeps the old behaviour instead of
         // reporting the latest record as if it belonged to a future round.
-        if (round > _currentRound()) revert InvalidPhase(round);
+        if (round > _currentRound()) revert RoundNotStarted(round, _currentRound());
         return _boostHistoryByMember[tokenAddress][memberId].value(round);
     }
 
@@ -421,12 +429,14 @@ contract Stake is IStake {
 
     function _checkPromisedWaitingPhases(uint256 promisedWaitingPhases) private view {
         if (promisedWaitingPhases < PROMISED_WAITING_PHASES_MIN || promisedWaitingPhases > PROMISED_WAITING_PHASES_MAX) {
-            revert PromisedWaitingPhasesOutOfRange();
+            revert InvalidPromisedWaitingPhases(
+                promisedWaitingPhases, PROMISED_WAITING_PHASES_MIN, PROMISED_WAITING_PHASES_MAX
+            );
         }
     }
 
     function _requireToken(address tokenAddress) private view {
-        if (!ILaunch(launchAddress).isLOVE20Token(tokenAddress)) revert InvalidTokenAddress();
+        if (!ILaunch(launchAddress).isLOVE20Token(tokenAddress)) revert TokenNotRegistered(tokenAddress);
     }
 
     function _hasUsedStakeRights(
@@ -438,10 +448,8 @@ contract Stake is IStake {
         return ISubmit(IVote(voteAddress).submitAddress()).proposalIdBySubmitter(tokenAddress, round, memberId) != 0;
     }
 
-    /// @dev Every token Stake moves — LOVE20 tokens, WETH and the pair's LP token — reverts instead of
-    ///      returning false, so the boolean only has to be asserted, not converted into an own error.
     function _pull(address token, address from, uint256 amount) private {
-        require(IERC20(token).transferFrom(from, address(this), amount));
+        IERC20(token).safeTransferFrom(from, address(this), amount);
     }
 
     function _push(address token, address to, uint256 amount) private {
@@ -449,7 +457,7 @@ contract Stake is IStake {
         // LP accounting is written from the amounts the pair returns, never from a state a reentered
         // call could observe half applied.
         // forge-lint: disable-next-line(reentrancy-no-eth)
-        require(IERC20(token).transfer(to, amount));
+        IERC20(token).safeTransfer(to, amount);
     }
 
     /// @dev Launch creates the pair of every token when it is launched, so the first stake only has to read
@@ -459,7 +467,7 @@ contract Stake is IStake {
         pair = _pairAddress[tokenAddress];
         if (pair == address(0)) {
             pair = IUniswapV2Factory(pairFactoryAddress).getPair(tokenAddress, ILOVE20Token(tokenAddress).parentTokenAddress());
-            if (pair == address(0)) revert InvalidTokenAddress();
+            if (pair == address(0)) revert PairMissing(tokenAddress);
             _pairAddress[tokenAddress] = pair;
         }
     }
@@ -476,7 +484,9 @@ contract Stake is IStake {
         bool targetIsEmpty = target.liquidityShares == 0 && target.boostShares == 0;
 
         if (!targetIsEmpty && target.promisedWaitingPhases < source.promisedWaitingPhases) {
-            revert TargetPromisedWaitingPhasesTooShort();
+            revert TargetPromisedWaitingPhasesTooShort(
+                target.promisedWaitingPhases, source.promisedWaitingPhases
+            );
         }
 
         liquiditySharesMerged = source.liquidityShares;
@@ -576,7 +586,7 @@ contract Stake is IStake {
         _push(parentTokenAddress, pair, added.parentTokenAmount);
 
         added.lpMinted = IUniswapV2Pair(pair).mint(address(this));
-        if (added.lpMinted == 0) revert ZeroAmount("lpMinted");
+        if (added.lpMinted == 0) revert ZeroLiquidityMinted();
     }
 
     function _reserves(address pair, address tokenAddress)
@@ -644,7 +654,13 @@ contract Stake is IStake {
     }
 
     function _checkSlippage(uint256 deviation, uint256 desiredAmount, uint256 slippage) private pure {
-        if (deviation * SLIPPAGE_PRECISION > desiredAmount * slippage) revert SlippageExceeded(slippage, deviation);
+        (uint256 productHigh, uint256 productLow) = Math.mul512(desiredAmount, slippage);
+        (uint256 deviationHigh, uint256 deviationLow) = Math.mul512(deviation, SLIPPAGE_PRECISION);
+        if (deviationHigh > productHigh || (deviationHigh == productHigh && deviationLow > productLow)) {
+            // The condition above guarantees the floor is below `deviation`, so it fits in uint256.
+            uint256 maxDeviation = Math.mulDiv(desiredAmount, slippage, SLIPPAGE_PRECISION);
+            revert SlippageExceeded(deviation, maxDeviation);
+        }
     }
 
     /// @dev `totalLp` is owned here and always means the accounted amount: LP transferred to this contract
@@ -800,7 +816,7 @@ contract Stake is IStake {
         // No reentrancy guard: the fee was already taken out of the ledger and the swap only converts the
         // parent token that is burned afterwards in the same transaction.
         // forge-lint: disable-next-line(reentrancy-no-eth)
-        require(IERC20(parentTokenAddress).approve(routerAddress, parentTokenAmount));
+        IERC20(parentTokenAddress).forceApprove(routerAddress, parentTokenAmount);
         // forge-lint: disable-next-item(reentrancy-no-eth)
         amounts = IUniswapV2Router02(routerAddress).swapExactTokensForTokens(
             parentTokenAmount, amountOutMin, path, address(this), block.timestamp

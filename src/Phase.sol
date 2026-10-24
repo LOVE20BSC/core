@@ -31,7 +31,12 @@ contract Phase is IPhase {
     mapping(uint256 => Segment) private _segmentByStartBlock;
 
     constructor(uint256 ORIGIN_BLOCKS_, uint256 ORIGIN_PHASE_BLOCKS_, uint256 TARGET_SECONDS_, uint256 ADJUST_THRESHOLD_, uint256 SYNC_OBSERVATION_LIMIT_) {
-        require(ORIGIN_BLOCKS_ > 0 && ORIGIN_PHASE_BLOCKS_ > 0 && TARGET_SECONDS_ > 0 && ADJUST_THRESHOLD_ > 0 && ADJUST_THRESHOLD_ <= 1e18 && SYNC_OBSERVATION_LIMIT_ > 0);
+        if (ORIGIN_BLOCKS_ == 0) revert ZeroOriginBlocks();
+        if (ORIGIN_PHASE_BLOCKS_ == 0) revert ZeroOriginPhaseBlocks();
+        if (TARGET_SECONDS_ == 0) revert ZeroTargetSeconds();
+        if (ADJUST_THRESHOLD_ == 0) revert ZeroAdjustThreshold();
+        if (ADJUST_THRESHOLD_ > 1e18) revert InvalidAdjustThreshold(ADJUST_THRESHOLD_);
+        if (SYNC_OBSERVATION_LIMIT_ == 0) revert ZeroSyncObservationLimit();
         ORIGIN_BLOCKS = ORIGIN_BLOCKS_;
         ORIGIN_PHASE_BLOCKS = ORIGIN_PHASE_BLOCKS_;
         TARGET_SECONDS = TARGET_SECONDS_;
@@ -42,16 +47,16 @@ contract Phase is IPhase {
 
     function currentPhaseBlocks() public view returns (uint256) {
         uint256 phase = currentPhase();
-        if (phase == 0) revert InvalidPhase(0);
+        if (phase == 0) revert PhaseNotStarted();
         return _phaseBlocks(phase);
     }
 
     function currentPhase() public view returns (uint256) { return phaseAtBlock(block.number); }
 
     function phaseInfo(uint256 phaseNumber) public view returns (uint256 startBlock, uint256 phaseBlocks_) {
-        if (phaseNumber == 0) revert InvalidPhase(phaseNumber);
+        if (phaseNumber == 0) revert PhaseNotStarted();
         (bool found, uint256 key) = _segmentPhaseIndex.nearest(phaseNumber);
-        require(found);
+        assert(found);
         Segment memory segment = _segmentByPhase[key];
         startBlock = segment.startBlock + (phaseNumber - segment.phase) * segment.phaseBlocks;
         phaseBlocks_ = segment.phaseBlocks;
@@ -80,7 +85,7 @@ contract Phase is IPhase {
 
     function sync() external returns (bool adjusted, uint256 newPhaseBlocks) {
         uint256 phase = currentPhase();
-        if (phase == 0) revert InvalidPhase(0);
+        if (phase == 0) revert PhaseNotStarted();
         uint256 currentPhaseBlocks_ = _phaseBlocks(phase);
         if (_lastSyncPhase == phase) {
             // No adjustment occurred before this idempotent sync; return false explicitly.
@@ -126,7 +131,7 @@ contract Phase is IPhase {
 
     function _phaseBlocks(uint256 phase) private view returns (uint256) {
         (bool found, uint256 key) = _segmentPhaseIndex.nearest(phase);
-        require(found);
+        assert(found);
         return _segmentByPhase[key].phaseBlocks;
     }
 
@@ -139,7 +144,7 @@ contract Phase is IPhase {
 
     function _recordNextSegment(uint256 phase, uint256 phaseBlocks_, uint256 newPhaseBlocks) private {
         (bool found, uint256 key) = _segmentPhaseIndex.latest();
-        require(found);
+        assert(found);
         Segment memory previous = _segmentByPhase[key];
         _recordSegment(Segment(
             phase + 1,

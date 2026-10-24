@@ -2,11 +2,11 @@
 pragma solidity =0.8.37;
 
 import {Stake} from "../src/Stake.sol";
-import {IStake, IStakeErrors, MemberStake, GlobalStake} from "../src/interfaces/IStake.sol";
+import {IStakeErrors} from "../src/interfaces/IStake.sol";
 import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {MemberNFT} from "../src/MemberNFT.sol";
-import {Phase} from "../src/Phase.sol";
 
 /// @notice Mock contracts for testing
 
@@ -278,7 +278,7 @@ contract StakeTest {
             2000000e18, // max supply
             address(this), // distributor
             address(this), // minter
-            address(0xdead) // parent (root has dummy parent)
+            address(this) // parent is a code-bearing test contract
         );
 
         // Initialize MemberNFT with parent token as fee token
@@ -370,13 +370,40 @@ contract StakeTest {
         );
     }
 
-    function tryUnstake(
-        address owner,
-        address tokenAddress,
-        uint256 memberId
-    ) private returns (bool success) {
-        vm().prank(owner);
-        (success,) = address(stake).call(abi.encodeWithSelector(Stake.unstake.selector, tokenAddress, memberId));
+    function _expectRevertData(
+        address target,
+        bytes memory callData,
+        bytes memory expected,
+        string memory note
+    ) private {
+        (bool success, bytes memory data) = target.call(callData);
+        require(!success, note);
+        require(keccak256(data) == keccak256(expected), note);
+    }
+
+    function _revertedWith(address caller, bytes memory callData, bytes memory expected)
+        private
+        returns (bool)
+    {
+        vm().prank(caller);
+        (bool success, bytes memory data) = address(stake).call(callData);
+        return !success && keccak256(data) == keccak256(expected);
+    }
+
+    function _initCall(
+        address phase_,
+        address memberNFT_,
+        address vote_,
+        address launch_,
+        address router_,
+        address pairFactory_,
+        uint256 min_,
+        uint256 max_,
+        uint256 ratio_
+    ) private pure returns (bytes memory) {
+        return abi.encodeWithSelector(
+            Stake.init.selector, phase_, memberNFT_, vote_, launch_, router_, pairFactory_, min_, max_, ratio_
+        );
     }
 
     // ============ Init Tests ============
@@ -396,9 +423,9 @@ contract StakeTest {
 
 
     function testInitRevertsIfAlreadyInitialized() external {
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.init.selector,
+        _expectRevertData(
+            address(stake),
+            _initCall(
                 address(phase),
                 address(memberNFT),
                 address(vote),
@@ -408,17 +435,18 @@ contract StakeTest {
                 PROMISED_WAITING_PHASES_MIN,
                 PROMISED_WAITING_PHASES_MAX,
                 FEE_SETTLEMENT_RATIO
-            )
+            ),
+            abi.encodeWithSelector(IStakeErrors.AlreadyInitialized.selector),
+            "Should revert on double init"
         );
-        require(!success, "Should revert on double init");
     }
 
     function testInitRevertsWithZeroPhaseAddress() external {
         Stake newStake = new Stake();
-        (bool success, ) = address(newStake).call(
-            abi.encodeWithSelector(
-                Stake.init.selector,
-                address(0), // zero phase address
+        _expectRevertData(
+            address(newStake),
+            _initCall(
+                address(0),
                 address(memberNFT),
                 address(vote),
                 address(mockLaunch),
@@ -427,18 +455,19 @@ contract StakeTest {
                 PROMISED_WAITING_PHASES_MIN,
                 PROMISED_WAITING_PHASES_MAX,
                 FEE_SETTLEMENT_RATIO
-            )
+            ),
+            abi.encodeWithSelector(IStakeErrors.DependencyNotContract.selector, address(0)),
+            "Should revert with zero phase address"
         );
-        require(!success, "Should revert with zero phase address");
     }
 
     function testInitRevertsWithZeroMemberNFTAddress() external {
         Stake newStake = new Stake();
-        (bool success, ) = address(newStake).call(
-            abi.encodeWithSelector(
-                Stake.init.selector,
+        _expectRevertData(
+            address(newStake),
+            _initCall(
                 address(phase),
-                address(0), // zero memberNFT address
+                address(0),
                 address(vote),
                 address(mockLaunch),
                 address(router),
@@ -446,35 +475,37 @@ contract StakeTest {
                 PROMISED_WAITING_PHASES_MIN,
                 PROMISED_WAITING_PHASES_MAX,
                 FEE_SETTLEMENT_RATIO
-            )
+            ),
+            abi.encodeWithSelector(IStakeErrors.DependencyNotContract.selector, address(0)),
+            "Should revert with zero memberNFT address"
         );
-        require(!success, "Should revert with zero memberNFT address");
     }
 
     function testInitRevertsWithZeroVoteAddress() external {
         Stake newStake = new Stake();
-        (bool success, ) = address(newStake).call(
-            abi.encodeWithSelector(
-                Stake.init.selector,
+        _expectRevertData(
+            address(newStake),
+            _initCall(
                 address(phase),
                 address(memberNFT),
-                address(0), // zero vote address
+                address(0),
                 address(mockLaunch),
                 address(router),
                 address(pairFactory),
                 PROMISED_WAITING_PHASES_MIN,
                 PROMISED_WAITING_PHASES_MAX,
                 FEE_SETTLEMENT_RATIO
-            )
+            ),
+            abi.encodeWithSelector(IStakeErrors.DependencyNotContract.selector, address(0)),
+            "Should revert with zero vote address"
         );
-        require(!success, "Should revert with zero vote address");
     }
 
     function testInitRevertsWithZeroLaunchAddress() external {
         Stake newStake = new Stake();
-        (bool success, ) = address(newStake).call(
-            abi.encodeWithSelector(
-                Stake.init.selector,
+        _expectRevertData(
+            address(newStake),
+            _initCall(
                 address(phase),
                 address(memberNFT),
                 address(vote),
@@ -484,73 +515,77 @@ contract StakeTest {
                 PROMISED_WAITING_PHASES_MIN,
                 PROMISED_WAITING_PHASES_MAX,
                 FEE_SETTLEMENT_RATIO
-            )
+            ),
+            abi.encodeWithSelector(IStakeErrors.DependencyNotContract.selector, address(0)),
+            "Should revert with zero launch address"
         );
-        require(!success, "Should revert with zero launch address");
     }
 
     function testInitRevertsWithZeroRouterAddress() external {
         Stake newStake = new Stake();
-        (bool success, ) = address(newStake).call(
-            abi.encodeWithSelector(
-                Stake.init.selector,
+        _expectRevertData(
+            address(newStake),
+            _initCall(
                 address(phase),
                 address(memberNFT),
                 address(vote),
                 address(mockLaunch),
-                address(0), // zero router address
+                address(0),
                 address(pairFactory),
                 PROMISED_WAITING_PHASES_MIN,
                 PROMISED_WAITING_PHASES_MAX,
                 FEE_SETTLEMENT_RATIO
-            )
+            ),
+            abi.encodeWithSelector(IStakeErrors.DependencyNotContract.selector, address(0)),
+            "Should revert with zero router address"
         );
-        require(!success, "Should revert with zero router address");
     }
 
     function testInitRevertsWithZeroPairFactoryAddress() external {
         Stake newStake = new Stake();
-        (bool success, ) = address(newStake).call(
-            abi.encodeWithSelector(
-                Stake.init.selector,
+        _expectRevertData(
+            address(newStake),
+            _initCall(
                 address(phase),
                 address(memberNFT),
                 address(vote),
                 address(mockLaunch),
                 address(router),
-                address(0), // zero pair factory address
+                address(0),
                 PROMISED_WAITING_PHASES_MIN,
                 PROMISED_WAITING_PHASES_MAX,
                 FEE_SETTLEMENT_RATIO
-            )
+            ),
+            abi.encodeWithSelector(IStakeErrors.DependencyNotContract.selector, address(0)),
+            "Should revert with zero pair factory address"
         );
-        require(!success, "Should revert with zero pair factory address");
     }
 
     function testInitRevertsWithZeroPromisedWaitingPhasesMin() external {
         Stake newStake = new Stake();
-        (bool success, ) = address(newStake).call(
-            abi.encodeWithSelector(
-                Stake.init.selector,
+        _expectRevertData(
+            address(newStake),
+            _initCall(
                 address(phase),
                 address(memberNFT),
                 address(vote),
                 address(mockLaunch),
                 address(router),
                 address(pairFactory),
-                0, // zero min
+                0,
                 PROMISED_WAITING_PHASES_MAX,
                 FEE_SETTLEMENT_RATIO
-            )
+            ),
+            abi.encodeWithSelector(IStakeErrors.ZeroPromisedWaitingPhasesMin.selector),
+            "Should revert with zero min phases"
         );
-        require(!success, "Should revert with zero min phases");
     }
 
     function testInitRevertsWithZeroFeeSettlementRatio() external {
         Stake newStake = new Stake();
-        (bool success, ) = address(newStake).call(
-            abi.encodeWithSelector(
-                Stake.init.selector,
+        _expectRevertData(
+            address(newStake),
+            _initCall(
                 address(phase),
                 address(memberNFT),
                 address(vote),
@@ -559,17 +594,18 @@ contract StakeTest {
                 address(pairFactory),
                 PROMISED_WAITING_PHASES_MIN,
                 PROMISED_WAITING_PHASES_MAX,
-                0 // zero ratio
-            )
+                0
+            ),
+            abi.encodeWithSelector(IStakeErrors.ZeroFeeSettlementRatio.selector),
+            "Should revert with zero fee ratio"
         );
-        require(!success, "Should revert with zero fee ratio");
     }
 
     function testInitRevertsWhenFeeSettlementRatioExceedsMax() external {
         Stake newStake = new Stake();
-        (bool success, ) = address(newStake).call(
-            abi.encodeWithSelector(
-                Stake.init.selector,
+        _expectRevertData(
+            address(newStake),
+            _initCall(
                 address(phase),
                 address(memberNFT),
                 address(vote),
@@ -579,28 +615,30 @@ contract StakeTest {
                 PROMISED_WAITING_PHASES_MIN,
                 PROMISED_WAITING_PHASES_MAX,
                 1e18 + 1
-            )
+            ),
+            abi.encodeWithSelector(IStakeErrors.InvalidFeeSettlementRatio.selector, 1e18 + 1),
+            "Should revert when fee ratio exceeds 100%"
         );
-        require(!success, "Should revert when fee ratio exceeds 100%");
     }
 
     function testInitRevertsWhenMinGreaterThanMax() external {
         Stake newStake = new Stake();
-        (bool success, ) = address(newStake).call(
-            abi.encodeWithSelector(
-                Stake.init.selector,
+        _expectRevertData(
+            address(newStake),
+            _initCall(
                 address(phase),
                 address(memberNFT),
                 address(vote),
                 address(mockLaunch),
                 address(router),
                 address(pairFactory),
-                100, // min > max
+                100,
                 10,
                 FEE_SETTLEMENT_RATIO
-            )
+            ),
+            abi.encodeWithSelector(IStakeErrors.InvalidPromisedWaitingPhasesRange.selector, 100, 10),
+            "Should revert when min > max"
         );
-        require(!success, "Should revert when min > max");
     }
 
     // ============ Stake Liquidity Tests ============
@@ -629,18 +667,14 @@ contract StakeTest {
         parentToken.approve(address(stake), 1000e18);
 
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
+        _expectRevertData(
+            address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector,
-                address(childToken),
-                1000e18,
-                1000e18,
-                0.05e18,
-                10,
-                memberId1
-            )
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
+            ),
+            abi.encodeWithSelector(IStakeErrors.NotAllowedToStakeAtRoundZero.selector),
+            "Should revert at round zero"
         );
-        require(!success, "Should revert at round zero");
     }
 
     function testStakeLiquidityRevertsWithInvalidPromisedPhases() external {
@@ -651,63 +685,47 @@ contract StakeTest {
         parentToken.approve(address(stake), 1000e18);
 
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
+        _expectRevertData(
+            address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector,
-                address(childToken),
-                1000e18,
-                1000e18,
-                0.05e18,
-                0, // below min
-                memberId1
-            )
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 0.05e18, 0, memberId1
+            ),
+            abi.encodeWithSelector(IStakeErrors.InvalidPromisedWaitingPhases.selector, 0, 1, 100),
+            "Should revert with promised phases too low"
         );
-        require(!success, "Should revert with promised phases too low");
 
         // Too high
         vm().prank(owner1);
-        (success, ) = address(stake).call(
+        _expectRevertData(
+            address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector,
-                address(childToken),
-                1000e18,
-                1000e18,
-                0.05e18,
-                101, // above max
-                memberId1
-            )
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 0.05e18, 101, memberId1
+            ),
+            abi.encodeWithSelector(IStakeErrors.InvalidPromisedWaitingPhases.selector, 101, 1, 100),
+            "Should revert with promised phases too high"
         );
-        require(!success, "Should revert with promised phases too high");
     }
 
     function testStakeLiquidityRevertsWithZeroAmount() external {
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
+        _expectRevertData(
+            address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector,
-                address(childToken),
-                0, // zero token amount
-                1000e18,
-                0.05e18,
-                10,
-                memberId1
-            )
+                Stake.stakeLiquidity.selector, address(childToken), 0, 1000e18, 0.05e18, 10, memberId1
+            ),
+            abi.encodeWithSelector(IStakeErrors.ZeroTokenAmount.selector),
+            "Should revert with zero token amount"
         );
-        require(!success, "Should revert with zero token amount");
 
         vm().prank(owner1);
-        (success, ) = address(stake).call(
+        _expectRevertData(
+            address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector,
-                address(childToken),
-                1000e18,
-                0, // zero parent amount
-                0.05e18,
-                10,
-                memberId1
-            )
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 0, 0.05e18, 10, memberId1
+            ),
+            abi.encodeWithSelector(IStakeErrors.ZeroParentTokenAmount.selector),
+            "Should revert with zero parent amount"
         );
-        require(!success, "Should revert with zero parent amount");
     }
 
     function testStakeLiquidityIncreasesPromisedPhases() external {
@@ -743,18 +761,14 @@ contract StakeTest {
         parentToken.approve(address(stake), 1000e18);
 
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
+        _expectRevertData(
+            address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector,
-                address(childToken),
-                1000e18,
-                1000e18,
-                0.05e18,
-                5, // less than current 10
-                memberId1
-            )
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 0.05e18, 5, memberId1
+            ),
+            abi.encodeWithSelector(IStakeErrors.PromisedWaitingPhasesDecreased.selector, 5, 10),
+            "Should revert when decreasing promised phases"
         );
-        require(!success, "Should revert when decreasing promised phases");
     }
 
     // ============ Boost Tests ============
@@ -783,16 +797,12 @@ contract StakeTest {
         childToken.approve(address(stake), 500e18);
 
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.stakeBoost.selector,
-                address(childToken),
-                500e18,
-                10,
-                memberId1
-            )
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 500e18, 10, memberId1),
+            abi.encodeWithSelector(IStakeErrors.NoStakedLiquidity.selector, address(childToken), memberId1),
+            "Should revert when no liquidity staked"
         );
-        require(!success, "Should revert when no liquidity staked");
     }
 
     function testStakeBoostIncreasesGovVotes() external {
@@ -838,7 +848,11 @@ contract StakeTest {
         vm().prank(owner1);
         stake.unstake(address(childToken), memberId1);
 
-        require(!tryUnstake(owner1, address(childToken), memberId1), "Should revert on second unstake request");
+        require(_revertedWith(
+            owner1,
+            abi.encodeWithSelector(Stake.unstake.selector, address(childToken), memberId1),
+            abi.encodeWithSelector(IStakeErrors.UnstakeAlreadyRequested.selector, address(childToken), memberId1)
+        ), "Should revert on second unstake request");
     }
 
     function testUnstakeRevertsIfMemberVotedInCurrentRound() external {
@@ -847,7 +861,9 @@ contract StakeTest {
         vote.setVotesNum(address(childToken), 1, memberId1, 100);
 
         vm().prank(owner1);
-        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.StakeRightsUsedInCurrentRound.selector, memberId1));
+        vm().expectRevert(
+            abi.encodeWithSelector(IStakeErrors.StakeRightsUsed.selector, address(childToken), 1, memberId1)
+        );
         stake.unstake(address(childToken), memberId1);
 
         (, , , uint256 unlockPhase, , ) = stake.stakeData(address(childToken), memberId1);
@@ -861,7 +877,11 @@ contract StakeTest {
         mockSubmit.setProposalIdBySubmitter(address(childToken), 1, memberId1, 7);
 
         require(
-            !tryUnstake(owner1, address(childToken), memberId1),
+            _revertedWith(
+                owner1,
+                abi.encodeWithSelector(Stake.unstake.selector, address(childToken), memberId1),
+                abi.encodeWithSelector(IStakeErrors.StakeRightsUsed.selector, address(childToken), 1, memberId1)
+            ),
             "Should revert when the member submitted in the current round"
         );
     }
@@ -889,10 +909,12 @@ contract StakeTest {
 
         // Try to withdraw before waiting period ends
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1)
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1),
+            abi.encodeWithSelector(IStakeErrors.InsufficientWaitingPhases.selector, 1, 11),
+            "Should revert before waiting period"
         );
-        require(!success, "Should revert before waiting period");
     }
 
     function testWithdrawAtExactWaitingPeriodEndReverts() external {
@@ -907,10 +929,12 @@ contract StakeTest {
 
         // Should still revert at exact boundary
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1)
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1),
+            abi.encodeWithSelector(IStakeErrors.InsufficientWaitingPhases.selector, 11, 11),
+            "Should revert at exact waiting period boundary"
         );
-        require(!success, "Should revert at exact waiting period boundary");
     }
 
     function testWithdrawSucceedsAfterWaitingPeriod() external {
@@ -1084,10 +1108,12 @@ contract StakeTest {
         (uint256 sourceSharesBefore, , , , , ) = stake.stakeData(address(childToken), memberId1);
 
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(Stake.mergeStake.selector, address(childToken), memberId1, 999999)
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.mergeStake.selector, address(childToken), memberId1, 999999),
+            abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, uint256(999999)),
+            "Should reject a missing target member"
         );
-        require(!success, "Should reject a missing target member");
 
         (uint256 sourceSharesAfter, , , , , ) = stake.stakeData(address(childToken), memberId1);
         (uint256 missingTargetShares, , , , , ) = stake.stakeData(address(childToken), 999999);
@@ -1102,7 +1128,9 @@ contract StakeTest {
         vote.setVotesNum(address(childToken), 1, memberId1, 100);
 
         vm().prank(owner1);
-        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.StakeRightsUsedInCurrentRound.selector, memberId1));
+        vm().expectRevert(
+            abi.encodeWithSelector(IStakeErrors.StakeRightsUsed.selector, address(childToken), 1, memberId1)
+        );
         stake.mergeStake(address(childToken), memberId1, memberId3);
     }
 
@@ -1115,15 +1143,12 @@ contract StakeTest {
 
         // Try to merge (should fail because target phases < source phases)
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.mergeStake.selector,
-                address(childToken),
-                memberId1,
-                memberId3
-            )
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.mergeStake.selector, address(childToken), memberId1, memberId3),
+            abi.encodeWithSelector(IStakeErrors.TargetPromisedWaitingPhasesTooShort.selector, 5, 10),
+            "Should revert when target phases are shorter"
         );
-        require(!success, "Should revert when target phases are shorter");
     }
 
     function testMergeStakeSucceedsWhenTargetPhasesLonger() external {
@@ -1242,18 +1267,14 @@ contract StakeTest {
         parentToken.approve(address(stake), 900e18); // Less parent
 
         vm().prank(owner2);
-        (bool success, ) = address(stake).call(
+        _expectRevertData(
+            address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector,
-                address(childToken),
-                1000e18,
-                900e18,
-                0.01e18, // 1% slippage - too tight
-                10,
-                memberId2
-            )
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 900e18, 0.01e18, 10, memberId2
+            ),
+            abi.encodeWithSelector(IStakeErrors.SlippageExceeded.selector, 100e18, 10e18),
+            "Should revert with slippage exceeded"
         );
-        require(!success, "Should revert with slippage exceeded");
     }
 
     function testSlippageAllowsReasonableDeviation() external {
@@ -1288,18 +1309,14 @@ contract StakeTest {
         parentToken.approve(address(stake), 1000e18);
 
         vm().prank(owner2);
-        (bool success, ) = address(stake).call(
+        _expectRevertData(
+            address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector,
-                address(childToken),
-                1000e18,
-                1000e18,
-                0.05e18,
-                10,
-                memberId1 // owned by owner1
-            )
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
+            ),
+            abi.encodeWithSelector(IStakeErrors.NotMemberOwner.selector, memberId1),
+            "Should revert when not member owner"
         );
-        require(!success, "Should revert when not member owner");
     }
 
 
@@ -1333,15 +1350,12 @@ contract StakeTest {
         stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
 
         // Try to query future round
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                stake.cumulatedBoostShares.selector,
-                address(childToken),
-                999, // future round
-                memberId1
-            )
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(stake.cumulatedBoostShares.selector, address(childToken), 999, memberId1),
+            abi.encodeWithSelector(IStakeErrors.RoundNotStarted.selector, 999, 1),
+            "Should revert for future round"
         );
-        require(!success, "Should revert for future round");
     }
 
     function testGlobalStakeDataReturnsZeroForUnregisteredToken() external view {
@@ -1453,25 +1467,77 @@ contract StakeTest {
         parentToken.approve(address(stake), 1000e18);
 
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
+        _expectRevertData(
+            address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector,
-                address(orphanToken),
-                1000e18,
-                1000e18,
-                0.05e18,
-                10,
-                memberId1
-            )
+                Stake.stakeLiquidity.selector, address(orphanToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
+            ),
+            abi.encodeWithSelector(IStakeErrors.TokenNotRegistered.selector, address(orphanToken)),
+            "Should revert for unregistered token"
         );
-        require(!success, "Should revert for unregistered token");
 
         // Try settleFees - should revert
         vm().prank(owner1);
-        (success, ) = address(stake).call(
-            abi.encodeWithSelector(Stake.settleFees.selector, address(orphanToken))
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.settleFees.selector, address(orphanToken)),
+            abi.encodeWithSelector(IStakeErrors.TokenNotRegistered.selector, address(orphanToken)),
+            "settleFees should revert for unregistered token"
         );
-        require(!success, "settleFees should revert for unregistered token");
+    }
+
+    function testMissingPairReverts() external {
+        LOVE20Token noPairToken = new LOVE20Token(
+            "No Pair Token",
+            "NOPAIR",
+            1000000e18,
+            2000000e18,
+            address(this),
+            address(this),
+            address(parentToken)
+        );
+        mockLaunch.register(address(noPairToken));
+        noPairToken.transfer(owner1, 10000e18);
+
+        vm().prank(owner1);
+        noPairToken.approve(address(stake), 1000e18);
+        vm().prank(owner1);
+        parentToken.approve(address(stake), 1000e18);
+
+        vm().prank(owner1);
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(
+                Stake.stakeLiquidity.selector, address(noPairToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
+            ),
+            abi.encodeWithSelector(IStakeErrors.PairMissing.selector, address(noPairToken)),
+            "Should revert when the community has no pair"
+        );
+
+        vm().prank(owner1);
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.settleFees.selector, address(noPairToken)),
+            abi.encodeWithSelector(IStakeErrors.PairMissing.selector, address(noPairToken)),
+            "settleFees should revert when the community has no pair"
+        );
+    }
+
+    function testStakeLiquidityRevertsWhenTransferReturnsFalse() external {
+        FalseReturningToken falseToken = new FalseReturningToken(address(parentToken));
+        mockLaunch.register(address(falseToken));
+        MockPair falsePair = new MockPair(address(falseToken), address(parentToken));
+        pairFactory.setPair(address(falseToken), address(parentToken), address(falsePair));
+
+        vm().prank(owner1);
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(
+                Stake.stakeLiquidity.selector, address(falseToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
+            ),
+            abi.encodeWithSelector(SafeERC20.SafeERC20FailedOperation.selector, address(falseToken)),
+            "Should revert when the token transfer returns false"
+        );
     }
 
     function testStakeLiquidityRevertsWhenAlreadyUnlocking() external {
@@ -1489,18 +1555,14 @@ contract StakeTest {
         parentToken.approve(address(stake), 1000e18);
 
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
+        _expectRevertData(
+            address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector,
-                address(childToken),
-                1000e18,
-                1000e18,
-                0.05e18,
-                10,
-                memberId1
-            )
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
+            ),
+            abi.encodeWithSelector(IStakeErrors.UnstakeAlreadyRequested.selector, address(childToken), memberId1),
+            "Should revert when already unlocking"
         );
-        require(!success, "Should revert when already unlocking");
     }
 
     function testStakeBoostRevertsWhenAlreadyUnlocking() external {
@@ -1516,16 +1578,12 @@ contract StakeTest {
         childToken.approve(address(stake), 500e18);
 
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.stakeBoost.selector,
-                address(childToken),
-                500e18,
-                10,
-                memberId1
-            )
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 500e18, 10, memberId1),
+            abi.encodeWithSelector(IStakeErrors.UnstakeAlreadyRequested.selector, address(childToken), memberId1),
+            "Should revert when already unlocking"
         );
-        require(!success, "Should revert when already unlocking");
     }
 
     function testStakeBoostRevertsWithDecreasingPhases() external {
@@ -1537,19 +1595,15 @@ contract StakeTest {
         childToken.approve(address(stake), 500e18);
 
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.stakeBoost.selector,
-                address(childToken),
-                500e18,
-                5, // less than current 10
-                memberId1
-            )
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 500e18, 5, memberId1),
+            abi.encodeWithSelector(IStakeErrors.PromisedWaitingPhasesDecreased.selector, 5, 10),
+            "Should revert when decreasing promised phases"
         );
-        require(!success, "Should revert when decreasing promised phases");
     }
 
-    function testWithdrawRevertsWithZeroLiquidityShares() external {
+    function testWithdrawRevertsAfterPositionCleared() external {
         // Stake and unstake
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 
@@ -1567,17 +1621,14 @@ contract StakeTest {
         (uint256 shares, , , , , ) = stake.stakeData(address(childToken), memberId1);
         require(shares == 0, "Shares should be zero");
 
-        // Try to withdraw again - should revert at line 206 with NoStakedLiquidity
-        // This covers the branch: if (member.liquidityShares == 0) revert NoStakedLiquidity();
+        // Try to withdraw again; the position was cleared, so no unlock request remains.
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.withdraw.selector,
-                address(childToken),
-                memberId1
-            )
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1),
+            abi.encodeWithSelector(IStakeErrors.UnstakeNotRequested.selector, address(childToken), memberId1),
+            "Should revert with no unlock request"
         );
-        require(!success, "Should revert with zero liquidity shares");
     }
 
     function testMergeStakeRevertsWithEmptySource() external {
@@ -1586,15 +1637,12 @@ contract StakeTest {
 
         // Try to merge from empty source - should revert
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.mergeStake.selector,
-                address(childToken),
-                memberId1, // empty source
-                memberId3
-            )
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.mergeStake.selector, address(childToken), memberId1, memberId3),
+            abi.encodeWithSelector(IStakeErrors.NoStakedLiquidity.selector, address(childToken), memberId1),
+            "Should revert with empty source"
         );
-        require(!success, "Should revert with empty source");
     }
 
     function testMergeStakeRevertsWithWrongOwner() external {
@@ -1603,15 +1651,12 @@ contract StakeTest {
 
         // Try to merge using owner2 (who doesn't own memberId1) - should revert
         vm().prank(owner2);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.mergeStake.selector,
-                address(childToken),
-                memberId1, // owned by owner1, not owner2
-                memberId2
-            )
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.mergeStake.selector, address(childToken), memberId1, memberId2),
+            abi.encodeWithSelector(IStakeErrors.NotMemberOwner.selector, memberId1),
+            "Should revert when not member owner"
         );
-        require(!success, "Should revert when not member owner");
     }
 
     function testStakeBoostRevertsWithZeroAmount() external {
@@ -1620,16 +1665,12 @@ contract StakeTest {
 
         // Try to boost with zero amount - should revert
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.stakeBoost.selector,
-                address(childToken),
-                0, // zero amount
-                10,
-                memberId1
-            )
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 0, 10, memberId1),
+            abi.encodeWithSelector(IStakeErrors.ZeroBoostAmount.selector),
+            "Should revert with zero boost amount"
         );
-        require(!success, "Should revert with zero boost amount");
     }
 
     function testSettleFeesRespectsPhaseGuard() external {
@@ -2174,24 +2215,24 @@ contract StakeTest {
 
     function testUnstakeRevertsWithoutLiquidity() external {
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.unstake.selector,
-                address(childToken),
-                memberId1
-            )
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.unstake.selector, address(childToken), memberId1),
+            abi.encodeWithSelector(IStakeErrors.NoStakedLiquidity.selector, address(childToken), memberId1),
+            "Should revert when no liquidity staked"
         );
-        require(!success, "Should revert when no liquidity staked");
     }
 
     function testWithdrawRevertsWithoutUnstake() external {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1)
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1),
+            abi.encodeWithSelector(IStakeErrors.UnstakeNotRequested.selector, address(childToken), memberId1),
+            "Should revert when unstake not requested"
         );
-        require(!success, "Should revert when unstake not requested");
     }
 
     function testMergeRevertsWhenTargetUnlocking() external {
@@ -2204,15 +2245,12 @@ contract StakeTest {
 
         // Try to merge into unlocking target
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.mergeStake.selector,
-                address(childToken),
-                memberId1,
-                memberId3
-            )
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.mergeStake.selector, address(childToken), memberId1, memberId3),
+            abi.encodeWithSelector(IStakeErrors.UnstakeAlreadyRequested.selector, address(childToken), memberId3),
+            "Should revert when target is unlocking"
         );
-        require(!success, "Should revert when target is unlocking");
     }
 
     function testMergeRevertsWhenSourceUnlocking() external {
@@ -2224,15 +2262,12 @@ contract StakeTest {
 
         // Try to merge from unlocking source
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
-            abi.encodeWithSelector(
-                Stake.mergeStake.selector,
-                address(childToken),
-                memberId1,
-                memberId3
-            )
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.mergeStake.selector, address(childToken), memberId1, memberId3),
+            abi.encodeWithSelector(IStakeErrors.UnstakeAlreadyRequested.selector, address(childToken), memberId1),
+            "Should revert when source is unlocking"
         );
-        require(!success, "Should revert when source is unlocking");
     }
 
     // ============ Advanced Coverage Tests ============
@@ -2585,23 +2620,18 @@ contract StakeTest {
         MockInvalidToken invalidToken = new MockInvalidToken();
 
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
+        _expectRevertData(
+            address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector,
-                address(invalidToken),
-                1000e18,
-                1000e18,
-                0.05e18,
-                10,
-                memberId1
-            )
+                Stake.stakeLiquidity.selector, address(invalidToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
+            ),
+            abi.encodeWithSelector(IStakeErrors.TokenNotRegistered.selector, address(invalidToken)),
+            "Should revert with invalid token"
         );
-        require(!success, "Should revert with invalid token");
     }
 
     function testAddLiquidityRevertsWithZeroLpMinted() external {
         // Create a pair that returns 0 LP when minting
-        // This covers line 575: if (added.lpMinted == 0) revert ZeroAmount("lpMinted");
         LOVE20Token zeroLpToken = new LOVE20Token(
             "Zero LP Token",
             "ZEROLP",
@@ -2624,18 +2654,14 @@ contract StakeTest {
         parentToken.approve(address(stake), 1000e18);
 
         vm().prank(owner1);
-        (bool success, ) = address(stake).call(
+        _expectRevertData(
+            address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector,
-                address(zeroLpToken),
-                1000e18,
-                1000e18,
-                0.05e18,
-                10,
-                memberId1
-            )
+                Stake.stakeLiquidity.selector, address(zeroLpToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
+            ),
+            abi.encodeWithSelector(IStakeErrors.ZeroLiquidityMinted.selector),
+            "Should revert with zero LP minted"
         );
-        require(!success, "Should revert with zero LP minted");
     }
 
     // Test first branch of _optimalAmounts (line 632): excess parent token
@@ -2667,6 +2693,31 @@ contract StakeTest {
 contract MockInvalidToken {
     function parentTokenAddress() external pure returns (address) {
         return address(0);
+    }
+}
+
+/// Mock token whose transfers report failure instead of reverting
+contract FalseReturningToken {
+    address private immutable _parentTokenAddress;
+
+    constructor(address parentTokenAddress_) {
+        _parentTokenAddress = parentTokenAddress_;
+    }
+
+    function parentTokenAddress() external view returns (address) {
+        return _parentTokenAddress;
+    }
+
+    function transferFrom(address, address, uint256) external pure returns (bool) {
+        return false;
+    }
+
+    function transfer(address, uint256) external pure returns (bool) {
+        return false;
+    }
+
+    function balanceOf(address) external pure returns (uint256) {
+        return 0;
     }
 }
 

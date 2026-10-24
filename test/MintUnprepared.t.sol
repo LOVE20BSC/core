@@ -37,7 +37,7 @@ contract MintUnpreparedTest {
             proposalRatio,
             2
         );
-        token = new LOVE20Token("Test", "TST", supply, maxSupply, address(this), address(mint), address(1));
+        token = new LOVE20Token("Test", "TST", supply, maxSupply, address(this), address(mint), address(this));
     }
 
     function phaseAddress() external view returns (address) {

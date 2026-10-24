@@ -447,7 +447,7 @@ contract MintIntegrationTest {
         // Round not ended - prepare must revert
         phase.setCurrentPhase(1);
         vm.prank(member1);
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 1));
         mint.mintGovReward(address(token), 1, 1, member1);
 
         // Now mark round as ended

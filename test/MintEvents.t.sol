@@ -67,7 +67,7 @@ contract MintEventsTest {
             1e17,
             2
         );
-        token = new LOVE20Token("Test", "TST", 10000, 1000000, address(this), address(mint), address(1));
+        token = new LOVE20Token("Test", "TST", 10000, 1000000, address(this), address(mint), address(this));
     }
 
     // Mock interfaces
@@ -169,7 +169,7 @@ contract MintEventsTest {
         (uint256 voteReward, uint256 boostReward, uint256 burnReward,) =
             mint.govRewardByMemberId(address(token), round, memberId);
 
-        // Skip if total is zero (would cause NoRewardAvailable per line 262)
+        // Skip if total is zero (would cause MemberRewardUnavailable)
         if (voteReward + boostReward + burnReward == 0) return;
 
         // If there's a burn, expect RewardBurned first
@@ -229,7 +229,7 @@ contract MintEventsTest {
             2
         );
 
-        LOVE20Token token2 = new LOVE20Token("Test2", "TS2", 10000, 1000000, address(this), address(mint2), address(1));
+        LOVE20Token token2 = new LOVE20Token("Test2", "TS2", 10000, 1000000, address(this), address(mint2), address(this));
 
 
         (uint256 voteReward, uint256 boostReward, uint256 burnReward,) = mint2.govRewardByMemberId(address(token2), 1, 1);

@@ -369,7 +369,7 @@ _govMinted[tokenAddress][round][memberId] = true
 **第二次领取**:
 ```
 _govMinted[tokenAddress][round][memberId] = true
-mintGovReward(...) → revert AlreadyMinted()
+mintGovReward(...) → revert MemberRewardAlreadyMinted(tokenAddress, round, memberId)
 ```
 
 同理适用于提案奖励：

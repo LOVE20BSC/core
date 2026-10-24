@@ -23,12 +23,13 @@ contract TokenCaller {
 
 contract LOVE20TokenTest {
     /// 父币地址只作为构造参数保存，代币本体不再与父币发生任何转账
-    address private constant PARENT = address(0xBEEF);
+    address private PARENT;
     LOVE20Token private token;
     TokenCaller private minter;
     TokenCaller private holder;
 
     function setUp() public {
+        PARENT = address(this);
         minter = new TokenCaller();
         holder = new TokenCaller();
         token = new LOVE20Token(
@@ -57,14 +58,28 @@ contract LOVE20TokenTest {
         require(token.totalSupply() == 150 ether, "mint");
 
         (bool ok, bytes memory data) = minter.callMint(token, address(this), 1);
-        require(!ok && _selector(data) == ILOVE20TokenErrors.ExceedsMaxSupply.selector, "exceeded max supply");
+        require(!ok, "exceeded max supply");
+        require(
+            _revertEquals(
+                data,
+                abi.encodeWithSelector(ILOVE20TokenErrors.MaxSupplyExceeded.selector, 1, 0)
+            ),
+            "exceeded max supply data"
+        );
     }
 
     function testNonMinterCannotMint() public {
         (bool ok, bytes memory data) = address(token).call(
             abi.encodeWithSelector(token.mint.selector, address(this), 1)
         );
-        require(!ok && _selector(data) == ILOVE20TokenErrors.NotMinter.selector, "unauthorized mint");
+        require(!ok, "unauthorized mint");
+        require(
+            _revertEquals(
+                data,
+                abi.encodeWithSelector(ILOVE20TokenErrors.NotMinter.selector, address(this))
+            ),
+            "unauthorized mint data"
+        );
     }
 
     function testBurnReducesCallerBalanceAndSupply() public {
@@ -77,15 +92,21 @@ contract LOVE20TokenTest {
     function testConstructorRejectsInvalidSupply() public {
         // initialSupply 大于 maxSupply
         require(
-            _selector(_deployRevert(_tokenCode(101 ether, 100 ether, address(this), address(this), PARENT)))
-                == ILOVE20TokenErrors.InvalidSupply.selector,
+            _revertEquals(
+                _deployRevert(_tokenCode(101 ether, 100 ether, address(this), address(this), PARENT)),
+                abi.encodeWithSelector(
+                    ILOVE20TokenErrors.InvalidInitialSupply.selector, 101 ether, 100 ether
+                )
+            ),
             "above max supply"
         );
 
         // initialSupply 为零：零供应代币不可创建
         require(
-            _selector(_deployRevert(_tokenCode(0, 100 ether, address(this), address(this), PARENT)))
-                == ILOVE20TokenErrors.InvalidSupply.selector,
+            _revertEquals(
+                _deployRevert(_tokenCode(0, 100 ether, address(this), address(this), PARENT)),
+                abi.encodeWithSelector(ILOVE20TokenErrors.ZeroInitialSupply.selector)
+            ),
             "zero initial supply"
         );
 
@@ -95,18 +116,24 @@ contract LOVE20TokenTest {
 
     function testConstructorRejectsZeroAddresses() public {
         require(
-            _selector(_deployRevert(_tokenCode(1 ether, 1 ether, address(0), address(this), PARENT)))
-                == ILOVE20TokenErrors.InvalidAddress.selector,
+            _revertEquals(
+                _deployRevert(_tokenCode(1 ether, 1 ether, address(0), address(this), PARENT)),
+                abi.encodeWithSelector(ILOVE20TokenErrors.ZeroDistributorAddress.selector)
+            ),
             "zero distributor"
         );
         require(
-            _selector(_deployRevert(_tokenCode(1 ether, 1 ether, address(this), address(0), PARENT)))
-                == ILOVE20TokenErrors.InvalidAddress.selector,
+            _revertEquals(
+                _deployRevert(_tokenCode(1 ether, 1 ether, address(this), address(0), PARENT)),
+                abi.encodeWithSelector(ILOVE20TokenErrors.DependencyNotContract.selector, address(0))
+            ),
             "zero minter"
         );
         require(
-            _selector(_deployRevert(_tokenCode(1 ether, 1 ether, address(this), address(this), address(0))))
-                == ILOVE20TokenErrors.InvalidAddress.selector,
+            _revertEquals(
+                _deployRevert(_tokenCode(1 ether, 1 ether, address(this), address(this), address(0))),
+                abi.encodeWithSelector(ILOVE20TokenErrors.DependencyNotContract.selector, address(0))
+            ),
             "zero parent"
         );
     }
@@ -133,7 +160,7 @@ contract LOVE20TokenTest {
     }
 
     /// 构造回滚必须用 assembly `create`：`vm.expectRevert` 与 `new` 混用时，真回滚会终止整个
-    /// 用例并判 PASS，使其后的断言全部变成死代码。create 还会保留 revert data 供 selector 断言。
+    /// 用例并判 PASS，使其后的断言全部变成死代码。create 还会保留 revert data 供完整载荷断言。
     function _deployRevert(bytes memory bytecode) private returns (bytes memory data) {
         address deployed;
         uint256 size;
@@ -148,10 +175,7 @@ contract LOVE20TokenTest {
         }
     }
 
-    function _selector(bytes memory data) private pure returns (bytes4 selector) {
-        if (data.length < 4) return bytes4(0);
-        assembly {
-            selector := mload(add(data, 32))
-        }
+    function _revertEquals(bytes memory data, bytes memory expected) private pure returns (bool) {
+        return keccak256(data) == keccak256(expected);
     }
 }

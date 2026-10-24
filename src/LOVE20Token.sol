@@ -35,10 +35,11 @@ contract LOVE20Token is ERC20, ILOVE20Token {
         address minter_,
         address parentTokenAddress_
     ) ERC20(name, symbol) {
-        if (initialSupply == 0 || maxSupply_ < initialSupply) revert InvalidSupply();
-        if (distributor == address(0) || minter_ == address(0) || parentTokenAddress_ == address(0)) {
-            revert InvalidAddress();
-        }
+        if (initialSupply == 0) revert ZeroInitialSupply();
+        if (maxSupply_ < initialSupply) revert InvalidInitialSupply(initialSupply, maxSupply_);
+        if (distributor == address(0)) revert ZeroDistributorAddress();
+        if (minter_.code.length == 0) revert DependencyNotContract(minter_);
+        if (parentTokenAddress_.code.length == 0) revert DependencyNotContract(parentTokenAddress_);
 
         _mint(distributor, initialSupply);
         emit TokenMint({to: distributor, amount: initialSupply});
@@ -48,7 +49,7 @@ contract LOVE20Token is ERC20, ILOVE20Token {
     }
 
     modifier onlyMinter() {
-        if (msg.sender != minter) revert NotMinter();
+        if (msg.sender != minter) revert NotMinter(msg.sender);
         _;
     }
 
@@ -56,7 +57,8 @@ contract LOVE20Token is ERC20, ILOVE20Token {
      * @inheritdoc ILOVE20Token
      */
     function mint(address to, uint256 amount) external override onlyMinter {
-        if (totalSupply() + amount > maxSupply) revert ExceedsMaxSupply();
+        uint256 remaining = maxSupply - totalSupply();
+        if (amount > remaining) revert MaxSupplyExceeded(amount, remaining);
         _mint(to, amount);
         emit TokenMint({to: to, amount: amount});
     }

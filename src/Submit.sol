@@ -12,6 +12,9 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract Submit is ISubmit {
     using Pagination for uint256[];
+
+    uint256 private constant _SUBMIT_ROUND_LIMIT = 1000;
+
     bool public initialized;
     address public phaseAddress;
     address public stakeAddress;
@@ -46,14 +49,20 @@ contract Submit is ISubmit {
         if (initialized) {
             revert AlreadyInitialized();
         }
-        if (phaseAddress_ == address(0) || stakeAddress_ == address(0) || memberNFTAddress_ == address(0)) {
-            revert InvalidAddress();
+        if (phaseAddress_.code.length == 0) {
+            revert DependencyNotContract(phaseAddress_);
+        }
+        if (stakeAddress_.code.length == 0) {
+            revert DependencyNotContract(stakeAddress_);
+        }
+        if (memberNFTAddress_.code.length == 0) {
+            revert DependencyNotContract(memberNFTAddress_);
         }
         if (submitMinRatio == 0) {
-            revert ZeroAmount("submitMinRatio");
+            revert ZeroSubmitMinRatio();
         }
         if (submitMinRatio > 1e18) {
-            revert InvalidAmount();
+            revert InvalidSubmitMinRatio(submitMinRatio);
         }
         initialized = true;
         phaseAddress = phaseAddress_;
@@ -66,18 +75,32 @@ contract Submit is ISubmit {
         address tokenAddress,
         uint256 memberId
     ) public view returns (bool) {
+        (uint256 validVotes, uint256 requiredVotes, ) = _submitPower(tokenAddress, memberId);
+        return _meetsSubmitPower(validVotes, requiredVotes);
+    }
+
+    function _submitPower(
+        address tokenAddress,
+        uint256 memberId
+    ) private view returns (uint256 validVotes, uint256 requiredVotes, uint256 totalVotes) {
         IStake stake = IStake(stakeAddress);
-        uint256 validVotes = stake.validGovVotes(tokenAddress, memberId);
-        uint256 total = stake.globalGovVotes(tokenAddress);
+        validVotes = stake.validGovVotes(tokenAddress, memberId);
+        totalVotes = stake.globalGovVotes(tokenAddress);
+        requiredVotes = Math.mulDiv(totalVotes, SUBMIT_MIN_RATIO, 1e18, Math.Rounding.Ceil);
+    }
 
-        if (total == 0) {
-            return false;
-        }
-        if (validVotes == 0) {
-            return false;
-        }
+    function _meetsSubmitPower(uint256 validVotes, uint256 requiredVotes) private pure returns (bool) {
+        return requiredVotes != 0 && validVotes >= requiredVotes;
+    }
 
-        return validVotes >= Math.mulDiv(total, SUBMIT_MIN_RATIO, 1e18, Math.Rounding.Ceil);
+    function _requireSubmitPower(address tokenAddress, uint256 memberId) private view {
+        (uint256 validVotes, uint256 requiredVotes, uint256 totalVotes) = _submitPower(tokenAddress, memberId);
+        if (totalVotes == 0) {
+            revert NoGovVotes(tokenAddress);
+        }
+        if (!_meetsSubmitPower(validVotes, requiredVotes)) {
+            revert InsufficientSubmitPower(tokenAddress, memberId, validVotes, requiredVotes);
+        }
     }
 
     modifier onlyMemberOwner(uint256 memberId) {
@@ -93,7 +116,7 @@ contract Submit is ISubmit {
         ProposalBody calldata proposalBody
     ) external onlyMemberOwner(memberId) returns (uint256 proposalId) {
         _validateProposalBody(proposalBody);
-        if (!canSubmit(tokenAddress, memberId)) revert CannotSubmitAction();
+        _requireSubmitPower(tokenAddress, memberId);
 
         proposalId = _createProposal(tokenAddress, memberId, proposalBody);
 
@@ -108,7 +131,7 @@ contract Submit is ISubmit {
         onlyMemberOwner(memberId)
     {
         _requireProposalExists(tokenAddress, proposalId);
-        if (!canSubmit(tokenAddress, memberId)) revert CannotSubmitAction();
+        _requireSubmitPower(tokenAddress, memberId);
 
         _submitByProposalId(tokenAddress, memberId, proposalId);
         _callProposalSubmitted(tokenAddress, proposalId, memberId);
@@ -205,10 +228,10 @@ contract Submit is ISubmit {
     }
 
     function _validateProposalBody(ProposalBody calldata proposalBody) internal view {
-        if (bytes(proposalBody.title).length == 0) revert EmptyString("title");
-        if (proposalBody.target == address(0)) revert InvalidAddress();
+        if (bytes(proposalBody.title).length == 0) revert TitleEmpty();
+        if (proposalBody.target == address(0)) revert ZeroTargetAddress();
         if (proposalBody.targetMode == TargetMode.Callback && proposalBody.target.code.length == 0) {
-            revert InvalidTargetMode();
+            revert CallbackTargetNotContract(proposalBody.target);
         }
     }
 
@@ -255,13 +278,16 @@ contract Submit is ISubmit {
         _requireProposalExists(tokenAddress, proposalId);
 
         uint256 round = currentRound();
-        if (isSubmitted(tokenAddress, round, proposalId))
-            revert AlreadySubmitted();
+        if (isSubmitted(tokenAddress, round, proposalId)) {
+            revert ProposalAlreadySubmitted(tokenAddress, round, proposalId);
+        }
         if (
             _submitInfoBySubmitterId[tokenAddress][round][memberId]
                 .submitterId != 0
-        ) revert OnlyOneSubmitPerRound();
-        if (_submits[tokenAddress][round].length >= 1000) revert CannotSubmitAction();
+        ) revert MemberAlreadySubmitted(tokenAddress, round, memberId);
+        if (_submits[tokenAddress][round].length >= _SUBMIT_ROUND_LIMIT) {
+            revert SubmitRoundFull(tokenAddress, round, _SUBMIT_ROUND_LIMIT);
+        }
 
         // Effects
         SubmitInfo memory submitInfo = SubmitInfo(

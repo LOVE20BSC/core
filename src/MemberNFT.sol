@@ -8,6 +8,7 @@ import {
     ERC721Enumerable
 } from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Pagination} from "@libs/Pagination.sol";
 
 /**
@@ -16,6 +17,7 @@ import {Pagination} from "@libs/Pagination.sol";
  */
 contract MemberNFT is ERC721Enumerable, IMemberNFT {
     using Pagination for address[];
+    using SafeERC20 for IERC20;
     // ============ Fixed Parameters ============
 
     address public LOVE20_TOKEN_ADDRESS;
@@ -58,7 +60,10 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         uint256 multiplier_,
         uint256 maxNameLength_
     ) ERC721("LOVE20 Member NFT", "Member") {
-        require(baseDivisor_ > 0 && bytesThreshold_ > 0 && multiplier_ > 0 && maxNameLength_ > 0);
+        if (baseDivisor_ == 0) revert ZeroBaseDivisor();
+        if (bytesThreshold_ == 0) revert ZeroBytesThreshold();
+        if (multiplier_ == 0) revert ZeroMultiplier();
+        if (maxNameLength_ == 0) revert ZeroMaxNameLength();
         BASE_DIVISOR = baseDivisor_;
         BYTES_THRESHOLD = bytesThreshold_;
         MULTIPLIER = multiplier_;
@@ -67,7 +72,7 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
 
     function init(address firstTokenAddress) external {
         if (initialized) revert AlreadyInitialized();
-        require(firstTokenAddress != address(0));
+        if (firstTokenAddress.code.length == 0) revert DependencyNotContract(firstTokenAddress);
         LOVE20_TOKEN_ADDRESS = firstTokenAddress;
         initialized = true;
     }
@@ -106,9 +111,7 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         if (mintCost > 0) {
             totalBurnedForMint += mintCost;
 
-            if (!IERC20(LOVE20_TOKEN_ADDRESS).transferFrom(memberOwner, address(this), mintCost)) {
-                revert FeeTransferFailed();
-            }
+            IERC20(LOVE20_TOKEN_ADDRESS).safeTransferFrom(memberOwner, address(this), mintCost);
             ILOVE20Token(LOVE20_TOKEN_ADDRESS).burn(mintCost);
         }
 
@@ -303,10 +306,8 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         uint256 len = nameBytes.length;
 
         if (len == 0) revert NameEmpty();
-        if (len > MAX_NAME_LENGTH)
-            revert NameTooLong(len, MAX_NAME_LENGTH);
-        if (!_isValidNameChars(nameBytes))
-            revert NameInvalidCharacters();
+        if (len > MAX_NAME_LENGTH) revert NameTooLong(len, MAX_NAME_LENGTH);
+        if (!_isValidNameChars(nameBytes)) revert NameInvalidCharacters();
 
         // Check uniqueness (case-insensitive)
         normalizedName = _toLowerCase(name);

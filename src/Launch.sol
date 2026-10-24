@@ -41,7 +41,7 @@ contract Launch is ILaunch {
     bool public initialized;
 
     modifier onlyMint() {
-        if (msg.sender != mintAddress) revert UnauthorizedCaller();
+        if (msg.sender != mintAddress) revert NotMintContract(msg.sender);
         _;
     }
 
@@ -77,19 +77,25 @@ contract Launch is ILaunch {
      */
     function init(LaunchInitParams calldata params) external {
         if (initialized) revert AlreadyInitialized();
-        if (
-            params.mintAddress == address(0) || params.memberNFTAddress == address(0)
-                || params.rootParentTokenAddress == address(0) || params.pairFactoryAddress == address(0)
-                || params.distributor == address(0)
-        ) {
-            revert InvalidAddress();
+        if (params.mintAddress.code.length == 0) revert DependencyNotContract(params.mintAddress);
+        if (params.memberNFTAddress.code.length == 0) {
+            revert DependencyNotContract(params.memberNFTAddress);
         }
-        if (params.launchRatio == 0) revert ZeroAmount("launchRatio");
-        if (params.launchRatio > 1e18) revert InvalidAmount();
-        if (params.maxLaunchCount == 0) revert ZeroAmount("maxLaunchCount");
-        if (params.tokenSymbolLength == 0) revert ZeroAmount("tokenSymbolLength");
-        if (params.launchAmount == 0) revert ZeroAmount("launchAmount");
-        if (params.launchAmount > params.maxSupply) revert InvalidAmount();
+        if (params.rootParentTokenAddress.code.length == 0) {
+            revert DependencyNotContract(params.rootParentTokenAddress);
+        }
+        if (params.pairFactoryAddress.code.length == 0) {
+            revert DependencyNotContract(params.pairFactoryAddress);
+        }
+        if (params.distributor == address(0)) revert ZeroDistributorAddress();
+        if (params.launchRatio == 0) revert ZeroLaunchRatio();
+        if (params.launchRatio > 1e18) revert InvalidLaunchRatio(params.launchRatio);
+        if (params.maxLaunchCount == 0) revert ZeroMaxLaunchCount();
+        if (params.tokenSymbolLength == 0) revert ZeroTokenSymbolLength();
+        if (params.launchAmount == 0) revert ZeroLaunchAmount();
+        if (params.launchAmount > params.maxSupply) {
+            revert InvalidLaunchAmount(params.launchAmount, params.maxSupply);
+        }
 
         initialized = true;
         mintAddress = params.mintAddress;
@@ -161,15 +167,15 @@ contract Launch is ILaunch {
         bytes[] calldata distributorData
     ) external onlyMemberOwner(memberId) returns (address tokenAddress) {
         _checkValidTokenSymbol(tokenSymbol);
-        if (distributor == address(0)) revert InvalidAddress();
+        if (distributor == address(0)) revert ZeroDistributorAddress();
         _checkDistributorMode(distributorMode, distributor);
 
         if (parentTokenAddress != rootParentTokenAddress && !isLOVE20Token(parentTokenAddress)) {
-            revert InvalidParentToken();
+            revert ParentTokenNotRegistered(parentTokenAddress);
         }
 
         uint256 availableCount = _launchCount[parentTokenAddress][memberId];
-        if (availableCount == 0) revert NotEnoughLaunchCount();
+        if (availableCount == 0) revert InsufficientLaunchCount(memberId, availableCount, 1);
 
         _launchCount[parentTokenAddress][memberId] = availableCount - 1;
 
@@ -181,7 +187,9 @@ contract Launch is ILaunch {
             ? ILOVE20Token(firstTokenAddress).symbol()
             : parentTokenSymbol;
         string memory subTokenSymbol = _addTestPrefixIfNeeded(tokenSymbol, prefixSourceSymbol);
-        if (_tokenAddressBySymbol[subTokenSymbol] != address(0)) revert TokenSymbolExists();
+        if (_tokenAddressBySymbol[subTokenSymbol] != address(0)) {
+            revert TokenSymbolAlreadyExists(keccak256(bytes(subTokenSymbol)));
+        }
         string memory tokenName = string.concat(subTokenSymbol, "@", parentTokenSymbol);
 
         // Registration must follow creation because the token address is only known afterwards; a
@@ -226,15 +234,17 @@ contract Launch is ILaunch {
         if (sourceMemberId == targetMemberId) {
             revert SourceAndTargetMemberIdsMustBeDifferent(sourceMemberId, targetMemberId);
         }
-        if (count == 0) revert CountMustBeGreaterThanZero();
+        if (count == 0) revert ZeroCount();
 
-        if (tokenAddress != rootParentTokenAddress && !isLOVE20Token(tokenAddress)) revert InvalidTokenAddress();
+        if (tokenAddress != rootParentTokenAddress && !isLOVE20Token(tokenAddress)) {
+            revert TokenNotRegistered(tokenAddress);
+        }
 
         // Existence check only: a missing target reverts with the MemberNFT error, Launch adds no own error.
         _ownerOf(targetMemberId);
 
         uint256 sourceCount = _launchCount[tokenAddress][sourceMemberId];
-        if (sourceCount < count) revert NotEnoughLaunchCount();
+        if (sourceCount < count) revert InsufficientLaunchCount(sourceMemberId, sourceCount, count);
 
         _launchCount[tokenAddress][sourceMemberId] = sourceCount - count;
         _launchCount[tokenAddress][targetMemberId] += count;
@@ -258,14 +268,14 @@ contract Launch is ILaunch {
         external
         onlyMint
     {
-        if (count == 0) revert CountMustBeGreaterThanZero();
-        if (!isLOVE20Token(tokenAddress)) revert InvalidTokenAddress();
+        if (count == 0) revert ZeroCount();
+        if (!isLOVE20Token(tokenAddress)) revert TokenNotRegistered(tokenAddress);
 
         uint256 issuedCount = _issuedLaunchCount[tokenAddress];
         // Subtraction form: the cap check must also hold for extremely large counts, and issuedCount
         // never exceeds MAX_LAUNCH_COUNT, so the subtraction cannot underflow.
         if (count > MAX_LAUNCH_COUNT - issuedCount) {
-            revert LaunchCountLimitReached();
+            revert LaunchCountLimitExceeded(tokenAddress, count, MAX_LAUNCH_COUNT - issuedCount);
         }
 
         _launchCount[tokenAddress][memberId] += count;
@@ -361,8 +371,8 @@ contract Launch is ILaunch {
         internal
         returns (address tokenAddress)
     {
-        if (bytes(name).length == 0) revert EmptyString("name");
-        if (bytes(symbol).length == 0) revert EmptyString("symbol");
+        if (bytes(name).length == 0) revert TokenNameEmpty();
+        if (bytes(symbol).length == 0) revert TokenSymbolEmpty();
         tokenAddress = address(
             new LOVE20Token(name, symbol, LAUNCH_AMOUNT, MAX_SUPPLY, distributor, mintAddress, parentTokenAddress)
         );
@@ -372,7 +382,8 @@ contract Launch is ILaunch {
         // forge-lint: disable-next-line(reentrancy-no-eth)
         if (factory.getPair(tokenAddress, parentTokenAddress) == address(0)) {
             // forge-lint: disable-next-line(reentrancy-no-eth)
-            if (factory.createPair(tokenAddress, parentTokenAddress) == address(0)) revert InvalidAddress();
+            address pair = factory.createPair(tokenAddress, parentTokenAddress);
+            if (pair == address(0)) revert PairCreationFailed(parentTokenAddress);
         }
     }
 
@@ -396,10 +407,8 @@ contract Launch is ILaunch {
         bytes calldata symbolBytes = bytes(tokenSymbol);
         uint256 length = symbolBytes.length;
 
-        // The configured length is greater than zero after init; the empty check keeps the first-byte
-        // access below total.
-        if (length == 0 || length != TOKEN_SYMBOL_LENGTH) revert InvalidTokenSymbol();
-        if (!_isValidTokenSymbolBytes(symbolBytes)) revert InvalidTokenSymbol();
+        if (length != TOKEN_SYMBOL_LENGTH) revert InvalidTokenSymbolLength(length, TOKEN_SYMBOL_LENGTH);
+        if (!_isValidTokenSymbolBytes(symbolBytes)) revert InvalidTokenSymbolCharacters();
     }
 
     /**
@@ -457,7 +466,7 @@ contract Launch is ILaunch {
         if (distributorMode == DistributorMode.NoCallback) {
             return;
         }
-        if (distributor.code.length == 0) revert InvalidDistributorMode();
+        if (distributor.code.length == 0) revert DistributorNotContract(distributor);
     }
 
     /**

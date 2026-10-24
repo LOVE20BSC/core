@@ -23,21 +23,29 @@ struct LaunchInitParams {
 
 interface ILaunchErrors {
     error AlreadyInitialized();
-    error InvalidTokenSymbol();
-    error TokenSymbolExists();
-    error InvalidTokenAddress();
-    error InvalidParentToken();
-    error InvalidAddress();
-    error InvalidDistributorMode();
-    error ZeroAmount(string parameter);
-    error UnauthorizedCaller();
-    error NotMemberOwner(uint256 memberId);
-    error CountMustBeGreaterThanZero();
+    error ZeroDistributorAddress();
+    error DependencyNotContract(address dependency);
+    error ZeroLaunchRatio();
+    error InvalidLaunchRatio(uint256 value);
+    error ZeroMaxLaunchCount();
+    error ZeroTokenSymbolLength();
+    error ZeroLaunchAmount();
+    error InvalidLaunchAmount(uint256 launchAmount, uint256 maxSupply);
+    error TokenNameEmpty();
+    error TokenSymbolEmpty();
+    error InvalidTokenSymbolLength(uint256 length, uint256 expected);
+    error InvalidTokenSymbolCharacters();
+    error TokenSymbolAlreadyExists(bytes32 symbolHash);
+    error PairCreationFailed(address parentTokenAddress);
+    error ParentTokenNotRegistered(address parentTokenAddress);
+    error TokenNotRegistered(address tokenAddress);
+    error DistributorNotContract(address distributor);
+    error InsufficientLaunchCount(uint256 memberId, uint256 available, uint256 required);
+    error ZeroCount();
     error SourceAndTargetMemberIdsMustBeDifferent(uint256 sourceMemberId, uint256 targetMemberId);
-    error NotEnoughLaunchCount();
-    error LaunchCountLimitReached();
-    error InvalidAmount();
-    error EmptyString(string parameter);
+    error NotMemberOwner(uint256 memberId);
+    error NotMintContract(address caller);
+    error LaunchCountLimitExceeded(address tokenAddress, uint256 requested, uint256 remaining);
 }
 
 interface ILaunchEvents {

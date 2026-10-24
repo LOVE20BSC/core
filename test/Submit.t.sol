@@ -116,36 +116,39 @@ contract SubmitTest {
 
     function testInitRejectsZeroAddresses() external {
         Submit newSubmit = new Submit();
-        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.InvalidAddress.selector);
+        bytes memory expectedPhase = abi.encodeWithSelector(ISubmitErrors.DependencyNotContract.selector, address(0));
 
         (bool ok, bytes memory data) = address(newSubmit).call(
             abi.encodeCall(newSubmit.init, (address(0), address(stake), address(memberNFT), 1e16))
         );
-        require(!ok && keccak256(data) == keccak256(expected), "should reject zero phase");
+        require(!ok && keccak256(data) == keccak256(expectedPhase), "should reject zero phase");
 
         newSubmit = new Submit();
+        bytes memory expectedStake = abi.encodeWithSelector(ISubmitErrors.DependencyNotContract.selector, address(0));
         (ok, data) = address(newSubmit).call(
             abi.encodeCall(newSubmit.init, (address(phase), address(0), address(memberNFT), 1e16))
         );
-        require(!ok && keccak256(data) == keccak256(expected), "should reject zero stake");
+        require(!ok && keccak256(data) == keccak256(expectedStake), "should reject zero stake");
 
         newSubmit = new Submit();
+        bytes memory expectedMemberNFT = abi.encodeWithSelector(ISubmitErrors.DependencyNotContract.selector, address(0));
         (ok, data) = address(newSubmit).call(
             abi.encodeCall(newSubmit.init, (address(phase), address(stake), address(0), 1e16))
         );
-        require(!ok && keccak256(data) == keccak256(expected), "should reject zero memberNFT");
+        require(!ok && keccak256(data) == keccak256(expectedMemberNFT), "should reject zero memberNFT");
     }
 
     function testInitRejectsInvalidThreshold() external {
         Submit newSubmit = new Submit();
-        bytes memory expectedZero = abi.encodeWithSelector(ISubmitErrors.ZeroAmount.selector, "submitMinRatio");
+        bytes memory expectedZero = abi.encodeWithSelector(ISubmitErrors.ZeroSubmitMinRatio.selector);
         (bool ok, bytes memory data) = address(newSubmit).call(
             abi.encodeCall(newSubmit.init, (address(phase), address(stake), address(memberNFT), 0))
         );
         require(!ok && keccak256(data) == keccak256(expectedZero), "should reject zero threshold");
 
         newSubmit = new Submit();
-        bytes memory expectedInvalid = abi.encodeWithSelector(ISubmitErrors.InvalidAmount.selector);
+        bytes memory expectedInvalid =
+            abi.encodeWithSelector(ISubmitErrors.InvalidSubmitMinRatio.selector, uint256(1e18 + 1));
         (ok, data) = address(newSubmit).call(
             abi.encodeCall(newSubmit.init, (address(phase), address(stake), address(memberNFT), 1e18 + 1))
         );
@@ -225,7 +228,7 @@ contract SubmitTest {
             targetMode: TargetMode.NoCallback,
             targetData: new bytes[](0)
         });
-        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.EmptyString.selector, "title");
+        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.TitleEmpty.selector);
         (bool ok, bytes memory data) = address(submit).call(
             abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body))
         );
@@ -240,7 +243,7 @@ contract SubmitTest {
             targetMode: TargetMode.NoCallback,
             targetData: new bytes[](0)
         });
-        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.InvalidAddress.selector);
+        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.ZeroTargetAddress.selector);
         (bool ok, bytes memory data) = address(submit).call(
             abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body))
         );
@@ -255,7 +258,7 @@ contract SubmitTest {
             targetMode: TargetMode.Callback,
             targetData: new bytes[](0)
         });
-        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.InvalidTargetMode.selector);
+        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.CallbackTargetNotContract.selector, address(0x1));
         (bool ok, bytes memory data) = address(submit).call(
             abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body))
         );
@@ -286,7 +289,8 @@ contract SubmitTest {
             targetMode: TargetMode.NoCallback,
             targetData: new bytes[](0)
         });
-        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.CannotSubmitAction.selector);
+        bytes memory expected =
+            abi.encodeWithSelector(ISubmitErrors.InsufficientSubmitPower.selector, TOKEN, 1, 9, 10);
         (bool ok, bytes memory data) = address(submit).call(
             abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body))
         );
@@ -317,7 +321,7 @@ contract SubmitTest {
             targetMode: TargetMode.NoCallback,
             targetData: new bytes[](0)
         });
-        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.EmptyString.selector, "title");
+        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.TitleEmpty.selector);
         (bool ok, bytes memory data) = address(submit).call(
             abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body))
         );
@@ -473,7 +477,8 @@ contract SubmitTest {
 
         stake.setValidGovVotes(TOKEN, 2, 100);
         memberNFT.setOwner(2, address(this));
-        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.AlreadySubmitted.selector);
+        bytes memory expected =
+            abi.encodeWithSelector(ISubmitErrors.ProposalAlreadySubmitted.selector, TOKEN, 1, proposalId);
         (bool ok, bytes memory data) = address(submit).call(
             abi.encodeCall(submit.submit, (TOKEN, 2, proposalId))
         );
@@ -506,7 +511,8 @@ contract SubmitTest {
         vm.roll(100);
 
         // Member 1 already submitted proposal 1 in round 1, try to submit proposal 2 in the same round
-        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.OnlyOneSubmitPerRound.selector);
+        bytes memory expected =
+            abi.encodeWithSelector(ISubmitErrors.MemberAlreadySubmitted.selector, TOKEN, 1, 1);
         (bool ok, bytes memory data) = address(submit).call(
             abi.encodeCall(submit.submit, (TOKEN, 1, proposalId2))
         );
@@ -543,11 +549,24 @@ contract SubmitTest {
 
         vm.roll(200);
         stake.setValidGovVotes(TOKEN, 1, 9);
-        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.CannotSubmitAction.selector);
+        bytes memory expected =
+            abi.encodeWithSelector(ISubmitErrors.InsufficientSubmitPower.selector, TOKEN, 1, 9, 10);
         (bool ok, bytes memory data) = address(submit).call(
             abi.encodeCall(submit.submit, (TOKEN, 1, proposalId))
         );
         require(!ok && keccak256(data) == keccak256(expected), "should reject insufficient votes");
+    }
+
+    function testSubmitRejectsWhenCommunityHasNoGovVotes() external {
+        stake.setGlobalGovVotes(TOKEN, 0);
+        ProposalBody memory body = ProposalBody("Test", "Details", address(0x1), TargetMode.NoCallback, new bytes[](0));
+
+        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.NoGovVotes.selector, TOKEN);
+        (bool ok, bytes memory data) = address(submit).call(
+            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body))
+        );
+        require(!ok && keccak256(data) == keccak256(expected), "zero community votes");
+        require(!submit.canSubmit(TOKEN, 1), "still cannot submit");
     }
 
     // ============ Query Function Tests ============
@@ -887,9 +906,9 @@ contract SubmitTest {
         memberNFT.setOwner(1001, address(this));
         stake.setValidGovVotes(TOKEN, 1001, 100);
         require(submit.canSubmit(TOKEN, 1001), "vote threshold still met");
-        vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.CannotSubmitAction.selector));
+        vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.SubmitRoundFull.selector, TOKEN, 2, 1000));
         submit.submitNewProposal(TOKEN, 1001, body);
-        vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.CannotSubmitAction.selector));
+        vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.SubmitRoundFull.selector, TOKEN, 2, 1000));
         submit.submit(TOKEN, 1001, oldProposalId);
 
         (, uint256 count) = submit.submitInfos(TOKEN, 2, 0, 0, false);

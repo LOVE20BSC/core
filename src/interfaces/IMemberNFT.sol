@@ -20,14 +20,23 @@ interface IMemberNFTEvents {
 
 interface IMemberNFTErrors {
     error NameAlreadyExists(uint256 existingId);
+    error AlreadyInitialized();
+    error ZeroBaseDivisor();
+    error ZeroBytesThreshold();
+    error ZeroMultiplier();
+    error ZeroMaxNameLength();
+    error DependencyNotContract(address dependency);
     error NameEmpty();
     error NameTooLong(uint256 length, uint256 maxLength);
     error NameInvalidCharacters();
-    error AlreadyInitialized();
-    error FeeTransferFailed();
 }
 
-interface IMemberNFT is IERC721Metadata, IERC721Enumerable, IMemberNFTEvents, IMemberNFTErrors {
+interface IMemberNFT is
+    IERC721Metadata,
+    IERC721Enumerable,
+    IMemberNFTEvents,
+    IMemberNFTErrors
+{
     function LOVE20_TOKEN_ADDRESS() external view returns (address);
 
     function BASE_DIVISOR() external view returns (uint256);

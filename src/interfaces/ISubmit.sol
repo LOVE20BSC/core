@@ -29,16 +29,21 @@ struct SubmitInfo {
 }
 interface ISubmitErrors {
     error AlreadyInitialized();
-    error InvalidAddress();
-    error InvalidTargetMode();
+    error DependencyNotContract(address dependency);
+    error ZeroSubmitMinRatio();
+    error InvalidSubmitMinRatio(uint256 value);
+    error TitleEmpty();
+    error ZeroTargetAddress();
+    error CallbackTargetNotContract(address target);
     error NotMemberOwner(uint256 memberId);
-    error EmptyString(string parameter);
-    error ZeroAmount(string parameter);
-    error InvalidAmount();
+    error NoGovVotes(address tokenAddress);
     error ProposalNotFound(uint256 proposalId);
-    error CannotSubmitAction();
-    error AlreadySubmitted();
-    error OnlyOneSubmitPerRound();
+    error InsufficientSubmitPower(
+        address tokenAddress, uint256 memberId, uint256 validVotes, uint256 requiredVotes
+    );
+    error SubmitRoundFull(address tokenAddress, uint256 round, uint256 limit);
+    error ProposalAlreadySubmitted(address tokenAddress, uint256 round, uint256 proposalId);
+    error MemberAlreadySubmitted(address tokenAddress, uint256 round, uint256 memberId);
 }
 interface ISubmitEvents {
     // Events

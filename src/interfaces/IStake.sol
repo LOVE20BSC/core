@@ -19,25 +19,30 @@ struct GlobalStake {
 
 interface IStakeErrors {
     error AlreadyInitialized();
+    error DependencyNotContract(address dependency);
+    error ZeroPromisedWaitingPhasesMin();
+    error ZeroFeeSettlementRatio();
+    error InvalidFeeSettlementRatio(uint256 value);
+    error InvalidPromisedWaitingPhasesRange(uint256 min, uint256 max);
     error NotAllowedToStakeAtRoundZero();
-    error StakeAmountMustBeSet();
-    error UnstakeAlreadyRequested();
-    error UnstakeNotRequested();
-    error PromisedWaitingPhasesOutOfRange();
-    error FeeSettlementRatioOutOfRange();
-    error PromisedWaitingPhasesMustBeGreaterOrEqualThanBefore();
-    error NoStakedLiquidity();
-    error NotEnoughWaitingPhases();
-    error InvalidTokenAddress();
+    error ZeroTokenAmount();
+    error ZeroParentTokenAmount();
+    error ZeroBoostAmount();
+    error InvalidPromisedWaitingPhases(uint256 value, uint256 min, uint256 max);
+    error PromisedWaitingPhasesDecreased(uint256 requested, uint256 current);
+    error UnstakeAlreadyRequested(address tokenAddress, uint256 memberId);
+    error UnstakeNotRequested(address tokenAddress, uint256 memberId);
+    error NoStakedLiquidity(address tokenAddress, uint256 memberId);
+    error InsufficientWaitingPhases(uint256 currentRound, uint256 unlockRound);
     error NotMemberOwner(uint256 memberId);
+    error StakeRightsUsed(address tokenAddress, uint256 round, uint256 memberId);
+    error SlippageExceeded(uint256 actualDeviation, uint256 maxDeviation);
     error SourceAndTargetMemberIdsMustBeDifferent(uint256 sourceMemberId, uint256 targetMemberId);
-    error StakeRightsUsedInCurrentRound(uint256 memberId);
-    error TargetPromisedWaitingPhasesTooShort();
-    error InvalidAddress();
-    error ZeroAmount(string parameter);
-    error InvalidAmount();
-    error SlippageExceeded(uint256 slippage, uint256 deviation);
-    error InvalidPhase(uint256 phaseNumber);
+    error TargetPromisedWaitingPhasesTooShort(uint256 targetPhases, uint256 sourcePhases);
+    error TokenNotRegistered(address tokenAddress);
+    error PairMissing(address tokenAddress);
+    error ZeroLiquidityMinted();
+    error RoundNotStarted(uint256 requestedRound, uint256 currentRound);
 }
 
 interface IStakeEvents {

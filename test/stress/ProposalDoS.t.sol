@@ -44,7 +44,7 @@ contract ProposalDoSTest is Test {
         vote = new Vote();
         Launch launch = new Launch();
         StressPairFactory factory = new StressPairFactory();
-        parent = new LOVE20Token("Parent", "PAR", 1e27, 1e28, actor, address(this), address(1));
+        parent = new LOVE20Token("Parent", "PAR", 1e27, 1e28, actor, address(this), address(this));
         launch.init(LaunchInitParams({
             mintAddress: address(mint),
             memberNFTAddress: address(memberNFT),

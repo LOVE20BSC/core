@@ -75,17 +75,17 @@ contract Vote is IVote {
         if (_initialized) {
             revert AlreadyInitialized();
         }
-        if (phaseAddress_ == address(0)) {
-            revert InvalidAddress();
+        if (phaseAddress_.code.length == 0) {
+            revert DependencyNotContract(phaseAddress_);
         }
-        if (stakeAddress_ == address(0)) {
-            revert InvalidAddress();
+        if (stakeAddress_.code.length == 0) {
+            revert DependencyNotContract(stakeAddress_);
         }
-        if (submitAddress_ == address(0)) {
-            revert InvalidAddress();
+        if (submitAddress_.code.length == 0) {
+            revert DependencyNotContract(submitAddress_);
         }
-        if (memberNFTAddress_ == address(0)) {
-            revert InvalidAddress();
+        if (memberNFTAddress_.code.length == 0) {
+            revert DependencyNotContract(memberNFTAddress_);
         }
         _initialized = true;
         _stakeAddress = stakeAddress_;
@@ -109,13 +109,16 @@ contract Vote is IVote {
         bytes[][] calldata targetData
     ) external onlyMemberOwner(memberId) {
         if (!canVote(tokenAddress, memberId)) {
-            revert CannotVote();
+            revert NoVotingPower(tokenAddress, memberId);
         }
-        if (proposalIds.length == 0 || proposalIds.length != votes.length) {
-            revert InvalidTargetDataLength();
+        if (proposalIds.length == 0) {
+            revert ProposalIdsEmpty();
+        }
+        if (proposalIds.length != votes.length) {
+            revert ProposalVotesLengthMismatch(proposalIds.length, votes.length);
         }
         if (targetData.length != 0 && targetData.length != proposalIds.length) {
-            revert InvalidTargetDataLength();
+            revert TargetDataLengthMismatch(proposalIds.length, targetData.length);
         }
 
         uint256 round = currentRound();
@@ -264,12 +267,12 @@ contract Vote is IVote {
         // forge-lint: disable-next-item(calls-loop)
         if (!ISubmit(_submitAddress).isSubmitted(tokenAddress, round, proposalId)) {
             // forge-lint: disable-next-line(require-revert-in-loop)
-            revert ProposalNotSubmitted();
+            revert ProposalNotSubmitted(tokenAddress, round, proposalId);
         }
 
         if (votes == 0) {
             // forge-lint: disable-next-line(require-revert-in-loop)
-            revert VotesMustBeGreaterThanZero();
+            revert ZeroVotes(proposalId);
         }
 
         // Update boost snapshot: check and add delta if member staked more
@@ -304,8 +307,10 @@ contract Vote is IVote {
         }
 
         if (_votesNumByMemberId[tokenAddress][round][memberId] > maxVotes) {
-            // forge-lint: disable-next-line(require-revert-in-loop)
-            revert NotEnoughVotesLeft();
+            // forge-lint: disable-next-item(require-revert-in-loop)
+            revert VoteLimitExceeded(
+                tokenAddress, round, memberId, _votesNumByMemberId[tokenAddress][round][memberId], maxVotes
+            );
         }
 
         // forge-lint: disable-next-item(reentrancy-events)

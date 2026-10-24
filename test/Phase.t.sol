@@ -32,7 +32,7 @@ contract PhaseTest {
         (bool ok, bytes memory data) = address(phase).call(
             abi.encodeWithSelector(IPhase.currentPhaseBlocks.selector)
         );
-        require(!ok && _selector(data) == IPhaseErrors.InvalidPhase.selector);
+        require(!ok && _selector(data) == IPhaseErrors.PhaseNotStarted.selector);
         vm.roll(origin);
         require(phase.currentPhase() == 1);
         require(phase.currentPhaseBlocks() == PHASE_BLOCKS);
@@ -43,18 +43,54 @@ contract PhaseTest {
     function testConstructorRejectsZeroParameters() external {
         uint256 origin = block.number + 1;
         require(_deploys(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT), "valid parameters");
-        require(!_deploys(0, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT), "zero origin blocks");
-        require(!_deploys(origin, 0, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT), "zero phase blocks");
-        require(!_deploys(origin, PHASE_BLOCKS, 0, THRESHOLD, OBSERVATION_LIMIT), "zero target seconds");
-        require(!_deploys(origin, PHASE_BLOCKS, TARGET_SECONDS, 0, OBSERVATION_LIMIT), "zero threshold");
-        require(!_deploys(origin, PHASE_BLOCKS, TARGET_SECONDS, 1e18 + 1, OBSERVATION_LIMIT), "threshold above 100%");
-        require(!_deploys(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, 0), "zero observation limit");
+        require(
+            _revertEquals(
+                _deployRevert(0, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT),
+                abi.encodeWithSelector(IPhaseErrors.ZeroOriginBlocks.selector)
+            ),
+            "zero origin blocks"
+        );
+        require(
+            _revertEquals(
+                _deployRevert(origin, 0, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT),
+                abi.encodeWithSelector(IPhaseErrors.ZeroOriginPhaseBlocks.selector)
+            ),
+            "zero phase blocks"
+        );
+        require(
+            _revertEquals(
+                _deployRevert(origin, PHASE_BLOCKS, 0, THRESHOLD, OBSERVATION_LIMIT),
+                abi.encodeWithSelector(IPhaseErrors.ZeroTargetSeconds.selector)
+            ),
+            "zero target seconds"
+        );
+        require(
+            _revertEquals(
+                _deployRevert(origin, PHASE_BLOCKS, TARGET_SECONDS, 0, OBSERVATION_LIMIT),
+                abi.encodeWithSelector(IPhaseErrors.ZeroAdjustThreshold.selector)
+            ),
+            "zero threshold"
+        );
+        require(
+            _revertEquals(
+                _deployRevert(origin, PHASE_BLOCKS, TARGET_SECONDS, 1e18 + 1, OBSERVATION_LIMIT),
+                abi.encodeWithSelector(IPhaseErrors.InvalidAdjustThreshold.selector, 1e18 + 1)
+            ),
+            "threshold above 100%"
+        );
+        require(
+            _revertEquals(
+                _deployRevert(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, 0),
+                abi.encodeWithSelector(IPhaseErrors.ZeroSyncObservationLimit.selector)
+            ),
+            "zero observation limit"
+        );
     }
 
     function testSyncBeforeOriginReverts() external {
         Phase phase = new Phase(block.number + 10, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT);
         (bool ok, bytes memory data) = address(phase).call(abi.encodeWithSelector(IPhase.sync.selector));
-        require(!ok && _selector(data) == IPhaseErrors.InvalidPhase.selector);
+        require(!ok && _selector(data) == IPhaseErrors.PhaseNotStarted.selector);
         require(_observationsCount(phase) == 0);
     }
 
@@ -207,7 +243,7 @@ contract PhaseTest {
         require(blockNumbers.length == 1 && blockNumbers[0] == origin);
 
         (bool ok, bytes memory data) = address(phase).call(abi.encodeWithSelector(IPhase.phaseInfo.selector, 0));
-        require(!ok && _selector(data) == IPhaseErrors.InvalidPhase.selector);
+        require(!ok && _selector(data) == IPhaseErrors.PhaseNotStarted.selector);
     }
 
     function _observationsCount(Phase phase) private view returns (uint256) {
@@ -234,6 +270,34 @@ contract PhaseTest {
             deployed := create(0, add(bytecode, 32), mload(bytecode))
         }
         return deployed != address(0);
+    }
+
+    function _deployRevert(
+        uint256 originBlocks,
+        uint256 originPhaseBlocks,
+        uint256 targetSeconds,
+        uint256 adjustThreshold,
+        uint256 observationLimit
+    ) private returns (bytes memory data) {
+        bytes memory bytecode = abi.encodePacked(
+            type(Phase).creationCode,
+            abi.encode(originBlocks, originPhaseBlocks, targetSeconds, adjustThreshold, observationLimit)
+        );
+        address deployed;
+        uint256 size;
+        assembly {
+            deployed := create(0, add(bytecode, 32), mload(bytecode))
+            size := returndatasize()
+        }
+        require(deployed == address(0), "deploy should revert");
+        data = new bytes(size);
+        assembly {
+            returndatacopy(add(data, 32), 0, size)
+        }
+    }
+
+    function _revertEquals(bytes memory data, bytes memory expected) private pure returns (bool) {
+        return keccak256(data) == keccak256(expected);
     }
 
     function _selector(bytes memory data) private pure returns (bytes4 selector) {

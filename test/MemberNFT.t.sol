@@ -5,6 +5,7 @@ import {MemberNFT} from "../src/MemberNFT.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {IMemberNFT, IMemberNFTErrors} from "../src/interfaces/IMemberNFT.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 interface Vm {
     struct Log {
@@ -94,7 +95,7 @@ contract MemberNFTTest {
     uint256 private constant MAX_NAME_LENGTH = 32;
     uint256 private constant INITIAL_SUPPLY = 100 ether;
     uint256 private constant UNMINTED = 1 ether;
-    address private constant PARENT = address(0x5678);
+    address private PARENT;
 
     LOVE20Token private token;
     MemberNFT private nft;
@@ -104,6 +105,7 @@ contract MemberNFTTest {
     MemberCaller private dave;
 
     function setUp() public {
+        PARENT = address(this);
         token = _newToken("LOVE");
         nft = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH);
         alice = new MemberCaller();
@@ -136,10 +138,34 @@ contract MemberNFTTest {
 
     function testConstructorRejectsZeroParameters() public {
         require(_deploys(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH), "valid parameters");
-        require(!_deploys(0, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH), "zero divisor");
-        require(!_deploys(BASE_DIVISOR, 0, MULTIPLIER, MAX_NAME_LENGTH), "zero threshold");
-        require(!_deploys(BASE_DIVISOR, BYTES_THRESHOLD, 0, MAX_NAME_LENGTH), "zero multiplier");
-        require(!_deploys(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, 0), "zero max name length");
+        require(
+            _revertEquals(
+                _deployRevert(0, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH),
+                abi.encodeWithSelector(IMemberNFTErrors.ZeroBaseDivisor.selector)
+            ),
+            "zero divisor"
+        );
+        require(
+            _revertEquals(
+                _deployRevert(BASE_DIVISOR, 0, MULTIPLIER, MAX_NAME_LENGTH),
+                abi.encodeWithSelector(IMemberNFTErrors.ZeroBytesThreshold.selector)
+            ),
+            "zero threshold"
+        );
+        require(
+            _revertEquals(
+                _deployRevert(BASE_DIVISOR, BYTES_THRESHOLD, 0, MAX_NAME_LENGTH),
+                abi.encodeWithSelector(IMemberNFTErrors.ZeroMultiplier.selector)
+            ),
+            "zero multiplier"
+        );
+        require(
+            _revertEquals(
+                _deployRevert(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, 0),
+                abi.encodeWithSelector(IMemberNFTErrors.ZeroMaxNameLength.selector)
+            ),
+            "zero max name length"
+        );
     }
 
     function testInitStoresFirstTokenAndRejectsRepeat() public {
@@ -147,8 +173,13 @@ contract MemberNFTTest {
         require(!fresh.initialized(), "not initialized");
         require(fresh.LOVE20_TOKEN_ADDRESS() == address(0), "no first token");
 
-        (bool ok, ) = address(fresh).call(abi.encodeWithSelector(IMemberNFT.init.selector, address(0)));
+        (bool ok, bytes memory zeroData) =
+            address(fresh).call(abi.encodeWithSelector(IMemberNFT.init.selector, address(0)));
         require(!ok, "zero first token");
+        require(
+            _revertEquals(zeroData, abi.encodeWithSelector(IMemberNFTErrors.DependencyNotContract.selector, address(0))),
+            "zero first token data"
+        );
 
         fresh.init(address(token));
         require(fresh.initialized(), "initialized");
@@ -235,8 +266,8 @@ contract MemberNFTTest {
         require(nft.totalSupply() == 0, "nothing minted");
     }
 
-    /// `FeeTransferFailed` 只在「费用代币扣款返回 false 却不回滚」时可达；
-    /// 标准 ERC20 扣款失败会直接回滚，所以这里用返回 false 的假代币隔离该分支。
+    /// 费用代币扣款返回 false 时，SafeERC20 回滚 `SafeERC20FailedOperation(token)`；
+    /// 这里用返回 false 的假代币隔离该分支。
     function testMintRevertsWhenFeeTransferReturnsFalse() public {
         FalseReturningToken fakeToken = new FalseReturningToken();
         MemberNFT fresh = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH);
@@ -244,7 +275,13 @@ contract MemberNFTTest {
         require(fresh.calculateMintCost("abc") > 0, "non-zero quote");
 
         bytes memory data = _revertData(address(fresh), _mintCall("abc"), "false fee transfer expected");
-        require(_selector(data) == IMemberNFTErrors.FeeTransferFailed.selector, "fee transfer failed");
+        require(
+            _revertEquals(
+                data,
+                abi.encodeWithSelector(SafeERC20.SafeERC20FailedOperation.selector, address(fakeToken))
+            ),
+            "fee transfer failed"
+        );
         require(fresh.totalSupply() == 0, "nothing minted");
     }
 
@@ -257,11 +294,21 @@ contract MemberNFTTest {
         require(keccak256(bytes(nft.nameOf(id))) == keccak256(atLimit), "name at limit");
 
         bytes memory data = _revertData(address(nft), _mintCall(string(overLimit)), "too long expected");
-        require(_selector(data) == IMemberNFTErrors.NameTooLong.selector, "too long");
-        require(_revertArg(data) == overLimit.length, "too long length");
+        require(
+            _revertEquals(
+                data,
+                abi.encodeWithSelector(
+                    IMemberNFTErrors.NameTooLong.selector, overLimit.length, MAX_NAME_LENGTH
+                )
+            ),
+            "too long"
+        );
 
         data = _revertData(address(nft), _mintCall(""), "empty expected");
-        require(_selector(data) == IMemberNFTErrors.NameEmpty.selector, "empty");
+        require(
+            _revertEquals(data, abi.encodeWithSelector(IMemberNFTErrors.NameEmpty.selector)),
+            "empty"
+        );
     }
 
     function testMintRejectsForbiddenCharactersAndInvalidUtf8() public {
@@ -300,7 +347,12 @@ contract MemberNFTTest {
 
         for (uint256 i; i < invalid.length; ++i) {
             bytes memory data = _revertData(address(nft), _mintCall(string(invalid[i])), "invalid name expected");
-            require(_selector(data) == IMemberNFTErrors.NameInvalidCharacters.selector, "invalid characters");
+            require(
+                _revertEquals(
+                    data, abi.encodeWithSelector(IMemberNFTErrors.NameInvalidCharacters.selector)
+                ),
+                "invalid characters"
+            );
         }
         require(nft.totalSupply() == 0, "nothing minted");
     }
@@ -583,6 +635,29 @@ contract MemberNFTTest {
         return deployed != address(0);
     }
 
+    function _deployRevert(
+        uint256 divisor,
+        uint256 threshold,
+        uint256 multiplier,
+        uint256 maxLength
+    ) private returns (bytes memory data) {
+        bytes memory bytecode = abi.encodePacked(
+            type(MemberNFT).creationCode,
+            abi.encode(divisor, threshold, multiplier, maxLength)
+        );
+        address deployed;
+        uint256 size;
+        assembly {
+            deployed := create(0, add(bytecode, 32), mload(bytecode))
+            size := returndatasize()
+        }
+        require(deployed == address(0), "deploy should revert");
+        data = new bytes(size);
+        assembly {
+            returndatacopy(add(data, 32), 0, size)
+        }
+    }
+
     function _newToken(string memory symbol) private returns (LOVE20Token) {
         return
             new LOVE20Token(
@@ -647,5 +722,9 @@ contract MemberNFTTest {
         assembly {
             value := mload(add(data, 36))
         }
+    }
+
+    function _revertEquals(bytes memory data, bytes memory expected) private pure returns (bool) {
+        return keccak256(data) == keccak256(expected);
     }
 }

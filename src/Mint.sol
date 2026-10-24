@@ -89,30 +89,34 @@ contract Mint is IMint {
         }
         initialized = true;
 
-        if (
-            voteAddress_ == address(0) ||
-            submitAddress_ == address(0) ||
-            launchAddress_ == address(0) ||
-            memberNFTAddress_ == address(0)
-        ) {
-            revert InvalidAddress();
+        if (voteAddress_.code.length == 0) {
+            revert DependencyNotContract(voteAddress_);
+        }
+        if (submitAddress_.code.length == 0) {
+            revert DependencyNotContract(submitAddress_);
+        }
+        if (launchAddress_.code.length == 0) {
+            revert DependencyNotContract(launchAddress_);
+        }
+        if (memberNFTAddress_.code.length == 0) {
+            revert DependencyNotContract(memberNFTAddress_);
         }
 
         address phaseAddress_ = IVote(voteAddress_).phaseAddress();
-        if (phaseAddress_ == address(0)) {
-            revert InvalidAddress();
+        if (phaseAddress_.code.length == 0) {
+            revert DependencyNotContract(phaseAddress_);
         }
 
         if (proposalRewardMinVoteRatio_ > 1e18) {
-            revert InvalidAmount();
+            revert InvalidProposalRewardMinVoteRatio(proposalRewardMinVoteRatio_);
         }
 
         if (roundRewardGovRatio_ + roundRewardProposalRatio_ > 1e18) {
-            revert InvalidAmount();
+            revert InvalidRoundRewardRatios(roundRewardGovRatio_, roundRewardProposalRatio_);
         }
 
         if (maxGovBoostRewardMultiplier_ == 0 || maxGovBoostRewardMultiplier_ > 1000) {
-            revert InvalidAmount();
+            revert InvalidMaxGovBoostRewardMultiplier(maxGovBoostRewardMultiplier_);
         }
 
         voteAddress = voteAddress_;
@@ -140,7 +144,7 @@ contract Mint is IMint {
         if (!_isRoundEnded(round)) {
             // Early validation; reverts before state changes in batch operations.
             // forge-lint: disable-next-line(require-revert-in-loop)
-            revert RoundNotReadyToMint();
+            revert RoundNotEnded(round);
         }
 
         // Vote data changes per round; cannot be cached across batch iterations.
@@ -229,7 +233,7 @@ contract Mint is IMint {
     ) {
         (address target, ) = ISubmit(submitAddress).proposalTarget(tokenAddress, proposalId);
         if (msg.sender != target) {
-            revert UnauthorizedCaller();
+            revert NotProposalTarget(msg.sender, target);
         }
         _;
     }
@@ -241,24 +245,24 @@ contract Mint is IMint {
         address recipient
     ) external onlyProposalTarget(tokenAddress, proposalId) returns (uint256 amount) {
         if (recipient == address(0)) {
-            revert InvalidAddress();
+            revert ZeroRecipientAddress();
         }
 
         if (!_isRoundEnded(round)) {
-            revert RoundNotReadyToMint();
+            revert RoundNotEnded(round);
         }
 
         // Automatically prepare rewards if not already done
         _prepareRewardIfNeeded(tokenAddress, round);
 
         if (_proposalMinted[tokenAddress][round][proposalId]) {
-            revert AlreadyMinted();
+            revert ProposalRewardAlreadyMinted(tokenAddress, round, proposalId);
         }
 
         // Existence already verified above; skip redundant check in query.
         (amount, ) = _proposalRewardCalculation(tokenAddress, round, proposalId);
         if (amount == 0) {
-            revert NoRewardAvailable();
+            revert ProposalRewardUnavailable(tokenAddress, round, proposalId);
         }
 
         _proposalMinted[tokenAddress][round][proposalId] = true;
@@ -574,25 +578,25 @@ contract Mint is IMint {
         address recipient
     ) private returns (uint256 voteReward, uint256 boostReward, uint256 burnReward) {
         if (recipient == address(0)) {
-            revert InvalidAddress();
+            revert ZeroRecipientAddress();
         }
 
         if (!_isRoundEnded(round)) {
-            revert RoundNotReadyToMint();
+            revert RoundNotEnded(round);
         }
 
         // Automatically prepare rewards if not already done
         _prepareRewardIfNeeded(tokenAddress, round);
 
         if (_govMinted[tokenAddress][round][memberId]) {
-            revert AlreadyMinted();
+            revert MemberRewardAlreadyMinted(tokenAddress, round, memberId);
         }
 
         // Existence already verified above; skip redundant check in query.
         (voteReward, boostReward, burnReward, ) = _govRewardCalculation(tokenAddress, round, memberId);
 
         if (voteReward + boostReward + burnReward == 0) {
-            revert NoRewardAvailable();
+            revert MemberRewardUnavailable(tokenAddress, round, memberId);
         }
 
         // GovernanceRewardMinted below records this member/round settlement.

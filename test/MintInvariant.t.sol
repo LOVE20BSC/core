@@ -38,7 +38,7 @@ contract MintInvariantTest {
             1e17,
             2
         );
-        token = new LOVE20Token("Test", "TST", 10000, 1000000, address(this), address(mint), address(1));
+        token = new LOVE20Token("Test", "TST", 10000, 1000000, address(this), address(mint), address(this));
     }
 
     // Configure fuzzer for faster runs
@@ -261,7 +261,7 @@ contract MintInvariantTest {
         try mint.mintGovReward(address(token), memberId, round, address(this)) {
             settledGovRewards++;
         } catch {
-            // Ignore expected reverts (AlreadyMinted, NoRewardAvailable, etc.)
+            // Ignore expected reverts (MemberRewardAlreadyMinted, MemberRewardUnavailable, etc.)
         }
     }
 
@@ -272,7 +272,7 @@ contract MintInvariantTest {
         try mint.mintProposalReward(address(token), round, proposalId, address(this)) {
             settledProposalRewards++;
         } catch {
-            // Ignore expected reverts (UnauthorizedCaller, AlreadyMinted, NoRewardAvailable, etc.)
+            // Ignore expected reverts (NotProposalTarget, ProposalRewardAlreadyMinted, ProposalRewardUnavailable, etc.)
         }
     }
 

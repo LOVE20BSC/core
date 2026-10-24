@@ -3,13 +3,17 @@ pragma solidity =0.8.37;
 
 interface IVoteErrors {
     error AlreadyInitialized();
-    error InvalidTargetDataLength();
-    error ProposalNotSubmitted();
-    error CannotVote();
-    error NotEnoughVotesLeft();
-    error VotesMustBeGreaterThanZero();
-    error InvalidAddress();
+    error DependencyNotContract(address dependency);
     error NotMemberOwner(uint256 memberId);
+    error NoVotingPower(address tokenAddress, uint256 memberId);
+    error ProposalIdsEmpty();
+    error ProposalVotesLengthMismatch(uint256 proposalIdsLength, uint256 votesLength);
+    error TargetDataLengthMismatch(uint256 proposalIdsLength, uint256 targetDataLength);
+    error ProposalNotSubmitted(address tokenAddress, uint256 round, uint256 proposalId);
+    error ZeroVotes(uint256 proposalId);
+    error VoteLimitExceeded(
+        address tokenAddress, uint256 round, uint256 memberId, uint256 cumulativeVotes, uint256 maxVotes
+    );
 }
 
 interface IVoteEvents {

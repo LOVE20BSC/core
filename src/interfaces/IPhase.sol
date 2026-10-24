@@ -2,8 +2,13 @@
 pragma solidity =0.8.37;
 
 interface IPhaseErrors {
-    error InvalidPhase(uint256 phaseNumber);
-    error InvalidKeyOrder();
+    error PhaseNotStarted();
+    error ZeroOriginBlocks();
+    error ZeroOriginPhaseBlocks();
+    error ZeroTargetSeconds();
+    error ZeroAdjustThreshold();
+    error InvalidAdjustThreshold(uint256 value);
+    error ZeroSyncObservationLimit();
 }
 
 interface IPhaseEvents {

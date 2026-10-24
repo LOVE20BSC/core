@@ -13,6 +13,7 @@ import {LaunchInitParams, DistributorMode} from "../../src/interfaces/ILaunch.so
 import {TargetMode} from "../../src/interfaces/ISubmit.sol";
 import {ILOVE20Token} from "../../src/interfaces/ILOVE20Token.sol";
 import {ILaunch} from "../../src/interfaces/ILaunch.sol";
+import {IMintErrors} from "../../src/interfaces/IMint.sol";
 
 interface TestVm {
     function prank(address) external;
@@ -95,7 +96,7 @@ contract MintRealIntegrationTest {
             100000000,    // max supply
             owner,
             owner,        // minter (not address(0))
-            address(1)    // parentTokenAddress (not address(0))
+            address(this) // parentTokenAddress (code-bearing test contract)
         );
 
         // Deploy core contracts
@@ -896,7 +897,9 @@ contract MintRealIntegrationTest {
         // Error 1: Non-target cannot claim proposal reward
         address wrongClaimer = address(0x7777);
         vm.prank(wrongClaimer);
-        vm.expectRevert(abi.encodeWithSignature("UnauthorizedCaller()"));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.NotProposalTarget.selector, wrongClaimer, proposalTarget)
+        );
         mint.mintProposalReward(address(token), round1, proposalId, wrongClaimer);
 
         // Correct target can claim
@@ -907,7 +910,7 @@ contract MintRealIntegrationTest {
 
         // Error 2: Non-owner cannot claim governance reward
         vm.prank(wrongClaimer);
-        vm.expectRevert(abi.encodeWithSignature("NotMemberOwner(uint256)", 1));
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.NotMemberOwner.selector, 1));
         mint.mintGovReward(address(token), 1, round1, wrongClaimer);
 
         // Correct owner can claim
@@ -917,11 +920,17 @@ contract MintRealIntegrationTest {
 
         // Error 3: Double claim protection
         vm.prank(proposalTarget);
-        vm.expectRevert(abi.encodeWithSignature("AlreadyMinted()"));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMintErrors.ProposalRewardAlreadyMinted.selector, address(token), round1, proposalId
+            )
+        );
         mint.mintProposalReward(address(token), round1, proposalId, proposalTarget);
 
         vm.prank(member1);
-        vm.expectRevert(abi.encodeWithSignature("AlreadyMinted()"));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.MemberRewardAlreadyMinted.selector, address(token), round1, 1)
+        );
         mint.mintGovReward(address(token), 1, round1, member1);
     }
 
@@ -1168,7 +1177,11 @@ contract MintRealIntegrationTest {
 
         // Non-target callers cannot settle
         vm.prank(address(0xBAD));
-        vm.expectRevert(abi.encodeWithSignature("UnauthorizedCaller()"));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMintErrors.NotProposalTarget.selector, address(0xBAD), data.proposalTarget1
+            )
+        );
         mint.mintProposalReward(address(token), data.round1, data.proposalId1, data.proposalTarget1);
 
         // The target settles to itself; the call auto-prepares the round
@@ -1206,7 +1219,14 @@ contract MintRealIntegrationTest {
         assertTrue(minted, "Proposal must be settled");
 
         vm.prank(data.proposalTarget1);
-        vm.expectRevert(abi.encodeWithSignature("AlreadyMinted()"));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMintErrors.ProposalRewardAlreadyMinted.selector,
+                address(token),
+                data.round1,
+                data.proposalId1
+            )
+        );
         mint.mintProposalReward(address(token), data.round1, data.proposalId1, data.proposalTarget1);
     }
 

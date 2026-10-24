@@ -48,7 +48,7 @@ contract MintTest {
             proposalRatio,
             2
         );
-        token = new LOVE20Token("Review", "REV", supply, maxSupply, address(this), address(mint), address(1));
+        token = new LOVE20Token("Review", "REV", supply, maxSupply, address(this), address(mint), address(this));
     }
 
     function phaseAddress() external view returns (address) {
@@ -124,7 +124,9 @@ contract MintTest {
         setupMint(1000, 10000, 1e17, 0);
         uint256[] memory rounds = new uint256[](2);
         rounds[0] = rounds[1] = 1;
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.AlreadyMinted.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.MemberRewardAlreadyMinted.selector, address(token), 1, 1)
+        );
         mint.mintGovRewards(address(token), 1, rounds, address(this));
         (,,, bool minted) = mint.govRewardByMemberId(address(token), 1, 1);
         require(!minted && mint.rewardMinted(address(token)) == 0, "reward rollback");
@@ -149,7 +151,7 @@ contract MintTest {
 
     function testGovMintRejectsZeroRecipient() public {
         setupMint(1000, 10000, 1e17, 0);
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.ZeroRecipientAddress.selector));
         mint.mintGovReward(address(token), 1, 1, address(0));
     }
 
@@ -198,7 +200,9 @@ contract MintTest {
         require(mint.eligibleProposalVotes(address(token), 1) == 20, "ineligible votes entered denominator");
         (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
         require(amount == 0, "ineligible query");
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.NoRewardAvailable.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.ProposalRewardUnavailable.selector, address(token), 1, 1)
+        );
         mint.mintProposalReward(address(token), 1, 1, address(this));
         bool minted;
         (amount, minted) = mint.proposalRewardByProposalId(address(token), 1, 2);
@@ -217,7 +221,9 @@ contract MintTest {
 
     function testZeroProposalRewardMustRevert() public {
         setupMint(999, 1000, 0, 1e15);
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.NoRewardAvailable.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.ProposalRewardUnavailable.selector, address(token), 1, 1)
+        );
         mint.mintProposalReward(address(token), 1, 1, address(this));
         (, bool minted) = mint.proposalRewardByProposalId(address(token), 1, 1);
         require(!minted && mint.rewardMinted(address(token)) == 0, "zero reward consumed state");
@@ -225,7 +231,9 @@ contract MintTest {
 
     function testZeroGovRewardMustRevert() public {
         setupMint(999, 1000, 1e15, 0);
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.NoRewardAvailable.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.MemberRewardUnavailable.selector, address(token), 1, 1)
+        );
         mint.mintGovReward(address(token), 1, 1, address(this));
         (,,, bool minted) = mint.govRewardByMemberId(address(token), 1, 1);
         require(!minted && mint.rewardMinted(address(token)) == 0, "zero gov reward consumed state");
@@ -238,7 +246,9 @@ contract MintTest {
         memberVotes = 0;
         vm.recordLogs();
         // Trigger auto-prepare by attempting to mint
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.NoRewardAvailable.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.MemberRewardUnavailable.selector, address(token), 2, 1)
+        );
         mint.mintGovReward(address(token), 1, 2, address(this));
         MintVm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 sig = keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256,uint256)");
@@ -254,7 +264,9 @@ contract MintTest {
         // Note: Since the transaction reverted, the _isRewardPrepared flag was rolled back
         // A second call will emit the event again because the flag is still false
         vm.recordLogs();
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.NoRewardAvailable.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.MemberRewardUnavailable.selector, address(token), 2, 1)
+        );
         mint.mintGovReward(address(token), 1, 2, address(this));
         logs = vm.getRecordedLogs();
         uint256 count2;
@@ -271,9 +283,13 @@ contract MintTest {
         totalVotes = 0;
         memberVotes = 0;
         firstVotes = 0;
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.NoRewardAvailable.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.MemberRewardUnavailable.selector, address(token), 2, 1)
+        );
         mint.mintGovReward(address(token), 1, 2, address(this));
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.NoRewardAvailable.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.ProposalRewardUnavailable.selector, address(token), 2, 1)
+        );
         mint.mintProposalReward(address(token), 2, 1, address(this));
         require(mint.rewardMinted(address(token)) == 0, "zero-vote settlement mutated state");
     }
@@ -373,10 +389,14 @@ contract MintTest {
         proposalCount = 2;
         setupMint(1000, 10000, 0, 1e17);
         require(mint.mintProposalReward(address(token), 1, 1, address(this)) == 45, "first settlement");
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.AlreadyMinted.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.ProposalRewardAlreadyMinted.selector, address(token), 1, 1)
+        );
         mint.mintProposalReward(address(token), 1, 1, address(this));
         mint.mintProposalReward(address(token), 1, 2, address(this));
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.AlreadyMinted.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.ProposalRewardAlreadyMinted.selector, address(token), 1, 2)
+        );
         mint.mintProposalReward(address(token), 1, 2, address(this));
     }
 
@@ -388,7 +408,9 @@ contract MintTest {
         setupMint(1000, 10000, 0, 1e17);
         (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
         require(amount == 0, "ineligible projection");
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.NoRewardAvailable.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.ProposalRewardUnavailable.selector, address(token), 1, 1)
+        );
         mint.mintProposalReward(address(token), 1, 1, address(this));
     }
 }

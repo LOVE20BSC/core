@@ -42,15 +42,18 @@ interface IMintEvents {
 
 interface IMintErrors {
     error AlreadyInitialized();
-    error NoRewardAvailable();
-    error AlreadyMinted();
-    error RoundNotReadyToMint();
-    error NotEnoughReward();
-    error NotEnoughRewardToBurn();
+    error DependencyNotContract(address dependency);
+    error InvalidProposalRewardMinVoteRatio(uint256 value);
+    error InvalidRoundRewardRatios(uint256 govRatio, uint256 proposalRatio);
+    error InvalidMaxGovBoostRewardMultiplier(uint256 value);
+    error NotProposalTarget(address caller, address expectedTarget);
+    error ZeroRecipientAddress();
+    error RoundNotEnded(uint256 round);
+    error ProposalRewardAlreadyMinted(address tokenAddress, uint256 round, uint256 proposalId);
+    error MemberRewardAlreadyMinted(address tokenAddress, uint256 round, uint256 memberId);
+    error ProposalRewardUnavailable(address tokenAddress, uint256 round, uint256 proposalId);
+    error MemberRewardUnavailable(address tokenAddress, uint256 round, uint256 memberId);
     error NotMemberOwner(uint256 memberId);
-    error InvalidAddress();
-    error InvalidAmount();
-    error UnauthorizedCaller();
 }
 
 interface IMint is IMintEvents, IMintErrors {

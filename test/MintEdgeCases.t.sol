@@ -30,7 +30,7 @@ contract MintEdgeCasesTest {
             1e17,
             2
         );
-        token = new LOVE20Token("Test", "TST", supply, maxSupply, address(this), address(mint), address(1));
+        token = new LOVE20Token("Test", "TST", supply, maxSupply, address(this), address(mint), address(this));
     }
 
     uint256 public currentPhaseValue = type(uint256).max;
@@ -113,7 +113,7 @@ contract MintEdgeCasesTest {
     function testInitRejectsVoteWithoutPhase() public {
         ZeroPhaseVote zeroPhaseVote = new ZeroPhaseVote();
         Mint fresh = new Mint();
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.DependencyNotContract.selector, address(0)));
         fresh.init(address(zeroPhaseVote), address(this), address(this), address(this), 50, 100, 100, 2);
         require(!fresh.initialized(), "must not latch on failed derivation");
     }
@@ -121,7 +121,7 @@ contract MintEdgeCasesTest {
     function testRoundEndedReadsDerivedPhaseDirectly() public {
         setupMint(1000, 10000);
         currentPhaseValue = 5;
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 5));
         mint.mintGovReward(address(token), 1, 5, address(this));
 
         currentPhaseValue = 6;
@@ -134,7 +134,9 @@ contract MintEdgeCasesTest {
         vm.prank(TARGET);
         mint.mintProposalReward(address(token), 1, 1, TARGET);
         vm.prank(TARGET);
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.AlreadyMinted.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.ProposalRewardAlreadyMinted.selector, address(token), 1, 1)
+        );
         mint.mintProposalReward(address(token), 1, 1, TARGET);
     }
 
@@ -169,14 +171,16 @@ contract MintEdgeCasesTest {
 
     function testProposalMintUnauthorizedReverts() public {
         setupMint(1000, 10000);
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.UnauthorizedCaller.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.NotProposalTarget.selector, address(this), TARGET)
+        );
         mint.mintProposalReward(address(token), 1, 1, TARGET);
     }
 
     function testProposalMintRoundNotReadyReverts() public {
         setupMint(1000, 10000);
         vm.prank(TARGET);
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 0));
         mint.mintProposalReward(address(token), 0, 1, TARGET);
     }
 

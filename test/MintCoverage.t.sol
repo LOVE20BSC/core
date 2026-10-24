@@ -48,7 +48,7 @@ contract MintCoverageTest {
             proposalRatio,
             2
         );
-        token = new LOVE20Token("Coverage", "COV", supply, maxSupply, address(this), address(mint), address(1));
+        token = new LOVE20Token("Coverage", "COV", supply, maxSupply, address(this), address(mint), address(this));
     }
 
     function phaseAddress() external view returns (address) {
@@ -108,19 +108,42 @@ contract MintCoverageTest {
 
     function testInitRejectsZeroAddress() public {
         Mint a = new Mint();
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.DependencyNotContract.selector, address(0)));
         a.init(address(0), address(this), address(this), address(this), 5e16, 1e17, 1e17, 2);
+    }
+
+    function testInitRejectsEveryZeroDependency() public {
+        Mint a = new Mint();
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.DependencyNotContract.selector, address(0)));
+        a.init(address(this), address(0), address(this), address(this), 5e16, 1e17, 1e17, 2);
+        require(!a.initialized(), "zero submit must not initialize");
+
+        a = new Mint();
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.DependencyNotContract.selector, address(0)));
+        a.init(address(this), address(this), address(0), address(this), 5e16, 1e17, 1e17, 2);
+        require(!a.initialized(), "zero launch must not initialize");
+
+        a = new Mint();
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.DependencyNotContract.selector, address(0)));
+        a.init(address(this), address(this), address(this), address(0), 5e16, 1e17, 1e17, 2);
+        require(!a.initialized(), "zero memberNFT must not initialize");
     }
 
     function testInitRejectsBadRatioSum() public {
         Mint c = new Mint();
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAmount.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.InvalidRoundRewardRatios.selector, 6e17, 401e15)
+        );
         c.init(address(this), address(this), address(this), address(this), 5e16, 6e17, 401e15, 2);
     }
 
     function testInitProposalThresholdBounds() public {
         Mint bounded = new Mint();
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAmount.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMintErrors.InvalidProposalRewardMinVoteRatio.selector, 1e18 + 1
+            )
+        );
         bounded.init(address(this), address(this), address(this), address(this), 1e18 + 1, 1e17, 1e17, 2);
         require(!bounded.initialized(), "invalid threshold must not initialize");
         bounded.init(address(this), address(this), address(this), address(this), 1e18, 1e17, 1e17, 2);
@@ -133,26 +156,32 @@ contract MintCoverageTest {
 
     function testInitRejectsZeroMultiplier() public {
         Mint d = new Mint();
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAmount.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.InvalidMaxGovBoostRewardMultiplier.selector, 0)
+        );
         d.init(address(this), address(this), address(this), address(this), 5e16, 1e17, 1e17, 0);
     }
 
     function testInitRejectsMultiplierAbove1000() public {
         Mint e = new Mint();
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAmount.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.InvalidMaxGovBoostRewardMultiplier.selector, 1001)
+        );
         e.init(address(this), address(this), address(this), address(this), 5e16, 1e17, 1e17, 1001);
     }
 
     function testProposalMintUnauthorized() public {
         setupMint(1000, 10000, 0, 1e17);
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.UnauthorizedCaller.selector));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.NotProposalTarget.selector, address(this), TARGET)
+        );
         mint.mintProposalReward(address(token), 1, 1, address(this));
     }
 
     function testProposalMintRoundNotReady() public {
         setupMint(1000, 10000, 0, 1e17);
         vm.prank(TARGET);
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 0));
         mint.mintProposalReward(address(token), 0, 1, TARGET);
     }
 
@@ -163,7 +192,7 @@ contract MintCoverageTest {
     function testProposalMintRoundNotPrepared() public {
         setupMint(1000, 10000, 0, 1e17);
         vm.prank(TARGET);
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector));
         mint.mintProposalReward(address(token), 1, 1, TARGET);
     }
     */
@@ -171,7 +200,7 @@ contract MintCoverageTest {
     function testProposalMintAutoPrepare() public {
         setupMint(1000, 10000, 0, 1e17);
         vm.prank(TARGET);
-        // Before auto-prepare, this would fail with RoundNotReadyToMint
+        // Before auto-prepare, this would fail with RoundNotEnded
         // Now it should succeed and automatically prepare rewards
         uint256 amount = mint.mintProposalReward(address(token), 1, 1, TARGET);
         // Verify reward was calculated and minted
@@ -181,7 +210,7 @@ contract MintCoverageTest {
     function testProposalMintRejectsZeroRecipient() public {
         setupMint(1000, 10000, 0, 1e17);
         vm.prank(TARGET);
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.InvalidAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.ZeroRecipientAddress.selector));
         mint.mintProposalReward(address(token), 1, 1, address(0));
     }
 
@@ -265,7 +294,7 @@ contract MintCoverageTest {
 
     function testPrepareRoundNotReady() public {
         setupMint(1000, 10000, 1e17, 1e17);
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 0));
         mint.mintGovReward(address(token), 1, 0, address(this));
     }
 
@@ -298,7 +327,7 @@ contract MintCoverageTest {
 
     function testGovRewardRoundNotReady() public {
         setupMint(1000, 10000, 1e17, 0);
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 0));
         mint.mintGovReward(address(token), 1, 0, address(this));
     }
 
@@ -308,14 +337,14 @@ contract MintCoverageTest {
     /*
     function testGovRewardRoundNotPrepared() public {
         setupMint(1000, 10000, 1e17, 0);
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotReadyToMint.selector));
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector));
         mint.mintGovReward(address(token), 1, 2, address(this));
     }
     */
 
     function testGovRewardAutoPrepare() public {
         setupMint(1000, 10000, 1e17, 0);
-        // Before auto-prepare, this would fail with RoundNotReadyToMint
+        // Before auto-prepare, this would fail with RoundNotEnded
         // Now it should succeed and automatically prepare rewards
         (uint256 v, uint256 b, uint256 burn) = mint.mintGovReward(address(token), 1, 1, address(this));
         // Verify rewards were calculated and minted

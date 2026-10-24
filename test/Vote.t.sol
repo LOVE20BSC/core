@@ -11,6 +11,7 @@ import {IVote, IVoteErrors, IVoteEvents} from "../src/interfaces/IVote.sol";
 import {IStakeErrors} from "../src/interfaces/IStake.sol";
 import {ISubmitErrors, ProposalBody, TargetMode} from "../src/interfaces/ISubmit.sol";
 import {IProposalTarget} from "../src/interfaces/IProposalTarget.sol";
+import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 interface VoteVm {
     struct Log {
@@ -84,7 +85,7 @@ contract MockStake {
             revert MockStakeReadDisabled();
         }
         if (round > IPhase(phaseAddress).currentPhase()) {
-            revert IStakeErrors.InvalidPhase(round);
+            revert IStakeErrors.RoundNotStarted(round, IPhase(phaseAddress).currentPhase());
         }
         return _boost[tokenAddress][round][memberId];
     }
@@ -319,7 +320,7 @@ contract VoteTest {
         stake.setPhase(address(phase));
 
         // initialSupply == maxSupply keeps the mint fee at zero, so members cost nothing to create.
-        feeToken = new LOVE20Token("LOVE20", "LOVE20", 1000e18, 1000e18, address(this), address(this), address(0xdead));
+        feeToken = new LOVE20Token("LOVE20", "LOVE20", 1000e18, 1000e18, address(this), address(this), address(this));
         memberNFT = new MemberNFT(1e8, 7, 10, 32);
         memberNFT.init(address(feeToken));
 
@@ -557,13 +558,12 @@ contract VoteTest {
 
     /// @dev Every dependency is checked, and a rejected init leaves nothing behind.
     function testInitRejectsEveryZeroDependency() external {
-        bytes memory expected = abi.encodeWithSelector(IVoteErrors.InvalidAddress.selector);
         Vote fresh = new Vote();
 
         _expectRevertOn(
             address(fresh),
             abi.encodeCall(fresh.init, (address(0), address(stake), address(submit), address(memberNFT))),
-            expected,
+            abi.encodeWithSelector(IVoteErrors.DependencyNotContract.selector, address(0)),
             "zero phase"
         );
         require(!fresh.initialized(), "zero phase must not initialize");
@@ -572,7 +572,7 @@ contract VoteTest {
         _expectRevertOn(
             address(fresh),
             abi.encodeCall(fresh.init, (address(phase), address(0), address(submit), address(memberNFT))),
-            expected,
+            abi.encodeWithSelector(IVoteErrors.DependencyNotContract.selector, address(0)),
             "zero stake"
         );
         require(!fresh.initialized(), "zero stake must not initialize");
@@ -581,7 +581,7 @@ contract VoteTest {
         _expectRevertOn(
             address(fresh),
             abi.encodeCall(fresh.init, (address(phase), address(stake), address(0), address(memberNFT))),
-            expected,
+            abi.encodeWithSelector(IVoteErrors.DependencyNotContract.selector, address(0)),
             "zero submit"
         );
         require(!fresh.initialized(), "zero submit must not initialize");
@@ -590,7 +590,7 @@ contract VoteTest {
         _expectRevertOn(
             address(fresh),
             abi.encodeCall(fresh.init, (address(phase), address(stake), address(submit), address(0))),
-            expected,
+            abi.encodeWithSelector(IVoteErrors.DependencyNotContract.selector, address(0)),
             "zero memberNFT"
         );
         require(!fresh.initialized(), "zero memberNFT must not initialize");
@@ -599,7 +599,7 @@ contract VoteTest {
         _expectRevertOn(
             address(fresh),
             abi.encodeCall(fresh.init, (address(0), address(0), address(0), address(0))),
-            expected,
+            abi.encodeWithSelector(IVoteErrors.DependencyNotContract.selector, address(0)),
             "all zero"
         );
         require(!fresh.initialized(), "all zero must not initialize");
@@ -631,12 +631,11 @@ contract VoteTest {
         require(fresh.phaseAddress() == address(phase) && fresh.memberNFTAddress() == address(memberNFT), "state as given");
     }
 
-    /// @dev Only the zero address is rejected; nothing requires the dependencies to be contracts.
-    function testInitAcceptsNonContractAddresses() external {
+    function testInitRejectsNonContractAddresses() external {
         Vote fresh = new Vote();
+        vm.expectRevert(abi.encodeWithSelector(IVoteErrors.DependencyNotContract.selector, address(1)));
         fresh.init(address(1), address(2), address(3), address(4));
-        require(fresh.initialized(), "non-contract addresses are accepted");
-        require(fresh.phaseAddress() == address(1) && fresh.memberNFTAddress() == address(4), "stored verbatim");
+        require(!fresh.initialized(), "non-contract dependencies rejected");
     }
 
     // ============ Round views ============
@@ -746,7 +745,7 @@ contract VoteTest {
     ///      unknown id, and that error is what surfaces.
     function testVoteRejectsMemberThatDoesNotExist() external {
         uint256 proposalId = _proposeNoCallback(TOKEN);
-        bytes memory expected = abi.encodeWithSignature("ERC721NonexistentToken(uint256)", 9999);
+        bytes memory expected = abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, uint256(9999));
         _expectRevert(
             abi.encodeCall(vote.vote, (TOKEN, 9999, _singleton(proposalId), _singleton(10), new bytes[][](0))),
             expected,
@@ -756,7 +755,7 @@ contract VoteTest {
 
     function testVoteRejectsZeroMemberId() external {
         uint256 proposalId = _proposeNoCallback(TOKEN);
-        bytes memory expected = abi.encodeWithSignature("ERC721NonexistentToken(uint256)", 0);
+        bytes memory expected = abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, uint256(0));
         _expectRevert(
             abi.encodeCall(vote.vote, (TOKEN, 0, _singleton(proposalId), _singleton(10), new bytes[][](0))),
             expected,
@@ -785,7 +784,7 @@ contract VoteTest {
     function testEligibilityIsCheckedBeforeLengths() external {
         uint256 memberId = _memberIds[0];
         stake.setValidGovVotes(TOKEN, memberId, 0);
-        bytes memory expected = abi.encodeWithSelector(IVoteErrors.CannotVote.selector);
+        bytes memory expected = abi.encodeWithSelector(IVoteErrors.NoVotingPower.selector, TOKEN, memberId);
 
         // No proposal exists and the batch is empty, yet the missing voting power is what surfaces.
         _expectRevertAs(
@@ -815,14 +814,14 @@ contract VoteTest {
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(999), _singleton(1), new bytes[][](0))),
-            abi.encodeWithSelector(IVoteErrors.ProposalNotSubmitted.selector),
+            abi.encodeWithSelector(IVoteErrors.ProposalNotSubmitted.selector, TOKEN, 1, uint256(999)),
             "submission before snapshot"
         );
 
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(0), new bytes[][](0))),
-            abi.encodeWithSelector(IVoteErrors.VotesMustBeGreaterThanZero.selector),
+            abi.encodeWithSelector(IVoteErrors.ZeroVotes.selector, proposalId),
             "amount before snapshot"
         );
     }
@@ -831,7 +830,7 @@ contract VoteTest {
 
     function testVoteRejectsEmptyProposalIds() external {
         uint256 memberId = _memberIds[0];
-        bytes memory expected = abi.encodeWithSelector(IVoteErrors.InvalidTargetDataLength.selector);
+        bytes memory expected = abi.encodeWithSelector(IVoteErrors.ProposalIdsEmpty.selector);
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, new uint256[](0), new uint256[](0), new bytes[][](0))),
@@ -844,19 +843,18 @@ contract VoteTest {
     function testVoteRejectsVotesLengthMismatch() external {
         uint256 memberId = _memberIds[0];
         uint256[] memory ids = _proposeBatch(TOKEN, 2);
-        bytes memory expected = abi.encodeWithSelector(IVoteErrors.InvalidTargetDataLength.selector);
 
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _singleton(1), new bytes[][](0))),
-            expected,
+            abi.encodeWithSelector(IVoteErrors.ProposalVotesLengthMismatch.selector, uint256(2), uint256(1)),
             "votes shorter than proposals"
         );
 
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _filled(3, 1), new bytes[][](0))),
-            expected,
+            abi.encodeWithSelector(IVoteErrors.ProposalVotesLengthMismatch.selector, uint256(2), uint256(3)),
             "votes longer than proposals"
         );
 
@@ -866,19 +864,22 @@ contract VoteTest {
     function testVoteRejectsTargetDataLengthMismatch() external {
         uint256 memberId = _memberIds[0];
         uint256[] memory ids = _proposeBatch(TOKEN, 2);
-        bytes memory expected = abi.encodeWithSelector(IVoteErrors.InvalidTargetDataLength.selector);
 
         bytes[][] memory tooShort = new bytes[][](1);
         tooShort[0] = new bytes[](0);
+        bytes memory expectedShort =
+            abi.encodeWithSelector(IVoteErrors.TargetDataLengthMismatch.selector, uint256(2), uint256(1));
         (bool ok, bytes memory data) = _voteWithData(TOKEN, memberId, ids, _filled(2, 1), tooShort);
-        require(!ok && keccak256(data) == keccak256(expected), "outer array shorter than proposals");
+        require(!ok && keccak256(data) == keccak256(expectedShort), "outer array shorter than proposals");
 
         bytes[][] memory tooLong = new bytes[][](3);
         for (uint256 i = 0; i < tooLong.length; i++) {
             tooLong[i] = new bytes[](0);
         }
+        bytes memory expectedLong =
+            abi.encodeWithSelector(IVoteErrors.TargetDataLengthMismatch.selector, uint256(2), uint256(3));
         (ok, data) = _voteWithData(TOKEN, memberId, ids, _filled(2, 1), tooLong);
-        require(!ok && keccak256(data) == keccak256(expected), "outer array longer than proposals");
+        require(!ok && keccak256(data) == keccak256(expectedLong), "outer array longer than proposals");
 
         _assertAllVoteStateEmpty(TOKEN, vote.currentRound(), memberId);
     }
@@ -920,7 +921,8 @@ contract VoteTest {
         uint256 memberId = _memberIds[1];
         _advanceRounds(1);
 
-        bytes memory expected = abi.encodeWithSelector(IVoteErrors.ProposalNotSubmitted.selector);
+        bytes memory expected =
+            abi.encodeWithSelector(IVoteErrors.ProposalNotSubmitted.selector, TOKEN, 2, proposalId);
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(5), new bytes[][](0))),
@@ -939,39 +941,60 @@ contract VoteTest {
 
     function testVoteRejectsProposalIdsThatWereNeverSubmitted() external {
         uint256 memberId = _memberIds[0];
-        bytes memory expected = abi.encodeWithSelector(IVoteErrors.ProposalNotSubmitted.selector);
 
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(999), _singleton(1), new bytes[][](0))),
-            expected,
+            abi.encodeWithSelector(IVoteErrors.ProposalNotSubmitted.selector, TOKEN, 1, uint256(999)),
             "never created"
         );
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(0), _singleton(1), new bytes[][](0))),
-            expected,
+            abi.encodeWithSelector(IVoteErrors.ProposalNotSubmitted.selector, TOKEN, 1, uint256(0)),
             "zero proposal id"
         );
         _assertAllVoteStateEmpty(TOKEN, vote.currentRound(), memberId);
     }
 
-    function testVoteRejectsZeroAmounts() external {
+    function testProposalNotSubmittedLaterInTheBatchLocalizesTheProposal() external {
         uint256 memberId = _memberIds[0];
         uint256[] memory ids = _proposeBatch(TOKEN, 2);
-        bytes memory expected = abi.encodeWithSelector(IVoteErrors.VotesMustBeGreaterThanZero.selector);
+
+        _advanceRounds(1);
+        uint256 resubmitter = _nextSubmitter();
+        vm.prank(_ownerOfMember(resubmitter));
+        submit.submit(TOKEN, resubmitter, ids[0]);
+
+        bytes memory expected =
+            abi.encodeWithSelector(IVoteErrors.ProposalNotSubmitted.selector, TOKEN, 2, ids[1]);
+        _expectRevertAs(
+            memberId,
+            abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _filled(2, 10), new bytes[][](0))),
+            expected,
+            "the second proposal is not submitted this round"
+        );
+        _assertAllVoteStateEmpty(TOKEN, 2, memberId);
+    }
+
+    function testVoteRejectsZeroAmounts() external {
+        uint256 memberId = _memberIds[0];
+        uint256[] memory ids = _proposeBatch(TOKEN, 3);
 
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(ids[0]), _singleton(0), new bytes[][](0))),
-            expected,
+            abi.encodeWithSelector(IVoteErrors.ZeroVotes.selector, ids[0]),
             "zero on a single proposal"
         );
 
-        uint256[] memory votes = _filled(2, 10);
+        uint256[] memory votes = _filled(3, 10);
         votes[1] = 0;
         _expectRevertAs(
-            memberId, abi.encodeCall(vote.vote, (TOKEN, memberId, ids, votes, new bytes[][](0))), expected, "zero later in the batch"
+            memberId,
+            abi.encodeCall(vote.vote, (TOKEN, memberId, ids, votes, new bytes[][](0))),
+            abi.encodeWithSelector(IVoteErrors.ZeroVotes.selector, ids[1]),
+            "zero later in the batch localizes the proposal"
         );
         _assertAllVoteStateEmpty(TOKEN, vote.currentRound(), memberId);
     }
@@ -985,7 +1008,8 @@ contract VoteTest {
         _voteWithoutData(TOKEN, memberId, _singleton(ids[1]), _singleton(70));
         require(vote.votesNumByMemberId(TOKEN, 1, memberId) == 100, "first two calls fit the cap");
 
-        bytes memory expected = abi.encodeWithSelector(IVoteErrors.NotEnoughVotesLeft.selector);
+        bytes memory expected =
+            abi.encodeWithSelector(IVoteErrors.VoteLimitExceeded.selector, TOKEN, 1, memberId, 101, DEFAULT_CAP);
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(ids[2]), _singleton(1), new bytes[][](0))),
@@ -1007,17 +1031,25 @@ contract VoteTest {
     ///      call consumed counts against a later entry.
     function testBatchAllowanceIsCumulativeInsideTheBatch() external {
         uint256 memberId = _memberIds[0];
-        uint256[] memory ids = _proposeBatch(TOKEN, 2);
+        uint256[] memory ids = _proposeBatch(TOKEN, 3);
 
-        _voteWithoutData(TOKEN, memberId, ids, _filled(2, 50));
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == 100, "50 + 50 fits exactly");
+        _voteWithoutData(TOKEN, memberId, _singleton(ids[0]), _singleton(30));
+        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == 30, "the seeded vote fits the cap");
 
-        uint256[] memory overflow = _filled(2, 50);
-        overflow[1] = 51;
-        bytes memory expected = abi.encodeWithSelector(IVoteErrors.NotEnoughVotesLeft.selector);
+        uint256[] memory votes = _filled(2, 70);
+        votes[1] = 1;
+        uint256[] memory batch = new uint256[](2);
+        batch[0] = ids[1];
+        batch[1] = ids[2];
+        bytes memory expected =
+            abi.encodeWithSelector(IVoteErrors.VoteLimitExceeded.selector, TOKEN, 1, memberId, 101, DEFAULT_CAP);
         _expectRevertAs(
-            memberId, abi.encodeCall(vote.vote, (TOKEN, memberId, ids, overflow, new bytes[][](0))), expected, "50 + 51"
+            memberId,
+            abi.encodeCall(vote.vote, (TOKEN, memberId, batch, votes, new bytes[][](0))),
+            expected,
+            "70 fills the cap, the next entry crosses it"
         );
+        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == 30, "the batch rolls back to the seed");
     }
 
     function testOverCapInsideABatchRollsBackTheWholeCall() external {
@@ -1027,7 +1059,8 @@ contract VoteTest {
 
         uint256[] memory votes = _filled(2, 60);
         votes[1] = 41;
-        bytes memory expected = abi.encodeWithSelector(IVoteErrors.NotEnoughVotesLeft.selector);
+        bytes memory expected =
+            abi.encodeWithSelector(IVoteErrors.VoteLimitExceeded.selector, TOKEN, 1, memberId, 101, DEFAULT_CAP);
         _expectRevertAs(
             memberId, abi.encodeCall(vote.vote, (TOKEN, memberId, ids, votes, new bytes[][](0))), expected, "60 + 41"
         );
@@ -1397,7 +1430,7 @@ contract VoteTest {
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _singleton(0), new bytes[][](0))),
-            abi.encodeWithSelector(IVoteErrors.VotesMustBeGreaterThanZero.selector),
+            abi.encodeWithSelector(IVoteErrors.ZeroVotes.selector, ids[0]),
             "zero amount"
         );
         require(_votedLogs().length == 0, "a reverted call leaves no event behind");
@@ -1802,7 +1835,8 @@ contract VoteTest {
         stake.setValidGovVotes(TOKEN, memberId, cap);
         uint256[] memory ids = _proposeBatch(TOKEN, 1);
 
-        bytes memory expected = abi.encodeWithSelector(IVoteErrors.NotEnoughVotesLeft.selector);
+        bytes memory expected =
+            abi.encodeWithSelector(IVoteErrors.VoteLimitExceeded.selector, TOKEN, 1, memberId, amount, cap);
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _singleton(amount), new bytes[][](0))),
@@ -1942,7 +1976,7 @@ contract VoteStubTest {
         stake = new MockStake();
         stake.setPhase(address(phase));
 
-        feeToken = new LOVE20Token("LOVE20", "LOVE20", 1000e18, 1000e18, address(this), address(this), address(0xdead));
+        feeToken = new LOVE20Token("LOVE20", "LOVE20", 1000e18, 1000e18, address(this), address(this), address(this));
         memberNFT = new MemberNFT(1e8, 7, 10, 32);
         memberNFT.init(address(feeToken));
 

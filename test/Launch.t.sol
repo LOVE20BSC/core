@@ -145,6 +145,16 @@ contract PairFactoryMock {
     }
 }
 
+contract ZeroReturningPairFactory {
+    function getPair(address, address) external pure returns (address) {
+        return address(0);
+    }
+
+    function createPair(address, address) external pure returns (address) {
+        return address(0);
+    }
+}
+
 contract LaunchTest {
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -160,7 +170,7 @@ contract LaunchTest {
     uint256 private constant MAX_SUPPLY = 200 ether;
     uint256 private constant CALLER_FUNDING = 10 ether;
 
-    address private constant ROOT = address(0x5678);
+    address private ROOT;
     address private constant SUB_DISTRIBUTOR = address(0x9ABC);
     address private constant EOA = address(0xBEEF);
 
@@ -179,6 +189,7 @@ contract LaunchTest {
     uint256 private carolMemberId;
 
     function setUp() public {
+        ROOT = address(this);
         member = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH);
         launch = new Launch();
         mintAccount = new MintAccount();
@@ -291,7 +302,7 @@ contract LaunchTest {
         bytes memory data = _revertOf(
             address(launch), abi.encodeWithSelector(ILaunch.init.selector, _freshParams()), "repeat init expected"
         );
-        require(_selector(data) == ILaunchErrors.AlreadyInitialized.selector, "already initialized");
+        _expectData(data, abi.encodeWithSelector(ILaunchErrors.AlreadyInitialized.selector), "already initialized");
 
         // 参数非法与重复初始化同时命中时按初始化状态回滚（通用规则「初始化与安全」）
         LaunchInitParams memory invalid = _freshParams();
@@ -299,7 +310,7 @@ contract LaunchTest {
         data = _revertOf(
             address(launch), abi.encodeWithSelector(ILaunch.init.selector, invalid), "status before parameters expected"
         );
-        require(_selector(data) == ILaunchErrors.AlreadyInitialized.selector, "initialized checked first");
+        _expectData(data, abi.encodeWithSelector(ILaunchErrors.AlreadyInitialized.selector), "initialized checked first");
 
         // 首币名称/符号为空同样不能越过初始化状态校验
         invalid = _freshParams();
@@ -307,51 +318,75 @@ contract LaunchTest {
         data = _revertOf(
             address(launch), abi.encodeWithSelector(ILaunch.init.selector, invalid), "status before empty name expected"
         );
-        require(_selector(data) == ILaunchErrors.AlreadyInitialized.selector, "initialized before EmptyString");
+        _expectData(data, abi.encodeWithSelector(ILaunchErrors.AlreadyInitialized.selector), "initialized before empty name");
+    }
+
+    function testInitRevertsWhenPairCreationReturnsZero() public {
+        Launch fresh = new Launch();
+        MemberNFT freshMember = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH);
+        LaunchInitParams memory params = _params(address(freshMember), LAUNCH_AMOUNT, MAX_SUPPLY, "LOVE");
+        params.pairFactoryAddress = address(new ZeroReturningPairFactory());
+
+        bytes memory data = _revertOf(
+            address(fresh), abi.encodeWithSelector(ILaunch.init.selector, params), "pair creation expected"
+        );
+        _expectData(
+            data,
+            abi.encodeWithSelector(ILaunchErrors.PairCreationFailed.selector, ROOT),
+            "pair creation payload"
+        );
     }
 
     function testInitRejectsZeroAddressParameters() public {
         LaunchInitParams memory params = _freshParams();
         params.mintAddress = address(0);
-        _requireInitRevert(params, ILaunchErrors.InvalidAddress.selector, "mint zero");
+        _requireInitRevert(params, abi.encodeWithSelector(ILaunchErrors.DependencyNotContract.selector, address(0)), "mint zero");
 
         params = _freshParams();
         params.memberNFTAddress = address(0);
-        _requireInitRevert(params, ILaunchErrors.InvalidAddress.selector, "member zero");
+        _requireInitRevert(params, abi.encodeWithSelector(ILaunchErrors.DependencyNotContract.selector, address(0)), "member zero");
 
         params = _freshParams();
         params.rootParentTokenAddress = address(0);
-        _requireInitRevert(params, ILaunchErrors.InvalidAddress.selector, "root zero");
+        _requireInitRevert(
+            params, abi.encodeWithSelector(ILaunchErrors.DependencyNotContract.selector, address(0)), "root zero"
+        );
+
+        params = _freshParams();
+        params.pairFactoryAddress = address(0);
+        _requireInitRevert(
+            params, abi.encodeWithSelector(ILaunchErrors.DependencyNotContract.selector, address(0)), "pair factory zero"
+        );
 
         params = _freshParams();
         params.distributor = address(0);
-        _requireInitRevert(params, ILaunchErrors.InvalidAddress.selector, "distributor zero");
+        _requireInitRevert(
+            params, abi.encodeWithSelector(ILaunchErrors.ZeroDistributorAddress.selector), "distributor zero"
+        );
     }
 
     function testInitRejectsZeroAmountParameters() public {
         LaunchInitParams memory params = _freshParams();
         params.launchRatio = 0;
         bytes memory data = _initRevertData(params, "zero ratio expected");
-        require(_selector(data) == ILaunchErrors.ZeroAmount.selector, "ratio selector");
-        require(keccak256(bytes(_argString(data))) == keccak256("launchRatio"), "ratio parameter name");
+        _expectData(data, abi.encodeWithSelector(ILaunchErrors.ZeroLaunchRatio.selector), "ratio selector");
 
         params = _freshParams();
         params.maxLaunchCount = 0;
         data = _initRevertData(params, "zero max count expected");
-        require(_selector(data) == ILaunchErrors.ZeroAmount.selector, "max count selector");
-        require(keccak256(bytes(_argString(data))) == keccak256("maxLaunchCount"), "max count parameter name");
+        _expectData(data, abi.encodeWithSelector(ILaunchErrors.ZeroMaxLaunchCount.selector), "max count selector");
 
         params = _freshParams();
         params.tokenSymbolLength = 0;
         data = _initRevertData(params, "zero symbol length expected");
-        require(_selector(data) == ILaunchErrors.ZeroAmount.selector, "symbol length selector");
-        require(keccak256(bytes(_argString(data))) == keccak256("tokenSymbolLength"), "symbol length parameter name");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.ZeroTokenSymbolLength.selector), "symbol length selector"
+        );
 
         params = _freshParams();
         params.launchAmount = 0;
         data = _initRevertData(params, "zero launch amount expected");
-        require(_selector(data) == ILaunchErrors.ZeroAmount.selector, "launch amount selector");
-        require(keccak256(bytes(_argString(data))) == keccak256("launchAmount"), "launch amount parameter name");
+        _expectData(data, abi.encodeWithSelector(ILaunchErrors.ZeroLaunchAmount.selector), "launch amount selector");
     }
 
     function testInitLaunchRatioUpperBound() public {
@@ -361,7 +396,9 @@ contract LaunchTest {
         bytes memory data = _revertOf(
             address(bounded), abi.encodeWithSelector(ILaunch.init.selector, params), "ratio above 100%"
         );
-        require(_selector(data) == ILaunchErrors.InvalidAmount.selector, "invalid ratio selector");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.InvalidLaunchRatio.selector, 1e18 + 1), "invalid ratio selector"
+        );
         require(!bounded.initialized(), "invalid ratio must not initialize");
         params.launchRatio = 1e18;
         bounded.init(params);
@@ -371,7 +408,11 @@ contract LaunchTest {
     function testInitRejectsLaunchAmountAboveMaxSupply() public {
         LaunchInitParams memory params = _freshParams();
         params.launchAmount = MAX_SUPPLY + 1;
-        _requireInitRevert(params, ILaunchErrors.InvalidAmount.selector, "amount above supply");
+        _requireInitRevert(
+            params,
+            abi.encodeWithSelector(ILaunchErrors.InvalidLaunchAmount.selector, MAX_SUPPLY + 1, MAX_SUPPLY),
+            "amount above supply"
+        );
     }
 
     function testInitAcceptsEqualSupplySettings() public {
@@ -388,14 +429,12 @@ contract LaunchTest {
         LaunchInitParams memory params = _freshParams();
         params.name = "";
         bytes memory data = _initRevertData(params, "empty name expected");
-        require(_selector(data) == ILaunchErrors.EmptyString.selector, "name selector");
-        require(keccak256(bytes(_argString(data))) == keccak256("name"), "name parameter");
+        _expectData(data, abi.encodeWithSelector(ILaunchErrors.TokenNameEmpty.selector), "name selector");
 
         params = _freshParams();
         params.symbol = "";
         data = _initRevertData(params, "empty symbol expected");
-        require(_selector(data) == ILaunchErrors.EmptyString.selector, "symbol selector");
-        require(keccak256(bytes(_argString(data))) == keccak256("symbol"), "symbol parameter");
+        _expectData(data, abi.encodeWithSelector(ILaunchErrors.TokenSymbolEmpty.selector), "symbol selector");
     }
 
     function testInitNeverCallsDistributor() public {
@@ -417,7 +456,7 @@ contract LaunchTest {
     function testInitRollsBackWhenMemberNftRejects() public {
         // 预置一个已初始化的 MemberNFT：init 在创建首币后调用它并因此整体回滚
         MemberNFT rejecting = _newMember();
-        rejecting.init(EOA);
+        rejecting.init(address(firstToken));
         Launch freshLaunch = new Launch();
 
         bytes memory data = _revertOf(
@@ -427,12 +466,14 @@ contract LaunchTest {
             ),
             "member reject expected"
         );
-        require(_selector(data) == IMemberNFTErrors.AlreadyInitialized.selector, "member error bubbles up");
+        _expectData(
+            data, abi.encodeWithSelector(IMemberNFTErrors.AlreadyInitialized.selector), "member error bubbles up"
+        );
         require(!freshLaunch.initialized(), "initialized rolled back");
         require(freshLaunch.mintAddress() == address(0), "mint rolled back");
         require(freshLaunch.rootParentTokenAddress() == address(0), "root rolled back");
         require(freshLaunch.firstTokenAddress() == address(0), "first token rolled back");
-        require(rejecting.LOVE20_TOKEN_ADDRESS() == EOA, "member untouched");
+        require(rejecting.LOVE20_TOKEN_ADDRESS() == address(firstToken), "member untouched");
     }
 
     // ============ 代币登记与查询 ============
@@ -473,7 +514,9 @@ contract LaunchTest {
         _grantCount(address(firstToken), aliceMemberId, 1);
         (bool ok, bytes memory data) = _launch(alice, "LOVE", address(firstToken), aliceMemberId);
         require(!ok, "first token symbol is not a valid sub-token symbol");
-        require(_selector(data) == ILaunchErrors.InvalidTokenSymbol.selector, "symbol length rule");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.InvalidTokenSymbolLength.selector, 4, SYMBOL_LENGTH), "symbol length rule"
+        );
     }
 
     // ============ launchToken ============
@@ -566,7 +609,7 @@ contract LaunchTest {
         for (uint256 i; i < invalid.length; ++i) {
             (bool ok, bytes memory data) = _launch(alice, invalid[i], address(firstToken), aliceMemberId);
             require(!ok, "invalid symbol must revert");
-            require(_selector(data) == ILaunchErrors.InvalidTokenSymbol.selector, "symbol selector");
+            _expectData(data, _invalidSymbolError(invalid[i], SYMBOL_LENGTH), "symbol selector");
         }
         require(launch.launchCount(address(firstToken), aliceMemberId) == 2, "no count consumed");
 
@@ -622,7 +665,7 @@ contract LaunchTest {
         for (uint256 i; i < invalid.length; ++i) {
             (bool ok, bytes memory data) = _launch(alice, invalid[i], address(firstToken), aliceMemberId);
             require(!ok, "invalid symbol must revert");
-            require(_selector(data) == ILaunchErrors.InvalidTokenSymbol.selector, "symbol selector");
+            _expectData(data, _invalidSymbolError(invalid[i], SYMBOL_LENGTH), "symbol selector");
         }
         require(launch.launchCount(address(firstToken), aliceMemberId) == 1, "no count consumed");
     }
@@ -652,10 +695,14 @@ contract LaunchTest {
         // 字节数不匹配与数字开头仍回滚
         (bool ok, bytes memory data) = _launchAt(bootedLaunch, carol, unicode"中", address(bootedToken), memberId);
         require(!ok, "three bytes is not six");
-        require(_selector(data) == ILaunchErrors.InvalidTokenSymbol.selector, "length selector");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.InvalidTokenSymbolLength.selector, 3, 6), "length selector"
+        );
         (ok, data) = _launchAt(bootedLaunch, carol, "1AAAAA", address(bootedToken), memberId);
         require(!ok, "digit first character must revert");
-        require(_selector(data) == ILaunchErrors.InvalidTokenSymbol.selector, "first character selector");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.InvalidTokenSymbolCharacters.selector), "first character selector"
+        );
         require(bootedLaunch.launchCount(address(bootedToken), memberId) == 0, "four counts consumed");
     }
 
@@ -678,7 +725,7 @@ contract LaunchTest {
             require(launch.tokenAddressBySymbol(symbol) == abi.decode(data, (address)), "registered");
         } else {
             require(!ok, "code point out of range must revert");
-            require(_selector(data) == ILaunchErrors.InvalidTokenSymbol.selector, "symbol selector");
+            _expectData(data, _invalidSymbolError(symbol, SYMBOL_LENGTH), "symbol selector");
         }
     }
 
@@ -696,7 +743,9 @@ contract LaunchTest {
             )
         );
         require(!ok, "zero distributor must revert");
-        require(_selector(data) == ILaunchErrors.InvalidAddress.selector, "address selector");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.ZeroDistributorAddress.selector), "distributor selector"
+        );
     }
 
     function testLaunchTokenEnforcesDataAndModeRules() public {
@@ -735,7 +784,9 @@ contract LaunchTest {
             )
         );
         require(!ok, "eoa callback must revert");
-        require(_selector(data) == ILaunchErrors.InvalidDistributorMode.selector, "mode selector");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.DistributorNotContract.selector, EOA), "mode selector"
+        );
 
         require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "count consumed");
     }
@@ -828,7 +879,7 @@ contract LaunchTest {
             )
         );
         require(!ok, "callback failure must revert");
-        require(_selector(data) == DistributorCallbackFailed.selector, "callback error bubbles up");
+        _expectData(data, abi.encodeWithSelector(DistributorCallbackFailed.selector), "callback error bubbles up");
 
         require(launch.launchCount(address(firstToken), aliceMemberId) == 1, "count restored");
         require(launch.tokenAddressBySymbol("AAA") == address(0), "symbol not registered");
@@ -845,7 +896,11 @@ contract LaunchTest {
         for (uint256 i; i < parents.length; ++i) {
             (bool ok, bytes memory data) = _launch(alice, "AAA", parents[i], aliceMemberId);
             require(!ok, "unregistered parent must revert");
-            require(_selector(data) == ILaunchErrors.InvalidParentToken.selector, "parent selector");
+            _expectData(
+                data,
+                abi.encodeWithSelector(ILaunchErrors.ParentTokenNotRegistered.selector, parents[i]),
+                "parent selector"
+            );
         }
         require(launch.launchCount(address(firstToken), aliceMemberId) == 1, "count untouched");
     }
@@ -857,12 +912,13 @@ contract LaunchTest {
 
         (bool ok, bytes memory data) = _launch(alice, "AAA", address(firstToken), 999);
         require(!ok, "missing member must revert");
-        require(_selector(data) == IERC721Errors.ERC721NonexistentToken.selector, "member nft error");
-        require(_argUint(data) == 999, "error member id");
+        _expectData(data, abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 999), "member nft error");
 
         (ok, data) = _launch(alice, "AAA", address(firstToken), 0);
         require(!ok, "zero member must revert");
-        require(_selector(data) == IERC721Errors.ERC721NonexistentToken.selector, "zero member nft error");
+        _expectData(
+            data, abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 0), "zero member nft error"
+        );
 
         require(launch.launchCount(address(firstToken), 999) == 1, "count untouched");
     }
@@ -872,22 +928,31 @@ contract LaunchTest {
 
         (bool ok, bytes memory data) = _launch(bob, "AAA", address(firstToken), aliceMemberId);
         require(!ok, "non owner must revert");
-        require(_selector(data) == ILaunchErrors.NotMemberOwner.selector, "owner selector");
-        require(_argUint(data) == aliceMemberId, "error member id");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.NotMemberOwner.selector, aliceMemberId), "owner selector"
+        );
         require(launch.launchCount(address(firstToken), aliceMemberId) == 1, "count untouched");
     }
 
     function testLaunchTokenRequiresAvailableCount() public {
         (bool ok, bytes memory data) = _launch(alice, "AAA", address(firstToken), aliceMemberId);
         require(!ok, "empty ledger must revert");
-        require(_selector(data) == ILaunchErrors.NotEnoughLaunchCount.selector, "count selector");
+        _expectData(
+            data,
+            abi.encodeWithSelector(ILaunchErrors.InsufficientLaunchCount.selector, aliceMemberId, 0, 1),
+            "count selector"
+        );
 
         _grantCount(address(firstToken), aliceMemberId, 1);
         _launchOk(alice, "AAA", address(firstToken), aliceMemberId);
 
         (ok, data) = _launch(alice, "BBB", address(firstToken), aliceMemberId);
         require(!ok, "consumed count must revert");
-        require(_selector(data) == ILaunchErrors.NotEnoughLaunchCount.selector, "consumed selector");
+        _expectData(
+            data,
+            abi.encodeWithSelector(ILaunchErrors.InsufficientLaunchCount.selector, aliceMemberId, 0, 1),
+            "consumed selector"
+        );
         require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "ledger drained");
         require(launch.tokenAddressBySymbol("BBB") == address(0), "nothing created");
     }
@@ -895,7 +960,12 @@ contract LaunchTest {
     function testLaunchTokenChecksOwnershipThenParametersThenExistenceThenLedger() public {
         // 鉴权优先：不持有成员时，先于任何参数校验报错
         (bool ok, bytes memory data) = _launch(bob, "aa", address(0), aliceMemberId);
-        require(!ok && _selector(data) == ILaunchErrors.NotMemberOwner.selector, "ownership before parameters");
+        require(
+            !ok
+                && keccak256(data)
+                    == keccak256(abi.encodeWithSelector(ILaunchErrors.NotMemberOwner.selector, aliceMemberId)),
+            "ownership before parameters"
+        );
 
         // 参数优先：符号非法 + distributor 为零
         (ok, data) = alice.forward(
@@ -904,7 +974,12 @@ contract LaunchTest {
                 "aa", address(firstToken), aliceMemberId, address(0), DistributorMode.NoCallback, _emptyData()
             )
         );
-        require(!ok && _selector(data) == ILaunchErrors.InvalidTokenSymbol.selector, "symbol before distributor");
+        require(
+            !ok
+                && keccak256(data)
+                    == keccak256(abi.encodeWithSelector(ILaunchErrors.InvalidTokenSymbolLength.selector, 2, SYMBOL_LENGTH)),
+            "symbol before distributor"
+        );
 
         // 参数优先：distributor 为零 + 父币未登记
         (ok, data) = alice.forward(
@@ -913,11 +988,21 @@ contract LaunchTest {
                 "AAA", address(0), aliceMemberId, address(0), DistributorMode.NoCallback, _emptyData()
             )
         );
-        require(!ok && _selector(data) == ILaunchErrors.InvalidAddress.selector, "distributor before parent");
+        require(
+            !ok
+                && keccak256(data)
+                    == keccak256(abi.encodeWithSelector(ILaunchErrors.ZeroDistributorAddress.selector)),
+            "distributor before parent"
+        );
 
         // 参数优先于存在性：父币未登记
         (ok, data) = _launch(alice, "AAA", address(0), aliceMemberId);
-        require(!ok && _selector(data) == ILaunchErrors.InvalidParentToken.selector, "parent before ledger");
+        require(
+            !ok
+                && keccak256(data)
+                    == keccak256(abi.encodeWithSelector(ILaunchErrors.ParentTokenNotRegistered.selector, address(0))),
+            "parent before ledger"
+        );
 
         require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "no state change");
         require(launch.tokenAddressBySymbol("AAA") == address(0), "no token created");
@@ -930,7 +1015,9 @@ contract LaunchTest {
 
         (bool ok, bytes memory data) = _launch(alice, "AAA", address(firstToken), aliceMemberId);
         require(!ok, "former owner must revert");
-        require(_selector(data) == ILaunchErrors.NotMemberOwner.selector, "owner selector");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.NotMemberOwner.selector, aliceMemberId), "owner selector"
+        );
 
         _launchOk(bob, "AAA", address(firstToken), aliceMemberId);
         require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "count follows the member id");
@@ -945,7 +1032,11 @@ contract LaunchTest {
         _grantCount(secondParent, aliceMemberId, 1);
         (bool ok, bytes memory data) = _launch(alice, "AAA", secondParent, aliceMemberId);
         require(!ok, "duplicate symbol must revert");
-        require(_selector(data) == ILaunchErrors.TokenSymbolExists.selector, "duplicate selector");
+        _expectData(
+            data,
+            abi.encodeWithSelector(ILaunchErrors.TokenSymbolAlreadyExists.selector, keccak256(bytes("AAA"))),
+            "duplicate selector"
+        );
         require(launch.launchCount(secondParent, aliceMemberId) == 1, "count untouched");
 
         // 首币符号占位同一账本：首币符号长度为 3 的部署下无法再发射同名子币
@@ -953,7 +1044,11 @@ contract LaunchTest {
         _grantCountAt(booted, address(bootedToken), memberId, 1);
         (ok, data) = _launchAt(booted, carol, "LOV", address(bootedToken), memberId);
         require(!ok, "first token symbol occupies the ledger");
-        require(_selector(data) == ILaunchErrors.TokenSymbolExists.selector, "first token symbol selector");
+        _expectData(
+            data,
+            abi.encodeWithSelector(ILaunchErrors.TokenSymbolAlreadyExists.selector, keccak256(bytes("LOV"))),
+            "first token symbol selector"
+        );
     }
 
     function testLaunchTokenAppliesTestPrefixAndChecksFinalSymbol() public {
@@ -974,7 +1069,11 @@ contract LaunchTest {
         // 唯一性按最终符号判定
         (bool ok, bytes memory data) = _launchAt(booted, carol, "AAA", address(bootedToken), memberId);
         require(!ok, "duplicate final symbol must revert");
-        require(_selector(data) == ILaunchErrors.TokenSymbolExists.selector, "final symbol selector");
+        _expectData(
+            data,
+            abi.encodeWithSelector(ILaunchErrors.TokenSymbolAlreadyExists.selector, keccak256(bytes("TestAAA"))),
+            "final symbol selector"
+        );
     }
 
     // ============ mergeLaunchCount ============
@@ -1024,11 +1123,17 @@ contract LaunchTest {
 
         (bool ok, bytes memory data) = _merge(alice, address(firstToken), aliceMemberId, aliceMemberId, 1);
         require(!ok, "same member must revert");
-        require(_selector(data) == ILaunchErrors.SourceAndTargetMemberIdsMustBeDifferent.selector, "same member selector");
+        _expectData(
+            data,
+            abi.encodeWithSelector(
+                ILaunchErrors.SourceAndTargetMemberIdsMustBeDifferent.selector, aliceMemberId, aliceMemberId
+            ),
+            "same member selector"
+        );
 
         (ok, data) = _merge(alice, address(firstToken), aliceMemberId, bobMemberId, 0);
         require(!ok, "zero count must revert");
-        require(_selector(data) == ILaunchErrors.CountMustBeGreaterThanZero.selector, "zero count selector");
+        _expectData(data, abi.encodeWithSelector(ILaunchErrors.ZeroCount.selector), "zero count selector");
 
         require(launch.launchCount(address(firstToken), aliceMemberId) == 5, "ledger untouched");
     }
@@ -1039,11 +1144,17 @@ contract LaunchTest {
 
         (bool ok, bytes memory data) = _merge(alice, address(fake), aliceMemberId, bobMemberId, 1);
         require(!ok, "unregistered token must revert");
-        require(_selector(data) == ILaunchErrors.InvalidTokenAddress.selector, "token selector");
+        _expectData(
+            data,
+            abi.encodeWithSelector(ILaunchErrors.TokenNotRegistered.selector, address(fake)),
+            "token selector"
+        );
 
         (ok, data) = _merge(alice, EOA, aliceMemberId, bobMemberId, 1);
         require(!ok, "eoa token must revert");
-        require(_selector(data) == ILaunchErrors.InvalidTokenAddress.selector, "eoa token selector");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.TokenNotRegistered.selector, EOA), "eoa token selector"
+        );
 
         require(launch.launchCount(address(firstToken), aliceMemberId) == 5, "ledger untouched");
     }
@@ -1054,24 +1165,28 @@ contract LaunchTest {
 
         (bool ok, bytes memory data) = _merge(alice, address(firstToken), 999, bobMemberId, 1);
         require(!ok, "missing source must revert");
-        require(_selector(data) == IERC721Errors.ERC721NonexistentToken.selector, "source member error");
-        require(_argUint(data) == 999, "source member id");
+        _expectData(
+            data, abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 999), "source member error"
+        );
 
         (ok, data) = _merge(alice, address(firstToken), aliceMemberId, 999, 1);
         require(!ok, "missing target must revert");
-        require(_selector(data) == IERC721Errors.ERC721NonexistentToken.selector, "target member error");
-        require(_argUint(data) == 999, "target member id");
+        _expectData(
+            data, abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 999), "target member error"
+        );
 
         // memberId 不从 0 开始，0 永远无效：源与目标两个方向都覆盖
         (ok, data) = _merge(alice, address(firstToken), 0, bobMemberId, 1);
         require(!ok, "zero source must revert");
-        require(_selector(data) == IERC721Errors.ERC721NonexistentToken.selector, "zero source error");
-        require(_argUint(data) == 0, "zero source member id");
+        _expectData(
+            data, abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 0), "zero source error"
+        );
 
         (ok, data) = _merge(alice, address(firstToken), aliceMemberId, 0, 1);
         require(!ok, "zero target must revert");
-        require(_selector(data) == IERC721Errors.ERC721NonexistentToken.selector, "zero target error");
-        require(_argUint(data) == 0, "zero target member id");
+        _expectData(
+            data, abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 0), "zero target error"
+        );
     }
 
     function testMergeLaunchCountRejectsNonOwner() public {
@@ -1079,8 +1194,9 @@ contract LaunchTest {
 
         (bool ok, bytes memory data) = _merge(bob, address(firstToken), aliceMemberId, bobMemberId, 1);
         require(!ok, "non owner must revert");
-        require(_selector(data) == ILaunchErrors.NotMemberOwner.selector, "owner selector");
-        require(_argUint(data) == aliceMemberId, "error member id");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.NotMemberOwner.selector, aliceMemberId), "owner selector"
+        );
         require(launch.launchCount(address(firstToken), aliceMemberId) == 5, "ledger untouched");
     }
 
@@ -1089,7 +1205,11 @@ contract LaunchTest {
 
         (bool ok, bytes memory data) = _merge(alice, address(firstToken), aliceMemberId, bobMemberId, 3);
         require(!ok, "insufficient count must revert");
-        require(_selector(data) == ILaunchErrors.NotEnoughLaunchCount.selector, "count selector");
+        _expectData(
+            data,
+            abi.encodeWithSelector(ILaunchErrors.InsufficientLaunchCount.selector, aliceMemberId, 2, 3),
+            "count selector"
+        );
         require(launch.launchCount(address(firstToken), aliceMemberId) == 2, "source untouched");
         require(launch.launchCount(address(firstToken), bobMemberId) == 0, "target untouched");
     }
@@ -1097,27 +1217,43 @@ contract LaunchTest {
     function testMergeLaunchCountChecksOwnershipThenParametersThenExistenceThenLedger() public {
         // 鉴权优先：不持有源成员时，先于任何参数校验报错
         (bool ok, bytes memory data) = _merge(bob, EOA, aliceMemberId, bobMemberId, 0);
-        require(!ok && _selector(data) == ILaunchErrors.NotMemberOwner.selector, "ownership before parameters");
+        require(!ok, "ownership before parameters");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.NotMemberOwner.selector, aliceMemberId), "ownership before parameters"
+        );
 
         // 零值 memberId 与不存在成员同走 ownerOf，鉴权先命中
         (ok, data) = _merge(bob, EOA, 0, 0, 1);
-        require(!ok && _selector(data) == IERC721Errors.ERC721NonexistentToken.selector, "zero member");
+        require(!ok, "zero member");
+        _expectData(data, abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 0), "zero member");
 
         // 参数优先：同成员 + count 为零
         (ok, data) = _merge(alice, address(firstToken), aliceMemberId, aliceMemberId, 0);
-        require(!ok && _selector(data) == ILaunchErrors.SourceAndTargetMemberIdsMustBeDifferent.selector, "same before count");
+        require(!ok, "same before count");
+        _expectData(
+            data,
+            abi.encodeWithSelector(
+                ILaunchErrors.SourceAndTargetMemberIdsMustBeDifferent.selector, aliceMemberId, aliceMemberId
+            ),
+            "same before count"
+        );
 
         // 参数优先于存在性：count 为零 + 未登记 token
         (ok, data) = _merge(alice, EOA, aliceMemberId, bobMemberId, 0);
-        require(!ok && _selector(data) == ILaunchErrors.CountMustBeGreaterThanZero.selector, "count before token");
+        require(!ok, "count before token");
+        _expectData(data, abi.encodeWithSelector(ILaunchErrors.ZeroCount.selector), "count before token");
 
         // 鉴权依赖的成员不存在：先于 token 登记校验报错
         (ok, data) = _merge(bob, EOA, 999, bobMemberId, 1);
-        require(!ok && _selector(data) == IERC721Errors.ERC721NonexistentToken.selector, "member before token");
+        require(!ok, "member before token");
+        _expectData(data, abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 999), "member before token");
 
         // 持有优先于账本：不持有源 + 源次数不足
         (ok, data) = _merge(bob, address(firstToken), aliceMemberId, bobMemberId, 1);
-        require(!ok && _selector(data) == ILaunchErrors.NotMemberOwner.selector, "ownership before ledger");
+        require(!ok, "ownership before ledger");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.NotMemberOwner.selector, aliceMemberId), "ownership before ledger"
+        );
     }
 
     // ============ addLaunchCount ============
@@ -1172,13 +1308,17 @@ contract LaunchTest {
             address(launch), abi.encodeWithSelector(ILaunch.addLaunchCount.selector, address(firstToken), aliceMemberId, 1)
         );
         require(!ok, "non mint caller must revert");
-        require(_selector(data) == ILaunchErrors.UnauthorizedCaller.selector, "caller selector");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.NotMintContract.selector, address(alice)), "caller selector"
+        );
 
         (ok, data) = carol.forward(
             address(launch), abi.encodeWithSelector(ILaunch.addLaunchCount.selector, address(firstToken), aliceMemberId, 1)
         );
         require(!ok, "another caller must revert");
-        require(_selector(data) == ILaunchErrors.UnauthorizedCaller.selector, "caller selector");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.NotMintContract.selector, address(carol)), "caller selector"
+        );
 
         require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "ledger untouched");
         require(launch.issuedLaunchCount(address(firstToken)) == 0, "issued untouched");
@@ -1189,20 +1329,26 @@ contract LaunchTest {
             address(launch), abi.encodeWithSelector(ILaunch.addLaunchCount.selector, address(firstToken), aliceMemberId, 0)
         );
         require(!ok, "zero count must revert");
-        require(_selector(data) == ILaunchErrors.CountMustBeGreaterThanZero.selector, "zero count selector");
+        _expectData(data, abi.encodeWithSelector(ILaunchErrors.ZeroCount.selector), "zero count selector");
 
         FakeToken fake = new FakeToken(ROOT, "FAKE");
         (ok, data) = mintAccount.forward(
             address(launch), abi.encodeWithSelector(ILaunch.addLaunchCount.selector, address(fake), aliceMemberId, 1)
         );
         require(!ok, "unregistered token must revert");
-        require(_selector(data) == ILaunchErrors.InvalidTokenAddress.selector, "token selector");
+        _expectData(
+            data,
+            abi.encodeWithSelector(ILaunchErrors.TokenNotRegistered.selector, address(fake)),
+            "token selector"
+        );
 
         (ok, data) = mintAccount.forward(
             address(launch), abi.encodeWithSelector(ILaunch.addLaunchCount.selector, EOA, aliceMemberId, 1)
         );
         require(!ok, "eoa token must revert");
-        require(_selector(data) == ILaunchErrors.InvalidTokenAddress.selector, "eoa token selector");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.TokenNotRegistered.selector, EOA), "eoa token selector"
+        );
     }
 
     function testAddLaunchCountEnforcesCommunityCap() public {
@@ -1218,14 +1364,24 @@ contract LaunchTest {
             address(launch), abi.encodeWithSelector(ILaunch.addLaunchCount.selector, address(firstToken), aliceMemberId, 1)
         );
         require(!ok, "cap reached must revert");
-        require(_selector(data) == ILaunchErrors.LaunchCountLimitReached.selector, "cap selector");
+        _expectData(
+            data,
+            abi.encodeWithSelector(ILaunchErrors.LaunchCountLimitExceeded.selector, address(firstToken), 1, 0),
+            "cap payload"
+        );
 
         (ok, data) = mintAccount.forward(
             address(launch),
             abi.encodeWithSelector(ILaunch.addLaunchCount.selector, address(firstToken), aliceMemberId, type(uint256).max)
         );
         require(!ok, "extreme count must revert");
-        require(_selector(data) == ILaunchErrors.LaunchCountLimitReached.selector, "extreme count selector");
+        _expectData(
+            data,
+            abi.encodeWithSelector(
+                ILaunchErrors.LaunchCountLimitExceeded.selector, address(firstToken), type(uint256).max, 0
+            ),
+            "extreme count payload"
+        );
 
         require(launch.issuedLaunchCount(address(firstToken)) == MAX_LAUNCH_COUNT, "issued unchanged");
 
@@ -1239,7 +1395,11 @@ contract LaunchTest {
             address(launch), abi.encodeWithSelector(ILaunch.addLaunchCount.selector, address(firstToken), carolMemberId, 1)
         );
         require(!ok, "consumption does not free the cap");
-        require(_selector(data) == ILaunchErrors.LaunchCountLimitReached.selector, "cap selector after use");
+        _expectData(
+            data,
+            abi.encodeWithSelector(ILaunchErrors.LaunchCountLimitExceeded.selector, address(firstToken), 1, 0),
+            "cap payload after use"
+        );
     }
 
     function testAddLaunchCountChecksPermissionThenParametersThenExistence() public {
@@ -1247,20 +1407,25 @@ contract LaunchTest {
         (bool ok, bytes memory data) = alice.forward(
             address(launch), abi.encodeWithSelector(ILaunch.addLaunchCount.selector, address(firstToken), aliceMemberId, 0)
         );
-        require(!ok && _selector(data) == ILaunchErrors.UnauthorizedCaller.selector, "permission before count");
+        require(!ok, "permission before count");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.NotMintContract.selector, address(alice)), "permission before count"
+        );
 
         // 参数优先于存在性：count 为零 + 未登记 token
         (ok, data) = mintAccount.forward(
             address(launch), abi.encodeWithSelector(ILaunch.addLaunchCount.selector, EOA, aliceMemberId, 0)
         );
-        require(!ok && _selector(data) == ILaunchErrors.CountMustBeGreaterThanZero.selector, "count before token");
+        require(!ok, "count before token");
+        _expectData(data, abi.encodeWithSelector(ILaunchErrors.ZeroCount.selector), "count before token");
 
         // 存在性优先于上限：未登记 token + 超过上限的次数
         (ok, data) = mintAccount.forward(
             address(launch),
             abi.encodeWithSelector(ILaunch.addLaunchCount.selector, EOA, aliceMemberId, type(uint256).max)
         );
-        require(!ok && _selector(data) == ILaunchErrors.InvalidTokenAddress.selector, "token before cap");
+        require(!ok, "token before cap");
+        _expectData(data, abi.encodeWithSelector(ILaunchErrors.TokenNotRegistered.selector, EOA), "token before cap");
     }
 
     function testWriteEntriesDoNotValidateInitialized() public {
@@ -1286,7 +1451,9 @@ contract LaunchTest {
             abi.encodeWithSelector(ILaunch.addLaunchCount.selector, address(firstToken), aliceMemberId, 1)
         );
         require(!ok, "uninitialized add must revert");
-        require(_selector(data) == ILaunchErrors.UnauthorizedCaller.selector, "caller check first");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.NotMintContract.selector, address(mintAccount)), "caller check first"
+        );
     }
 
     // ============ 根级次数与根级发射 ============
@@ -1311,7 +1478,9 @@ contract LaunchTest {
             address(launch), abi.encodeWithSelector(ILaunch.addLaunchCount.selector, ROOT, aliceMemberId, 1)
         );
         require(!ok, "root parent must not accept direct writes");
-        require(_selector(data) == ILaunchErrors.InvalidTokenAddress.selector, "token selector");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.TokenNotRegistered.selector, ROOT), "token selector"
+        );
         require(launch.launchCount(ROOT, aliceMemberId) == 0, "root ledger untouched");
     }
 
@@ -1384,7 +1553,11 @@ contract LaunchTest {
         // 两边都用尽后根级发射回滚
         (bool ok, bytes memory data) = _launchAt(booted, carol, "CCC", address(rootToken), memberId);
         require(!ok, "no root count must revert");
-        require(_selector(data) == ILaunchErrors.NotEnoughLaunchCount.selector, "count selector");
+        _expectData(
+            data,
+            abi.encodeWithSelector(ILaunchErrors.InsufficientLaunchCount.selector, memberId, 0, 1),
+            "count selector"
+        );
     }
 
     function testRootLevelLaunchPrefixUsesFirstTokenSymbol() public {
@@ -1679,9 +1852,9 @@ contract LaunchTest {
         return _revertOf(address(new Launch()), abi.encodeWithSelector(ILaunch.init.selector, params), note);
     }
 
-    function _requireInitRevert(LaunchInitParams memory params, bytes4 expected, string memory note) private {
+    function _requireInitRevert(LaunchInitParams memory params, bytes memory expected, string memory note) private {
         bytes memory data = _initRevertData(params, note);
-        require(_selector(data) == expected, note);
+        _expectData(data, expected, note);
     }
 
     function _revertOf(address target, bytes memory callData, string memory note) private returns (bytes memory) {
@@ -1690,26 +1863,15 @@ contract LaunchTest {
         return data;
     }
 
-    function _selector(bytes memory data) private pure returns (bytes4 selector) {
-        if (data.length < 4) return bytes4(0);
-        assembly {
-            selector := mload(add(data, 32))
-        }
+    function _expectData(bytes memory data, bytes memory expected, string memory note) private pure {
+        require(keccak256(data) == keccak256(expected), note);
     }
 
-    function _argUint(bytes memory data) private pure returns (uint256 value) {
-        require(data.length >= 36, "short revert data");
-        assembly {
-            value := mload(add(data, 36))
+    function _invalidSymbolError(string memory symbol, uint256 expected) private pure returns (bytes memory) {
+        uint256 length = bytes(symbol).length;
+        if (length != expected) {
+            return abi.encodeWithSelector(ILaunchErrors.InvalidTokenSymbolLength.selector, length, expected);
         }
-    }
-
-    function _argString(bytes memory data) private pure returns (string memory) {
-        require(data.length > 4, "short revert data");
-        bytes memory tail = new bytes(data.length - 4);
-        for (uint256 i; i < tail.length; ++i) {
-            tail[i] = data[i + 4];
-        }
-        return abi.decode(tail, (string));
+        return abi.encodeWithSelector(ILaunchErrors.InvalidTokenSymbolCharacters.selector);
     }
 }

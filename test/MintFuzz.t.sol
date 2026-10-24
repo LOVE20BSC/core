@@ -44,7 +44,7 @@ contract MintFuzzTest {
             propRatio,
             2
         );
-        token = new LOVE20Token("Fuzz", "FUZ", supply, maxSup, address(this), address(mint), address(1));
+        token = new LOVE20Token("Fuzz", "FUZ", supply, maxSup, address(this), address(mint), address(this));
     }
 
     function phaseAddress() external view returns (address) {
@@ -183,7 +183,7 @@ contract MintFuzzTest {
         (uint256 expectedVote, uint256 expectedBoost, uint256 expectedBurn,) =
             mint.govRewardByMemberId(address(token), 1, 1);
 
-        // Skip if vote reward is zero (would cause NoRewardAvailable)
+        // Skip if vote reward is zero (would cause MemberRewardUnavailable)
         if (expectedVote == 0 && expectedBoost == 0) return;
 
         mint.mintGovReward(address(token), 1, 1, address(this));
