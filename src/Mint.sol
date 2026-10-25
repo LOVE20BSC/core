@@ -159,29 +159,11 @@ contract Mint is IMint {
 
         if (totalBoost == 0) {
             uint256 boostPoolAmount = govRewardAmount - (govRewardAmount / 2);
-            _rewardBurned[tokenAddress] += boostPoolAmount;
-            if (boostPoolAmount > 0) {
-                // slither-disable-next-line reentrancy-events
-                emit RewardBurned(
-                    tokenAddress,
-                    round,
-                    boostPoolAmount,
-                    BurnReason.BoostPoolCancelled
-                );
-            }
+            _burnCancelledPool(tokenAddress, round, boostPoolAmount, BurnReason.BoostPoolCancelled);
         }
 
         if (eligibleVotes == 0) {
-            _rewardBurned[tokenAddress] += proposalRewardAmount;
-            if (proposalRewardAmount > 0) {
-                // slither-disable-next-line reentrancy-events
-                emit RewardBurned(
-                    tokenAddress,
-                    round,
-                    proposalRewardAmount,
-                    BurnReason.ProposalPoolCancelled
-                );
-            }
+            _burnCancelledPool(tokenAddress, round, proposalRewardAmount, BurnReason.ProposalPoolCancelled);
         }
 
         uint256 finalRewardReserved = _rewardReserved[tokenAddress];
@@ -197,6 +179,13 @@ contract Mint is IMint {
             finalRewardReserved,
             finalRewardBurned
         );
+    }
+
+    function _burnCancelledPool(address tokenAddress, uint256 round, uint256 amount, BurnReason reason) private {
+        if (amount == 0) return;
+        _rewardBurned[tokenAddress] += amount;
+        // slither-disable-next-line reentrancy-events
+        emit RewardBurned(tokenAddress, round, amount, reason);
     }
 
     // Target mode governs Vote callbacks, not Mint authorization.
