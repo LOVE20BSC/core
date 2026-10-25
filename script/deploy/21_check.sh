@@ -159,6 +159,12 @@ verify_value "maxSupply" "$MAX_SUPPLY" "$ACTUAL_MAX_SUPPLY" || ((FAILED+=1))
 ACTUAL_MINTER=$(cast call "$LOVE20_TOKEN_ADDRESS" "minter()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "minter" "$MINT_ADDRESS" "$ACTUAL_MINTER" || ((FAILED+=1))
 
+ACTUAL_TOTAL_SUPPLY=$(cast call "$LOVE20_TOKEN_ADDRESS" "totalSupply()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "totalSupply" "$INITIAL_SUPPLY" "$ACTUAL_TOTAL_SUPPLY" || ((FAILED+=1))
+
+ACTUAL_DISTRIBUTOR_BALANCE=$(cast call "$LOVE20_TOKEN_ADDRESS" "balanceOf(address)(uint256)" "$DISTRIBUTOR_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "distributor balance" "$INITIAL_SUPPLY" "$ACTUAL_DISTRIBUTOR_BALANCE" || ((FAILED+=1))
+
 ACTUAL_PARENT=$(cast call "$LOVE20_TOKEN_ADDRESS" "parentTokenAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "parentTokenAddress" "$ROUTER_WETH" "$ACTUAL_PARENT" || ((FAILED+=1))
 
@@ -349,6 +355,29 @@ echo -e "${CYAN}─────────────────────�
 echo -e "${BLUE}Boundary Value Checks${NC}"
 echo -e "${CYAN}─────────────────────────────────────────${NC}"
 
+# 比较两个非负十进制整数字符串：输出 -1 / 0 / 1。bash 内建算术只有 64 位，
+# 供应量到 1e28，不能先转整数再比；同长度数字串的字典序与数值序一致。
+decimal_cmp() {
+    local a b
+    a=$(normalize_output "$1" | sed -E 's/^0+//')
+    b=$(normalize_output "$2" | sed -E 's/^0+//')
+    a=${a:-0}
+    b=${b:-0}
+    if [[ ! "$a" =~ ^[0-9]+$ || ! "$b" =~ ^[0-9]+$ ]]; then
+        echo 2
+        return 0
+    fi
+    if [ "${#a}" -ne "${#b}" ]; then
+        [ "${#a}" -lt "${#b}" ] && echo -1 || echo 1
+    elif [[ "$a" < "$b" ]]; then
+        echo -1
+    elif [[ "$a" > "$b" ]]; then
+        echo 1
+    else
+        echo 0
+    fi
+}
+
 # 验证边界值的辅助函数
 verify_boundary() {
     local field_name=$1
@@ -362,9 +391,7 @@ verify_boundary() {
         return 1
     fi
 
-    # 上限最大为 1e18，在 bash 内建整数范围内；超出 64 位的配置值视为超限，用 2>/dev/null 压掉
-    # "integer expression expected" 噪音，判定仍走 else 分支。
-    if [ "$actual" -le "$max_value" ] 2>/dev/null; then
+    if [ "$(decimal_cmp "$actual" "$max_value")" -le 0 ]; then
         echo -e "  ${GREEN}✓${NC} ${field_name} <= $max_value (actual: $actual)"
         return 0
     else
@@ -373,15 +400,104 @@ verify_boundary() {
     fi
 }
 
+verify_positive() {
+    local field_name=$1
+    local actual
+    actual=$(normalize_output "$2")
+
+    if [[ ! "$actual" =~ ^[0-9]+$ ]] || [ "$(decimal_cmp "$actual" 0)" -eq 0 ]; then
+        echo -e "  ${RED}✗${NC} ${field_name} must be positive (actual: $actual)"
+        return 1
+    fi
+    echo -e "  ${GREEN}✓${NC} ${field_name} is positive (actual: $actual)"
+    return 0
+}
+
 # 1. 验证 PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18
 echo -e "${GRAY}Checking PROPOSAL_REWARD_MIN_VOTE_RATIO...${NC}"
 verify_boundary "PROPOSAL_REWARD_MIN_VOTE_RATIO" "$ACTUAL_MIN_PROPOSAL" "1000000000000000000" || ((FAILED+=1))
 
-# 2. 验证 LAUNCH_RATIO <= 1e18
+# 2. 验证 LAUNCH_RATIO <= 1e18 且非零
 echo -e "${GRAY}Checking LAUNCH_RATIO...${NC}"
 verify_boundary "LAUNCH_RATIO" "$ACTUAL_LAUNCH_RATIO" "1000000000000000000" || ((FAILED+=1))
+verify_positive "LAUNCH_RATIO" "$ACTUAL_LAUNCH_RATIO" || ((FAILED+=1))
 
-# 3. 验证 Router 和 Factory 的地址一致性
+# 3. 验证全部部署期静态参数非零/范围
+echo -e "${GRAY}Checking deployment-static bounds...${NC}"
+for pair in \
+    "MEMBER_BASE_DIVISOR:$ACTUAL_BASE_DIVISOR" \
+    "MEMBER_BYTES_THRESHOLD:$ACTUAL_BYTES_THRESHOLD" \
+    "MEMBER_MULTIPLIER:$ACTUAL_MULTIPLIER" \
+    "MEMBER_MAX_NAME_LENGTH:$ACTUAL_MAX_NAME_LENGTH" \
+    "PHASE_ORIGIN_BLOCKS:$ACTUAL_ORIGIN_BLOCKS" \
+    "PHASE_ORIGIN_PHASE_BLOCKS:$ACTUAL_ORIGIN_PHASE_BLOCKS" \
+    "PHASE_TARGET_SECONDS:$ACTUAL_TARGET_SECONDS" \
+    "PHASE_ADJUST_THRESHOLD:$ACTUAL_ADJUST_THRESHOLD" \
+    "PHASE_SYNC_OBSERVATION_LIMIT:$ACTUAL_OBSERVATION_LIMIT" \
+    "MAX_LAUNCH_COUNT:$ACTUAL_MAX_LAUNCH_COUNT" \
+    "TOKEN_SYMBOL_LENGTH:$ACTUAL_SYMBOL_LENGTH" \
+    "LAUNCH_AMOUNT:$ACTUAL_LAUNCH_AMOUNT" \
+    "SUBMIT_MIN_RATIO:$ACTUAL_MIN_RATIO" \
+    "PROMISED_WAITING_PHASES_MIN:$ACTUAL_WAITING_MIN" \
+    "MAX_GOV_BOOST_REWARD_MULTIPLIER:$ACTUAL_MAX_BOOST" \
+    "FEE_SETTLEMENT_RATIO:$ACTUAL_FEE_RATIO"; do
+    verify_positive "${pair%%:*}" "${pair#*:}" || ((FAILED+=1))
+done
+
+verify_boundary "PHASE_ADJUST_THRESHOLD" "$ACTUAL_ADJUST_THRESHOLD" "1000000000000000000" || ((FAILED+=1))
+verify_boundary "MAX_GOV_BOOST_REWARD_MULTIPLIER" "$ACTUAL_MAX_BOOST" "1000" || ((FAILED+=1))
+verify_boundary "SUBMIT_MIN_RATIO" "$ACTUAL_MIN_RATIO" "1000000000000000000" || ((FAILED+=1))
+verify_boundary "FEE_SETTLEMENT_RATIO" "$ACTUAL_FEE_RATIO" "3000000000000000" || ((FAILED+=1))
+
+# 两个非负十进制整数字符串相加；逐位处理避免 64 位溢出。
+decimal_add() {
+    local a b i digit carry=0 out=""
+    a=$(normalize_output "$1" | sed -E 's/^0+//')
+    b=$(normalize_output "$2" | sed -E 's/^0+//')
+    a=${a:-0}
+    b=${b:-0}
+    if [[ ! "$a" =~ ^[0-9]+$ || ! "$b" =~ ^[0-9]+$ ]]; then
+        echo "ERROR"
+        return 0
+    fi
+    while [ "${#a}" -lt "${#b}" ]; do a="0$a"; done
+    while [ "${#b}" -lt "${#a}" ]; do b="0$b"; done
+    for ((i = ${#a} - 1; i >= 0; i--)); do
+        digit=$(( ${a:i:1} + ${b:i:1} + carry ))
+        carry=$(( digit / 10 ))
+        out="$(( digit % 10 ))${out}"
+    done
+    [ "$carry" -ne 0 ] && out="${carry}${out}"
+    echo "$out"
+}
+
+if [ "$(decimal_cmp "$ACTUAL_LAUNCH_AMOUNT" "$ACTUAL_LAUNCH_MAX_SUPPLY")" -gt 0 ]; then
+    echo -e "  ${RED}✗${NC} LAUNCH_AMOUNT > MAX_SUPPLY"
+    ((FAILED+=1))
+else
+    echo -e "  ${GREEN}✓${NC} LAUNCH_AMOUNT <= MAX_SUPPLY"
+fi
+round_reward_sum=$(decimal_add "$ACTUAL_GOV_REWARD" "$ACTUAL_PROPOSAL_REWARD")
+if [ "$(decimal_cmp "$round_reward_sum" 1000000000000000000)" -gt 0 ]; then
+    echo -e "  ${RED}✗${NC} ROUND_REWARD_GOV_RATIO + ROUND_REWARD_PROPOSAL_RATIO > 1e18"
+    ((FAILED+=1))
+else
+    echo -e "  ${GREEN}✓${NC} round reward ratios <= 1e18"
+fi
+if [ "$(decimal_cmp "$ACTUAL_WAITING_MIN" "$ACTUAL_WAITING_MAX")" -gt 0 ]; then
+    echo -e "  ${RED}✗${NC} PROMISED_WAITING_PHASES_MIN > MAX"
+    ((FAILED+=1))
+else
+    echo -e "  ${GREEN}✓${NC} PROMISED_WAITING_PHASES range is valid"
+fi
+if [ -z "${TOKEN_NAME:-}" ] || [ -z "${TOKEN_SYMBOL:-}" ] || [ "$DISTRIBUTOR_ADDRESS" = "0x0000000000000000000000000000000000000000" ]; then
+    echo -e "  ${RED}✗${NC} TOKEN_NAME / TOKEN_SYMBOL / DISTRIBUTOR_ADDRESS is empty"
+    ((FAILED+=1))
+else
+    echo -e "  ${GREEN}✓${NC} token name, symbol and distributor are set"
+fi
+
+# 4. 验证 Router 和 Factory 的地址一致性
 echo -e "${GRAY}Checking Router-Factory consistency...${NC}"
 ROUTER_FACTORY=$(cast call "$ACTUAL_ROUTER" "factory()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 if [ "$ROUTER_FACTORY" = "ERROR" ]; then
@@ -396,7 +512,7 @@ else
     ((FAILED+=1))
 fi
 
-# 4. 验证根父币（Router.WETH() 读出的 WETH）本身是已部署合约
+# 5. 验证根父币（Router.WETH() 读出的 WETH）本身是已部署合约
 echo -e "${GRAY}Checking Router WETH...${NC}"
 verify_deployed "WETH" "$ROUTER_WETH" || ((FAILED+=1))
 verify_deployed "Factory" "$FACTORY_ADDRESS" || ((FAILED+=1))

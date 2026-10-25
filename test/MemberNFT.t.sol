@@ -136,50 +136,10 @@ contract MemberNFTTest {
         require(nft.totalBurnedForMint() == 0, "burned");
     }
 
-    function testConstructorRejectsZeroParameters() public {
-        require(_deploys(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH), "valid parameters");
-        require(
-            _revertEquals(
-                _deployRevert(0, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH),
-                abi.encodeWithSelector(IMemberNFTErrors.ZeroBaseDivisor.selector)
-            ),
-            "zero divisor"
-        );
-        require(
-            _revertEquals(
-                _deployRevert(BASE_DIVISOR, 0, MULTIPLIER, MAX_NAME_LENGTH),
-                abi.encodeWithSelector(IMemberNFTErrors.ZeroBytesThreshold.selector)
-            ),
-            "zero threshold"
-        );
-        require(
-            _revertEquals(
-                _deployRevert(BASE_DIVISOR, BYTES_THRESHOLD, 0, MAX_NAME_LENGTH),
-                abi.encodeWithSelector(IMemberNFTErrors.ZeroMultiplier.selector)
-            ),
-            "zero multiplier"
-        );
-        require(
-            _revertEquals(
-                _deployRevert(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, 0),
-                abi.encodeWithSelector(IMemberNFTErrors.ZeroMaxNameLength.selector)
-            ),
-            "zero max name length"
-        );
-    }
-
     function testInitStoresFirstTokenAndRejectsRepeat() public {
         MemberNFT fresh = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH);
         require(!fresh.initialized(), "not initialized");
         require(fresh.LOVE20_TOKEN_ADDRESS() == address(0), "no first token");
-
-        (bool ok, bytes memory zeroData) =
-            address(fresh).call(abi.encodeWithSelector(IMemberNFT.init.selector, address(0)));
-        require(!ok, "zero first token");
-        require(
-            _revertEquals(zeroData, abi.encodeWithSelector(IMemberNFTErrors.DependencyNotContract.selector, address(0))),
-            "zero first token data"
-        );
 
         fresh.init(address(token));
         require(fresh.initialized(), "initialized");

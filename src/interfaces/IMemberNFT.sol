@@ -21,11 +21,6 @@ interface IMemberNFTEvents {
 interface IMemberNFTErrors {
     error NameAlreadyExists(uint256 existingId);
     error AlreadyInitialized();
-    error ZeroBaseDivisor();
-    error ZeroBytesThreshold();
-    error ZeroMultiplier();
-    error ZeroMaxNameLength();
-    error DependencyNotContract(address dependency);
     error NameEmpty();
     error NameTooLong(uint256 length, uint256 maxLength);
     error NameInvalidCharacters();

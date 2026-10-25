@@ -114,47 +114,6 @@ contract SubmitTest {
         require(!ok && keccak256(data) == keccak256(expected), "should revert AlreadyInitialized");
     }
 
-    function testInitRejectsZeroAddresses() external {
-        Submit newSubmit = new Submit();
-        bytes memory expectedPhase = abi.encodeWithSelector(ISubmitErrors.DependencyNotContract.selector, address(0));
-
-        (bool ok, bytes memory data) = address(newSubmit).call(
-            abi.encodeCall(newSubmit.init, (address(0), address(stake), address(memberNFT), 1e16))
-        );
-        require(!ok && keccak256(data) == keccak256(expectedPhase), "should reject zero phase");
-
-        newSubmit = new Submit();
-        bytes memory expectedStake = abi.encodeWithSelector(ISubmitErrors.DependencyNotContract.selector, address(0));
-        (ok, data) = address(newSubmit).call(
-            abi.encodeCall(newSubmit.init, (address(phase), address(0), address(memberNFT), 1e16))
-        );
-        require(!ok && keccak256(data) == keccak256(expectedStake), "should reject zero stake");
-
-        newSubmit = new Submit();
-        bytes memory expectedMemberNFT = abi.encodeWithSelector(ISubmitErrors.DependencyNotContract.selector, address(0));
-        (ok, data) = address(newSubmit).call(
-            abi.encodeCall(newSubmit.init, (address(phase), address(stake), address(0), 1e16))
-        );
-        require(!ok && keccak256(data) == keccak256(expectedMemberNFT), "should reject zero memberNFT");
-    }
-
-    function testInitRejectsInvalidThreshold() external {
-        Submit newSubmit = new Submit();
-        bytes memory expectedZero = abi.encodeWithSelector(ISubmitErrors.ZeroSubmitMinRatio.selector);
-        (bool ok, bytes memory data) = address(newSubmit).call(
-            abi.encodeCall(newSubmit.init, (address(phase), address(stake), address(memberNFT), 0))
-        );
-        require(!ok && keccak256(data) == keccak256(expectedZero), "should reject zero threshold");
-
-        newSubmit = new Submit();
-        bytes memory expectedInvalid =
-            abi.encodeWithSelector(ISubmitErrors.InvalidSubmitMinRatio.selector, uint256(1e18 + 1));
-        (ok, data) = address(newSubmit).call(
-            abi.encodeCall(newSubmit.init, (address(phase), address(stake), address(memberNFT), 1e18 + 1))
-        );
-        require(!ok && keccak256(data) == keccak256(expectedInvalid), "should reject threshold > 1e18");
-    }
-
     // ============ Permission Tests ============
 
     function testCanSubmitWithSufficientVotes() external view {

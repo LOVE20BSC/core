@@ -72,7 +72,7 @@ if ! PHASE_ARGS=$(cast abi-encode "constructor(uint256,uint256,uint256,uint256,u
 fi
 if ! TOKEN_ARGS=$(cast abi-encode "constructor(string,string,uint256,uint256,address,address,address)" \
     "$TOKEN_NAME" "$TOKEN_SYMBOL" "$INITIAL_SUPPLY" "$MAX_SUPPLY" \
-    "$DISTRIBUTOR" "$MINT_ADDRESS" "$ROOT_PARENT"); then
+    "$DISTRIBUTOR_ADDRESS" "$MINT_ADDRESS" "$ROOT_PARENT"); then
     echo "Error: Failed to encode LOVE20Token constructor arguments"
     exit 1
 fi

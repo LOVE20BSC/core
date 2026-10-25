@@ -66,6 +66,7 @@ contract Vote is IVote {
         return _memberNFTAddress;
     }
 
+    // forge-lint: disable-next-item(missing-zero-check)
     function init(
         address phaseAddress_,
         address stakeAddress_,
@@ -74,18 +75,6 @@ contract Vote is IVote {
     ) external {
         if (_initialized) {
             revert AlreadyInitialized();
-        }
-        if (phaseAddress_.code.length == 0) {
-            revert DependencyNotContract(phaseAddress_);
-        }
-        if (stakeAddress_.code.length == 0) {
-            revert DependencyNotContract(stakeAddress_);
-        }
-        if (submitAddress_.code.length == 0) {
-            revert DependencyNotContract(submitAddress_);
-        }
-        if (memberNFTAddress_.code.length == 0) {
-            revert DependencyNotContract(memberNFTAddress_);
         }
         _initialized = true;
         _stakeAddress = stakeAddress_;

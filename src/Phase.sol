@@ -31,12 +31,6 @@ contract Phase is IPhase {
     mapping(uint256 => Segment) private _segmentByStartBlock;
 
     constructor(uint256 ORIGIN_BLOCKS_, uint256 ORIGIN_PHASE_BLOCKS_, uint256 TARGET_SECONDS_, uint256 ADJUST_THRESHOLD_, uint256 SYNC_OBSERVATION_LIMIT_) {
-        if (ORIGIN_BLOCKS_ == 0) revert ZeroOriginBlocks();
-        if (ORIGIN_PHASE_BLOCKS_ == 0) revert ZeroOriginPhaseBlocks();
-        if (TARGET_SECONDS_ == 0) revert ZeroTargetSeconds();
-        if (ADJUST_THRESHOLD_ == 0) revert ZeroAdjustThreshold();
-        if (ADJUST_THRESHOLD_ > 1e18) revert InvalidAdjustThreshold(ADJUST_THRESHOLD_);
-        if (SYNC_OBSERVATION_LIMIT_ == 0) revert ZeroSyncObservationLimit();
         ORIGIN_BLOCKS = ORIGIN_BLOCKS_;
         ORIGIN_PHASE_BLOCKS = ORIGIN_PHASE_BLOCKS_;
         TARGET_SECONDS = TARGET_SECONDS_;

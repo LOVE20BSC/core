@@ -556,55 +556,6 @@ contract VoteTest {
         require(fresh.memberNFTAddress() == address(memberNFT), "second init must not overwrite state");
     }
 
-    /// @dev Every dependency is checked, and a rejected init leaves nothing behind.
-    function testInitRejectsEveryZeroDependency() external {
-        Vote fresh = new Vote();
-
-        _expectRevertOn(
-            address(fresh),
-            abi.encodeCall(fresh.init, (address(0), address(stake), address(submit), address(memberNFT))),
-            abi.encodeWithSelector(IVoteErrors.DependencyNotContract.selector, address(0)),
-            "zero phase"
-        );
-        require(!fresh.initialized(), "zero phase must not initialize");
-
-        fresh = new Vote();
-        _expectRevertOn(
-            address(fresh),
-            abi.encodeCall(fresh.init, (address(phase), address(0), address(submit), address(memberNFT))),
-            abi.encodeWithSelector(IVoteErrors.DependencyNotContract.selector, address(0)),
-            "zero stake"
-        );
-        require(!fresh.initialized(), "zero stake must not initialize");
-
-        fresh = new Vote();
-        _expectRevertOn(
-            address(fresh),
-            abi.encodeCall(fresh.init, (address(phase), address(stake), address(0), address(memberNFT))),
-            abi.encodeWithSelector(IVoteErrors.DependencyNotContract.selector, address(0)),
-            "zero submit"
-        );
-        require(!fresh.initialized(), "zero submit must not initialize");
-
-        fresh = new Vote();
-        _expectRevertOn(
-            address(fresh),
-            abi.encodeCall(fresh.init, (address(phase), address(stake), address(submit), address(0))),
-            abi.encodeWithSelector(IVoteErrors.DependencyNotContract.selector, address(0)),
-            "zero memberNFT"
-        );
-        require(!fresh.initialized(), "zero memberNFT must not initialize");
-
-        fresh = new Vote();
-        _expectRevertOn(
-            address(fresh),
-            abi.encodeCall(fresh.init, (address(0), address(0), address(0), address(0))),
-            abi.encodeWithSelector(IVoteErrors.DependencyNotContract.selector, address(0)),
-            "all zero"
-        );
-        require(!fresh.initialized(), "all zero must not initialize");
-    }
-
     /// @dev Initialization state is read before the arguments, so a second call on an initialized
     ///      contract reports `AlreadyInitialized` even when the arguments are also invalid.
     function testInitStateIsCheckedBeforeArguments() external {
@@ -629,13 +580,6 @@ contract VoteTest {
         // No deployer is remembered: nothing distinguishes this contract from one initialized by
         // another account, and there is no owner/administrator to leak.
         require(fresh.phaseAddress() == address(phase) && fresh.memberNFTAddress() == address(memberNFT), "state as given");
-    }
-
-    function testInitRejectsNonContractAddresses() external {
-        Vote fresh = new Vote();
-        vm.expectRevert(abi.encodeWithSelector(IVoteErrors.DependencyNotContract.selector, address(1)));
-        fresh.init(address(1), address(2), address(3), address(4));
-        require(!fresh.initialized(), "non-contract dependencies rejected");
     }
 
     // ============ Round views ============

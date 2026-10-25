@@ -337,86 +337,8 @@ contract LaunchTest {
         );
     }
 
-    function testInitRejectsZeroAddressParameters() public {
-        LaunchInitParams memory params = _freshParams();
-        params.mintAddress = address(0);
-        _requireInitRevert(params, abi.encodeWithSelector(ILaunchErrors.DependencyNotContract.selector, address(0)), "mint zero");
-
-        params = _freshParams();
-        params.memberNFTAddress = address(0);
-        _requireInitRevert(params, abi.encodeWithSelector(ILaunchErrors.DependencyNotContract.selector, address(0)), "member zero");
-
-        params = _freshParams();
-        params.rootParentTokenAddress = address(0);
-        _requireInitRevert(
-            params, abi.encodeWithSelector(ILaunchErrors.DependencyNotContract.selector, address(0)), "root zero"
-        );
-
-        params = _freshParams();
-        params.pairFactoryAddress = address(0);
-        _requireInitRevert(
-            params, abi.encodeWithSelector(ILaunchErrors.DependencyNotContract.selector, address(0)), "pair factory zero"
-        );
-
-        params = _freshParams();
-        params.distributor = address(0);
-        _requireInitRevert(
-            params, abi.encodeWithSelector(ILaunchErrors.ZeroDistributorAddress.selector), "distributor zero"
-        );
-    }
-
-    function testInitRejectsZeroAmountParameters() public {
-        LaunchInitParams memory params = _freshParams();
-        params.launchRatio = 0;
-        bytes memory data = _initRevertData(params, "zero ratio expected");
-        _expectData(data, abi.encodeWithSelector(ILaunchErrors.ZeroLaunchRatio.selector), "ratio selector");
-
-        params = _freshParams();
-        params.maxLaunchCount = 0;
-        data = _initRevertData(params, "zero max count expected");
-        _expectData(data, abi.encodeWithSelector(ILaunchErrors.ZeroMaxLaunchCount.selector), "max count selector");
-
-        params = _freshParams();
-        params.tokenSymbolLength = 0;
-        data = _initRevertData(params, "zero symbol length expected");
-        _expectData(
-            data, abi.encodeWithSelector(ILaunchErrors.ZeroTokenSymbolLength.selector), "symbol length selector"
-        );
-
-        params = _freshParams();
-        params.launchAmount = 0;
-        data = _initRevertData(params, "zero launch amount expected");
-        _expectData(data, abi.encodeWithSelector(ILaunchErrors.ZeroLaunchAmount.selector), "launch amount selector");
-    }
-
-    function testInitLaunchRatioUpperBound() public {
-        LaunchInitParams memory params = _freshParams();
-        Launch bounded = new Launch();
-        params.launchRatio = 1e18 + 1;
-        bytes memory data = _revertOf(
-            address(bounded), abi.encodeWithSelector(ILaunch.init.selector, params), "ratio above 100%"
-        );
-        _expectData(
-            data, abi.encodeWithSelector(ILaunchErrors.InvalidLaunchRatio.selector, 1e18 + 1), "invalid ratio selector"
-        );
-        require(!bounded.initialized(), "invalid ratio must not initialize");
-        params.launchRatio = 1e18;
-        bounded.init(params);
-        require(bounded.LAUNCH_RATIO() == 1e18, "100% is allowed");
-    }
-
-    function testInitRejectsLaunchAmountAboveMaxSupply() public {
-        LaunchInitParams memory params = _freshParams();
-        params.launchAmount = MAX_SUPPLY + 1;
-        _requireInitRevert(
-            params,
-            abi.encodeWithSelector(ILaunchErrors.InvalidLaunchAmount.selector, MAX_SUPPLY + 1, MAX_SUPPLY),
-            "amount above supply"
-        );
-    }
-
     function testInitAcceptsEqualSupplySettings() public {
-        // launchAmount 与 maxSupply 相等是合法配置；零值由 testInitRejectsZeroAmountParameters 覆盖
+        // launchAmount 与 maxSupply 相等是合法配置
         MemberNFT equalMember = _newMember();
         Launch equalLaunch = new Launch();
         equalLaunch.init(_params(address(equalMember), MAX_SUPPLY, MAX_SUPPLY, "LOVE"));

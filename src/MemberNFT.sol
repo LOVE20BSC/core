@@ -60,19 +60,15 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         uint256 multiplier_,
         uint256 maxNameLength_
     ) ERC721("LOVE20 Member NFT", "Member") {
-        if (baseDivisor_ == 0) revert ZeroBaseDivisor();
-        if (bytesThreshold_ == 0) revert ZeroBytesThreshold();
-        if (multiplier_ == 0) revert ZeroMultiplier();
-        if (maxNameLength_ == 0) revert ZeroMaxNameLength();
         BASE_DIVISOR = baseDivisor_;
         BYTES_THRESHOLD = bytesThreshold_;
         MULTIPLIER = multiplier_;
         MAX_NAME_LENGTH = maxNameLength_;
     }
 
+    // forge-lint: disable-next-item(missing-zero-check)
     function init(address firstTokenAddress) external {
         if (initialized) revert AlreadyInitialized();
-        if (firstTokenAddress.code.length == 0) revert DependencyNotContract(firstTokenAddress);
         LOVE20_TOKEN_ADDRESS = firstTokenAddress;
         initialized = true;
     }

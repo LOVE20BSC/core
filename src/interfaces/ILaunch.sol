@@ -24,13 +24,6 @@ struct LaunchInitParams {
 interface ILaunchErrors {
     error AlreadyInitialized();
     error ZeroDistributorAddress();
-    error DependencyNotContract(address dependency);
-    error ZeroLaunchRatio();
-    error InvalidLaunchRatio(uint256 value);
-    error ZeroMaxLaunchCount();
-    error ZeroTokenSymbolLength();
-    error ZeroLaunchAmount();
-    error InvalidLaunchAmount(uint256 launchAmount, uint256 maxSupply);
     error TokenNameEmpty();
     error TokenSymbolEmpty();
     error InvalidTokenSymbolLength(uint256 length, uint256 expected);

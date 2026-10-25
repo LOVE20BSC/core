@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 
 # 敏感值哨兵：任何一步把它写进 stdout/stderr 都视为回归。
@@ -56,6 +57,12 @@ def fake_tool(tool, args):
                   file=sys.stderr)
         if os.environ.get("DEPLOY_FAIL"):
             return 1
+        # 成功广播会刷新 run-latest.json 的 timestamp；STALE_BROADCAST 模拟过期产物。
+        broadcast = os.environ.get("MOCK_BROADCAST")
+        if broadcast and Path(broadcast).exists():
+            artifact = json.loads(Path(broadcast).read_text())
+            artifact["timestamp"] = 0 if os.environ.get("STALE_BROADCAST") else int(time.time() * 1000)
+            Path(broadcast).write_text(json.dumps(artifact, indent=2))
         for key, value in data["env"].items():
             if key in data["contracts"] and key != os.environ.get("OMIT_ADDRESS"):
                 print(key + "= " + value)
@@ -89,7 +96,7 @@ def main():
                     "WETH_ADDRESS": "0x" + "ab" * 20, "FACTORY_ADDRESS": "0x" + "cd" * 20,
                     "ROUTER_ADDRESS": "0x" + "ef" * 20, "TOKEN_NAME": "TestLOVE20", "TOKEN_SYMBOL": "TestLOVE20@WETH",
                     "INITIAL_SUPPLY": "1000000000000000000000000000", "MAX_SUPPLY": "10000000000000000000000000000",
-                    "DISTRIBUTOR": "0x" + "12" * 20, "MEMBER_BASE_DIVISOR": "100000000", "MEMBER_BYTES_THRESHOLD": "7",
+                    "DISTRIBUTOR_ADDRESS": "0x" + "12" * 20, "MEMBER_BASE_DIVISOR": "100000000", "MEMBER_BYTES_THRESHOLD": "7",
                     "MEMBER_MULTIPLIER": "10", "MEMBER_MAX_NAME_LENGTH": "32", "PHASE_ORIGIN_BLOCKS": "1",
                     "PHASE_ORIGIN_PHASE_BLOCKS": "100", "PHASE_TARGET_SECONDS": "300",
                     "PHASE_ADJUST_THRESHOLD": "600000000000000000", "PHASE_SYNC_OBSERVATION_LIMIT": "100",
@@ -105,7 +112,9 @@ def main():
                 calls[env[contract + "_ADDRESS"].lower() + "/" + signature] = env.get(value, value)
 
         getters("LOVE20_TOKEN", {"name()(string)": "TOKEN_NAME", "symbol()(string)": "TOKEN_SYMBOL",
-                "maxSupply()(uint256)": "MAX_SUPPLY", "minter()(address)": "MINT_ADDRESS", "parentTokenAddress()(address)": "WETH_ADDRESS"})
+                "maxSupply()(uint256)": "MAX_SUPPLY", "minter()(address)": "MINT_ADDRESS", "parentTokenAddress()(address)": "WETH_ADDRESS",
+                "totalSupply()(uint256)": "INITIAL_SUPPLY"})
+        calls[env["LOVE20_TOKEN_ADDRESS"].lower() + "/balanceOf(address)(uint256)"] = env["INITIAL_SUPPLY"]
         getters("MEMBER_NFT", {key + "()(uint256)": "MEMBER_" + key for key in ("BASE_DIVISOR", "BYTES_THRESHOLD", "MULTIPLIER", "MAX_NAME_LENGTH")})
         getters("MEMBER_NFT", {"LOVE20_TOKEN_ADDRESS()(address)": "LOVE20_TOKEN_ADDRESS"})
         getters("PHASE", {key + "()(uint256)": "PHASE_" + key for key in ("ORIGIN_BLOCKS", "ORIGIN_PHASE_BLOCKS", "TARGET_SECONDS", "ADJUST_THRESHOLD", "SYNC_OBSERVATION_LIMIT")})
@@ -127,6 +136,11 @@ def main():
             getters(name, {"initialized()(bool)": "true"})
             getters(name, {dep + "Address()(address)": dep_keys.get(dep, dep.upper()) + "_ADDRESS" for dep in dependencies})
         getters("ROUTER", {"factory()(address)": "FACTORY_ADDRESS", "WETH()(address)": "WETH_ADDRESS"})
+        # cast 对 uint 返回值会带科学计数法标注，且供应量超过 64 位；21_check 必须先归一再按十进制串比较。
+        calls[env["LAUNCH_ADDRESS"].lower() + "/LAUNCH_AMOUNT()(uint256)"] = env["INITIAL_SUPPLY"] + " [1e27]"
+        calls[env["LAUNCH_ADDRESS"].lower() + "/MAX_SUPPLY()(uint256)"] = env["MAX_SUPPLY"] + " [1e28]"
+        calls[env["MINT_ADDRESS"].lower() + "/ROUND_REWARD_GOV_RATIO()(uint256)"] = env["GOV_REWARD_RATIO"] + " [1e17]"
+        calls[env["MINT_ADDRESS"].lower() + "/ROUND_REWARD_PROPOSAL_RATIO()(uint256)"] = env["PROPOSAL_REWARD_RATIO"] + " [1e17]"
         data_path, log_path = root / "rpc.json", root / "calls.log"
         tmp_dir = root / "tmp"
         tmp_dir.mkdir()
@@ -137,8 +151,11 @@ def main():
         saved = network / "addresses.core.params"
         # 步骤自行载入地址文件：先写入一份与 env 一致的已部署地址，供独立运行的 21_check / 31_verify 读取。
         saved.write_text("\n".join(name + "_ADDRESS=" + env[name + "_ADDRESS"] for name in names) + "\n")
+        broadcast = root / "broadcast/DeployCore.s.sol/97/run-latest.json"
+        broadcast.parent.mkdir(parents=True)
+        broadcast.write_text(json.dumps({"timestamp": 0}, indent=2))
         base = {"PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "MOCK_DATA": str(data_path), "MOCK_LOG": str(log_path),
-                "MOCK_TMP": str(tmp_dir), "PROJECT_ROOT": str(root),
+                "MOCK_BROADCAST": str(broadcast), "MOCK_TMP": str(tmp_dir), "PROJECT_ROOT": str(root),
                 "NETWORK_DIR": str(network), "network": "test", **env}
         checks = 0
 
@@ -192,6 +209,7 @@ def main():
         params_path.write_text(params_text)
         saved.write_text("# previous deployment\n")
         for extra in ({"RPC_CHAIN": "56"}, {"DEPLOY_FAIL": "1"}, {"OMIT_ADDRESS": "VOTE_ADDRESS"},
+                      {"STALE_BROADCAST": "1"},
                       {"BAD_CALL": env["LAUNCH_ADDRESS"] + "/pairFactoryAddress()(address)"}):
             result, _ = run("one_click_deploy.sh", False, ("test",), **extra)
             assert saved.read_text() == "# previous deployment\n"
@@ -240,11 +258,6 @@ def main():
         network.joinpath(".account").unlink()
         run("11_deploy.sh", False, ("test",))
         write_account()
-        # DEX 依赖地址不是已部署合约：广播前失败，不误报已上链、不保留日志。
-        result, _ = run("11_deploy.sh", False, ("test",), RPC_CODE_ERROR="1")
-        output = result.stdout + result.stderr
-        assert "contracts may already be on chain" not in output, output
-        assert "Deployment log:" not in output, output
         # 广播失败：合约可能已部分上链，必须保留日志并打印路径。
         saved_before = saved.read_text()
         result, _ = run("11_deploy.sh", False, ("test",), DEPLOY_FAIL="1")

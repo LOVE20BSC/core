@@ -19,11 +19,6 @@ struct GlobalStake {
 
 interface IStakeErrors {
     error AlreadyInitialized();
-    error DependencyNotContract(address dependency);
-    error ZeroPromisedWaitingPhasesMin();
-    error ZeroFeeSettlementRatio();
-    error InvalidFeeSettlementRatio(uint256 value);
-    error InvalidPromisedWaitingPhasesRange(uint256 min, uint256 max);
     error NotAllowedToStakeAtRoundZero();
     error ZeroTokenAmount();
     error ZeroParentTokenAmount();

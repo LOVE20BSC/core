@@ -77,25 +77,6 @@ contract Launch is ILaunch {
      */
     function init(LaunchInitParams calldata params) external {
         if (initialized) revert AlreadyInitialized();
-        if (params.mintAddress.code.length == 0) revert DependencyNotContract(params.mintAddress);
-        if (params.memberNFTAddress.code.length == 0) {
-            revert DependencyNotContract(params.memberNFTAddress);
-        }
-        if (params.rootParentTokenAddress.code.length == 0) {
-            revert DependencyNotContract(params.rootParentTokenAddress);
-        }
-        if (params.pairFactoryAddress.code.length == 0) {
-            revert DependencyNotContract(params.pairFactoryAddress);
-        }
-        if (params.distributor == address(0)) revert ZeroDistributorAddress();
-        if (params.launchRatio == 0) revert ZeroLaunchRatio();
-        if (params.launchRatio > 1e18) revert InvalidLaunchRatio(params.launchRatio);
-        if (params.maxLaunchCount == 0) revert ZeroMaxLaunchCount();
-        if (params.tokenSymbolLength == 0) revert ZeroTokenSymbolLength();
-        if (params.launchAmount == 0) revert ZeroLaunchAmount();
-        if (params.launchAmount > params.maxSupply) {
-            revert InvalidLaunchAmount(params.launchAmount, params.maxSupply);
-        }
 
         initialized = true;
         mintAddress = params.mintAddress;

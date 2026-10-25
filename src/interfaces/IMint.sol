@@ -42,10 +42,6 @@ interface IMintEvents {
 
 interface IMintErrors {
     error AlreadyInitialized();
-    error DependencyNotContract(address dependency);
-    error InvalidProposalRewardMinVoteRatio(uint256 value);
-    error InvalidRoundRewardRatios(uint256 govRatio, uint256 proposalRatio);
-    error InvalidMaxGovBoostRewardMultiplier(uint256 value);
     error NotProposalTarget(address caller, address expectedTarget);
     error ZeroRecipientAddress();
     error RoundNotEnded(uint256 round);

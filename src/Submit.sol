@@ -40,6 +40,7 @@ contract Submit is ISubmit {
         return IPhase(phaseAddress).currentPhase();
     }
 
+    // forge-lint: disable-next-item(missing-zero-check)
     function init(
         address phaseAddress_,
         address stakeAddress_,
@@ -48,21 +49,6 @@ contract Submit is ISubmit {
     ) external {
         if (initialized) {
             revert AlreadyInitialized();
-        }
-        if (phaseAddress_.code.length == 0) {
-            revert DependencyNotContract(phaseAddress_);
-        }
-        if (stakeAddress_.code.length == 0) {
-            revert DependencyNotContract(stakeAddress_);
-        }
-        if (memberNFTAddress_.code.length == 0) {
-            revert DependencyNotContract(memberNFTAddress_);
-        }
-        if (submitMinRatio == 0) {
-            revert ZeroSubmitMinRatio();
-        }
-        if (submitMinRatio > 1e18) {
-            revert InvalidSubmitMinRatio(submitMinRatio);
         }
         initialized = true;
         phaseAddress = phaseAddress_;

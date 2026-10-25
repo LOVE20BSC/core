@@ -3,7 +3,6 @@ pragma solidity =0.8.37;
 
 interface IVoteErrors {
     error AlreadyInitialized();
-    error DependencyNotContract(address dependency);
     error NotMemberOwner(uint256 memberId);
     error NoVotingPower(address tokenAddress, uint256 memberId);
     error ProposalIdsEmpty();

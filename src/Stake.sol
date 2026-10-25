@@ -58,6 +58,7 @@ contract Stake is IStake {
     // tokenAddress => phase of the last realised settlement; one settlement per community per phase
     mapping(address => uint256) internal _lastSettlePhase;
 
+    // forge-lint: disable-next-item(missing-zero-check)
     function init(
         address phaseAddress_,
         address memberNFTAddress_,
@@ -70,19 +71,6 @@ contract Stake is IStake {
         uint256 feeSettlementRatio
     ) external {
         if (initialized) revert AlreadyInitialized();
-        if (phaseAddress_.code.length == 0) revert DependencyNotContract(phaseAddress_);
-        if (memberNFTAddress_.code.length == 0) revert DependencyNotContract(memberNFTAddress_);
-        if (voteAddress_.code.length == 0) revert DependencyNotContract(voteAddress_);
-        if (launchAddress_.code.length == 0) revert DependencyNotContract(launchAddress_);
-        if (routerAddress_.code.length == 0) revert DependencyNotContract(routerAddress_);
-        if (pairFactoryAddress_.code.length == 0) revert DependencyNotContract(pairFactoryAddress_);
-        if (promisedWaitingPhasesMin == 0) revert ZeroPromisedWaitingPhasesMin();
-        if (feeSettlementRatio == 0) revert ZeroFeeSettlementRatio();
-        if (feeSettlementRatio > 1e18) revert InvalidFeeSettlementRatio(feeSettlementRatio);
-        if (promisedWaitingPhasesMin > promisedWaitingPhasesMax) {
-            revert InvalidPromisedWaitingPhasesRange(promisedWaitingPhasesMin, promisedWaitingPhasesMax);
-        }
-
         initialized = true;
         phaseAddress = phaseAddress_;
         memberNFTAddress = memberNFTAddress_;

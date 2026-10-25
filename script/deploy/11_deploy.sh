@@ -67,23 +67,6 @@ echo "=== Deploying Core Contracts to $network ==="
 echo "  RPC_URL: $RPC_URL"
 echo "  CHAIN_ID: $CHAIN_ID"
 
-# DEX 依赖地址必须先于广播校验为已部署合约，避免白广播 8 个核心合约。
-# 根父币由 DeployCore 从 Router.WETH() 现场读取，其有效性在模拟阶段校验。
-require_dex_dependencies() {
-    local field
-    for field in FACTORY_ADDRESS ROUTER_ADDRESS; do
-        if [[ ! ${!field:-} =~ ^0x[0-9a-fA-F]{40}$ ]] || [[ ${!field:-} = 0x0000000000000000000000000000000000000000 ]]; then
-            echo "Error: Missing or invalid $field in $NETWORK_DIR/addresses.uniswapv2.params"
-            exit 1
-        fi
-        local code
-        if ! code=$(cast code "${!field}" --rpc-url "$RPC_URL" 2>/dev/null) || [[ ! "$code" =~ ^0x[0-9a-fA-F]+$ ]]; then
-            echo "Error: $field ${!field} is not a deployed contract on chain $CHAIN_ID"
-            exit 1
-        fi
-    done
-}
-
 # 8 个核心合约地址：从部署日志提取后逐项校验，缺项即失败，不写半截地址文件。
 require_core_addresses() {
     local field
@@ -118,11 +101,9 @@ printf '%s' "$KEYSTORE_PASSWORD" > "$PASSWORD_FILE"
 # 构建 forge script 命令：keystore 签名（本地链同样如此，不用 --unlocked）。
 FORGE_CMD=(forge script script/deploy/DeployCore.s.sol:DeployCore --rpc-url "$RPC_URL" --chain-id "$CHAIN_ID" --account "$KEYSTORE_ACCOUNT" --sender "$ACCOUNT_ADDRESS" --password-file "$PASSWORD_FILE" --broadcast --slow -vvv)
 
-# DEX 依赖必须在广播前校验为已部署合约，避免白广播 8 个核心合约。
-require_dex_dependencies
-
 # 执行部署
 cd "$PROJECT_ROOT"
+DEPLOY_START_EPOCH_SECONDS=$(date +%s)
 DEPLOY_ATTEMPTED=1
 if ! { "${FORGE_CMD[@]}" 2>&1 | tee "$DEPLOY_LOG"; }; then
     echo "Error: Deployment failed; saved addresses were not changed."
@@ -143,6 +124,17 @@ SUBMIT_ADDRESS=$(grep "SUBMIT_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 
 VOTE_ADDRESS=$(grep "VOTE_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 | xargs || true)
 
 require_core_addresses
+
+BROADCAST_FILE="$PROJECT_ROOT/broadcast/DeployCore.s.sol/$CHAIN_ID/run-latest.json"
+if [ ! -f "$BROADCAST_FILE" ]; then
+    echo "Error: Missing broadcast artifact: $BROADCAST_FILE"
+    exit 1
+fi
+BROADCAST_TIMESTAMP_MS=$(sed -nE 's/.*"timestamp":[[:space:]]*([0-9]+).*/\1/p' "$BROADCAST_FILE" | tail -1)
+if [ -z "$BROADCAST_TIMESTAMP_MS" ] || [ "$BROADCAST_TIMESTAMP_MS" -lt "$((DEPLOY_START_EPOCH_SECONDS * 1000))" ]; then
+    echo "Error: Broadcast artifact was not updated by this deployment: $BROADCAST_FILE"
+    exit 1
+fi
 
 # 写入地址文件
 cat > "$ADDRESS_TMP" <<EOFADDR

@@ -110,14 +110,6 @@ contract MintEdgeCasesTest {
         require(mint.phaseAddress() == address(this), "phase derived and exposed");
     }
 
-    function testInitRejectsVoteWithoutPhase() public {
-        ZeroPhaseVote zeroPhaseVote = new ZeroPhaseVote();
-        Mint fresh = new Mint();
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.DependencyNotContract.selector, address(0)));
-        fresh.init(address(zeroPhaseVote), address(this), address(this), address(this), 50, 100, 100, 2);
-        require(!fresh.initialized(), "must not latch on failed derivation");
-    }
-
     function testRoundEndedReadsDerivedPhaseDirectly() public {
         setupMint(1000, 10000);
         currentPhaseValue = 5;

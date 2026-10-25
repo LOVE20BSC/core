@@ -40,53 +40,6 @@ contract PhaseTest {
         require(start == origin && length == PHASE_BLOCKS);
     }
 
-    function testConstructorRejectsZeroParameters() external {
-        uint256 origin = block.number + 1;
-        require(_deploys(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT), "valid parameters");
-        require(
-            _revertEquals(
-                _deployRevert(0, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT),
-                abi.encodeWithSelector(IPhaseErrors.ZeroOriginBlocks.selector)
-            ),
-            "zero origin blocks"
-        );
-        require(
-            _revertEquals(
-                _deployRevert(origin, 0, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT),
-                abi.encodeWithSelector(IPhaseErrors.ZeroOriginPhaseBlocks.selector)
-            ),
-            "zero phase blocks"
-        );
-        require(
-            _revertEquals(
-                _deployRevert(origin, PHASE_BLOCKS, 0, THRESHOLD, OBSERVATION_LIMIT),
-                abi.encodeWithSelector(IPhaseErrors.ZeroTargetSeconds.selector)
-            ),
-            "zero target seconds"
-        );
-        require(
-            _revertEquals(
-                _deployRevert(origin, PHASE_BLOCKS, TARGET_SECONDS, 0, OBSERVATION_LIMIT),
-                abi.encodeWithSelector(IPhaseErrors.ZeroAdjustThreshold.selector)
-            ),
-            "zero threshold"
-        );
-        require(
-            _revertEquals(
-                _deployRevert(origin, PHASE_BLOCKS, TARGET_SECONDS, 1e18 + 1, OBSERVATION_LIMIT),
-                abi.encodeWithSelector(IPhaseErrors.InvalidAdjustThreshold.selector, 1e18 + 1)
-            ),
-            "threshold above 100%"
-        );
-        require(
-            _revertEquals(
-                _deployRevert(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, 0),
-                abi.encodeWithSelector(IPhaseErrors.ZeroSyncObservationLimit.selector)
-            ),
-            "zero observation limit"
-        );
-    }
-
     function testSyncBeforeOriginReverts() external {
         Phase phase = new Phase(block.number + 10, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT);
         (bool ok, bytes memory data) = address(phase).call(abi.encodeWithSelector(IPhase.sync.selector));

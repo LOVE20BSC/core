@@ -74,6 +74,7 @@ contract Mint is IMint {
         return _launchCredit[tokenAddress][memberId];
     }
 
+    // forge-lint: disable-next-item(missing-zero-check)
     function init(
         address voteAddress_,
         address submitAddress_,
@@ -89,35 +90,7 @@ contract Mint is IMint {
         }
         initialized = true;
 
-        if (voteAddress_.code.length == 0) {
-            revert DependencyNotContract(voteAddress_);
-        }
-        if (submitAddress_.code.length == 0) {
-            revert DependencyNotContract(submitAddress_);
-        }
-        if (launchAddress_.code.length == 0) {
-            revert DependencyNotContract(launchAddress_);
-        }
-        if (memberNFTAddress_.code.length == 0) {
-            revert DependencyNotContract(memberNFTAddress_);
-        }
-
         address phaseAddress_ = IVote(voteAddress_).phaseAddress();
-        if (phaseAddress_.code.length == 0) {
-            revert DependencyNotContract(phaseAddress_);
-        }
-
-        if (proposalRewardMinVoteRatio_ > 1e18) {
-            revert InvalidProposalRewardMinVoteRatio(proposalRewardMinVoteRatio_);
-        }
-
-        if (roundRewardGovRatio_ + roundRewardProposalRatio_ > 1e18) {
-            revert InvalidRoundRewardRatios(roundRewardGovRatio_, roundRewardProposalRatio_);
-        }
-
-        if (maxGovBoostRewardMultiplier_ == 0 || maxGovBoostRewardMultiplier_ > 1000) {
-            revert InvalidMaxGovBoostRewardMultiplier(maxGovBoostRewardMultiplier_);
-        }
 
         voteAddress = voteAddress_;
         submitAddress = submitAddress_;

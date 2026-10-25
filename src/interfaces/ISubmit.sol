@@ -29,9 +29,6 @@ struct SubmitInfo {
 }
 interface ISubmitErrors {
     error AlreadyInitialized();
-    error DependencyNotContract(address dependency);
-    error ZeroSubmitMinRatio();
-    error InvalidSubmitMinRatio(uint256 value);
     error TitleEmpty();
     error ZeroTargetAddress();
     error CallbackTargetNotContract(address target);

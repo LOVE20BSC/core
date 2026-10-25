@@ -53,7 +53,7 @@ FACTORY_ADDRESS=0x...    # dex 部署的 Uniswap V2 Factory
 ROUTER_ADDRESS=0x...     # dex 部署的 Uniswap V2 Router02
 ```
 
-该文件是 `11_deploy.sh` 的必需配置：缺失直接报错；两个地址为空或不是已部署合约会在广播前失败（`cast code` 校验）。根父币（WETH）不需要配置：`DeployCore` 从 `Router.WETH()` 现场读取，`21_check.sh` 与 `31_verify.sh` 按同一来源取用——WETH 模块的地址文件与 core 无关，不必复制。
+该文件是部署的必需配置：缺失直接报错。`FACTORY_ADDRESS`、`ROUTER_ADDRESS` 有代码、`Router.factory() == FACTORY_ADDRESS` 与 `Router.WETH()` 有代码由 `DeployCore` 在广播前校验，`11_deploy.sh` 不重复 cast 检查。根父币（WETH）不需要配置：`DeployCore` 从 `Router.WETH()` 现场读取，`21_check.sh` 与 `31_verify.sh` 按同一来源取用——WETH 模块的地址文件与 core 无关，不必复制。
 
 ### 4. 配置合约参数
 
@@ -65,7 +65,7 @@ TOKEN_NAME=LOVE20
 TOKEN_SYMBOL=LOVE
 INITIAL_SUPPLY=1000000000000000000000000000  # 10亿（18位小数）
 MAX_SUPPLY=10000000000000000000000000000     # 100亿（18位小数）
-DISTRIBUTOR=0xYourDeployerAddressHere        # 初始代币接收地址
+DISTRIBUTOR_ADDRESS=0xYourDeployerAddressHere  # 初始代币接收地址
 
 # MemberNFT 部署参数
 MEMBER_BASE_DIVISOR=100000000
@@ -102,10 +102,10 @@ PROMISED_WAITING_PHASES_MAX=100
 FEE_SETTLEMENT_RATIO=3000000000000000  # 0.3%；每次处理 floor(withdrawableLp * 该值 / 1e18) 个手续费 LP 最小单位
 ```
 
-`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；取值上下界由对应合约的 `init` 校验（例：`LAUNCH_RATIO` 上限 `1e18`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、`GOV_REWARD_RATIO + PROPOSAL_REWARD_RATIO <= 1e18`、`0 < FEE_SETTLEMENT_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN <= MAX`），部署脚本另在广播前重复校验 `LAUNCH_RATIO` 与 `PROPOSAL_REWARD_MIN_VOTE_RATIO`。
+`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；全部部署期静态参数由 `DeployCore` 在广播前校验，部署后再由 `_validateDeployment` 逐项核对完整绑定图，`21_check.sh` 独立复核（含首币 `totalSupply` 与 `DISTRIBUTOR_ADDRESS` 余额）：MemberNFT 四项非零、Phase 五项非零且 `ADJUST_THRESHOLD <= 1e18`、`0 < LAUNCH_RATIO <= 1e18`、`MAX_LAUNCH_COUNT/TOKEN_SYMBOL_LENGTH/LAUNCH_AMOUNT` 非零且 `LAUNCH_AMOUNT <= MAX_SUPPLY`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、两项激励比例之和 `<= 1e18`、`0 < MAX_BOOST_MULTIPLIER <= 1000`、`0 < SUBMIT_MIN_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN > 0` 且 `<= MAX`、`0 < FEE_SETTLEMENT_RATIO <= 0.30%` 池费率。合约 `init` 只防重复初始化并保存配置。
 
 **重要参数说明：**
-- `DISTRIBUTOR`: 设置为部署钱包地址，接收初始代币
+- `DISTRIBUTOR_ADDRESS`: 设置为部署钱包地址，接收初始代币
 - 首币 `minter` 自动绑定本次部署的 Mint 地址，无需配置 `MINTER`。
 - 根父币（WETH）无需配置：`DeployCore` 从 `Router.WETH()` 读取，BSC 主网/测试网即官方 WBNB，Anvil 本地即 dex 部署的 WETH9。
 - `PHASE_ORIGIN_PHASE_BLOCKS`: 以目标链实测出块间隔估算；不要将固定的“3 秒一块”当作发布依据。
@@ -125,7 +125,7 @@ cd core
 2. `21_check.sh` —— 自载入校验文件，校验部署与初始化结果
 3. `31_verify.sh` —— 自载入地址文件做合约开源验证；链支持时执行（需 `ETHERSCAN_API_KEY`），链不支持时跳过
 
-链 ID、全部初始化绑定及常量、DEX 地址关系任一不一致，部署入口返回失败，并回滚到上一次已保存的地址（校验失败不覆盖旧地址）。广播阶段或其后的校验失败时，`11_deploy.sh` 保留部署日志并打印日志与 broadcast 产物路径；广播前失败只清理本次临时文件。网络名必填，缺参直接报错。`FACTORY_ADDRESS`、`ROUTER_ADDRESS` 及 `Router.WETH()` 读出的根父币在广播前即校验为已部署合约，配错不会产生任何交易。
+链 ID、全部部署期静态参数、初始化绑定及常量、DEX 地址关系任一不一致，部署入口返回失败，并回滚到上一次已保存的地址（校验失败不覆盖旧地址）。广播阶段或其后的校验失败时，`11_deploy.sh` 保留部署日志并打印日志与 broadcast 产物路径；广播前失败只清理本次临时文件。网络名必填，缺参直接报错。`FACTORY_ADDRESS`、`ROUTER_ADDRESS` 有代码、`Router.factory()` 与配置一致、`Router.WETH()` 读出的根父币有代码，均在广播前校验，配错不会产生任何交易。
 
 DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2：交易手续费固定为 0.30%，Factory 的 `feeTo` 与 `feeToSetter` 均为零。地址应来自该仓库同网络的部署及验收结果，不使用旧 PancakeSwap 配置。
 
@@ -154,7 +154,7 @@ DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2：交易手续费固
 ./script/deploy/31_verify.sh anvil31337_dev
 ```
 
-`11_deploy.sh` 只负责部署、初始化并写入地址，不再自行验收；验收由 `one_click_deploy.sh` 编排，或按上例单独运行。
+`11_deploy.sh` 只负责自包含加载、链/账户/密码、调用 forge 与地址文件原子写入，不重复 Solidity 脚本的参数/依赖/绑定校验；验收由 `one_click_deploy.sh` 编排，或按上例单独运行。
 
 ## 合约开源验证
 
