@@ -109,7 +109,7 @@ contract Stake is IStake {
         uint256 round = _requireActiveRound();
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
-        if (member.unlockRequestPhase != 0) revert UnstakeAlreadyRequested(tokenAddress, memberId);
+        _requireNoUnstakeRequest(member, tokenAddress, memberId);
         if (promisedWaitingPhases < member.promisedWaitingPhases) {
             revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, member.promisedWaitingPhases);
         }
@@ -128,8 +128,8 @@ contract Stake is IStake {
         _requireToken(tokenAddress);
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
-        if (member.unlockRequestPhase != 0) revert UnstakeAlreadyRequested(tokenAddress, memberId);
-        if (member.liquidityShares == 0) revert NoStakedLiquidity(tokenAddress, memberId);
+        _requireNoUnstakeRequest(member, tokenAddress, memberId);
+        _requireStakedLiquidity(member, tokenAddress, memberId);
         if (promisedWaitingPhases < member.promisedWaitingPhases) {
             revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, member.promisedWaitingPhases);
         }
@@ -171,8 +171,8 @@ contract Stake is IStake {
         _requireToken(tokenAddress);
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
-        if (member.unlockRequestPhase != 0) revert UnstakeAlreadyRequested(tokenAddress, memberId);
-        if (member.liquidityShares == 0) revert NoStakedLiquidity(tokenAddress, memberId);
+        _requireNoUnstakeRequest(member, tokenAddress, memberId);
+        _requireStakedLiquidity(member, tokenAddress, memberId);
 
         uint256 round = _currentRound();
         if (_hasUsedStakeRights(tokenAddress, round, memberId)) {
@@ -209,7 +209,7 @@ contract Stake is IStake {
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
         if (member.unlockRequestPhase == 0) revert UnstakeNotRequested(tokenAddress, memberId);
-        if (member.liquidityShares == 0) revert NoStakedLiquidity(tokenAddress, memberId);
+        _requireStakedLiquidity(member, tokenAddress, memberId);
 
         uint256 round = _currentRound();
         uint256 promisedWaitingPhases = member.promisedWaitingPhases;
@@ -259,9 +259,9 @@ contract Stake is IStake {
 
         MemberStake storage source = _memberStake[tokenAddress][sourceMemberId];
         MemberStake storage target = _memberStake[tokenAddress][targetMemberId];
-        if (source.unlockRequestPhase != 0) revert UnstakeAlreadyRequested(tokenAddress, sourceMemberId);
-        if (target.unlockRequestPhase != 0) revert UnstakeAlreadyRequested(tokenAddress, targetMemberId);
-        if (source.liquidityShares == 0) revert NoStakedLiquidity(tokenAddress, sourceMemberId);
+        _requireNoUnstakeRequest(source, tokenAddress, sourceMemberId);
+        _requireNoUnstakeRequest(target, tokenAddress, targetMemberId);
+        _requireStakedLiquidity(source, tokenAddress, sourceMemberId);
 
         uint256 round = _currentRound();
         if (_hasUsedStakeRights(tokenAddress, round, sourceMemberId)) {
@@ -425,6 +425,22 @@ contract Stake is IStake {
 
     function _requireToken(address tokenAddress) private view {
         if (!ILaunch(launchAddress).isLOVE20Token(tokenAddress)) revert TokenNotRegistered(tokenAddress);
+    }
+
+    function _requireNoUnstakeRequest(
+        MemberStake storage member,
+        address tokenAddress,
+        uint256 memberId
+    ) private view {
+        if (member.unlockRequestPhase != 0) revert UnstakeAlreadyRequested(tokenAddress, memberId);
+    }
+
+    function _requireStakedLiquidity(
+        MemberStake storage member,
+        address tokenAddress,
+        uint256 memberId
+    ) private view {
+        if (member.liquidityShares == 0) revert NoStakedLiquidity(tokenAddress, memberId);
     }
 
     function _hasUsedStakeRights(
