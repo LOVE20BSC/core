@@ -60,47 +60,49 @@ ROUTER_ADDRESS=0x...     # dex 部署的 Uniswap V2 Router02
 编辑 `script/network/<network>/core.params`：
 
 ```bash
-# LOVE20Token 部署参数
+# LOVE20Token
 TOKEN_NAME=LOVE20
 TOKEN_SYMBOL=LOVE
-INITIAL_SUPPLY=1000000000000000000000000000  # 10亿（18位小数）
-MAX_SUPPLY=10000000000000000000000000000     # 100亿（18位小数）
+INITIAL_SUPPLY=1e27                          # 10亿枚（18位小数）
+MAX_SUPPLY=1e28                              # 100亿枚（18位小数）
 DISTRIBUTOR_ADDRESS=0xYourDeployerAddressHere  # 初始代币接收地址
 
-# MemberNFT 部署参数
-MEMBER_BASE_DIVISOR=100000000
+# MemberNFT
+MEMBER_BASE_DIVISOR=1e8
 MEMBER_BYTES_THRESHOLD=7
 MEMBER_MULTIPLIER=10
 MEMBER_MAX_NAME_LENGTH=32
 
-# Phase 部署参数
+# Phase
 PHASE_ORIGIN_BLOCKS=1
 PHASE_ORIGIN_PHASE_BLOCKS=28800              # 示例值；按目标链实测出块间隔设置
 PHASE_TARGET_SECONDS=86400                   # 1天
-PHASE_ADJUST_THRESHOLD=600000000000000000    # 0.6（18位小数）
+PHASE_ADJUST_THRESHOLD=6e17                  # 60%
 PHASE_SYNC_OBSERVATION_LIMIT=100
 
-# Launch 部署参数
-LAUNCH_RATIO=1000000000000000000             # 1e18，上限即 1e18
+# Launch
+LAUNCH_RATIO=1e18                            # 100%，上限即 1e18
 MAX_LAUNCH_COUNT=1000
 TOKEN_SYMBOL_LENGTH=4                        # 子币符号 UTF-8 字节长度（首币不受此限；汉字占 3 字节）
 
 # Mint 部署参数（比例以 1e18 表示 100%）
-PROPOSAL_REWARD_MIN_VOTE_RATIO=50000000000000000  # 提案奖励门槛（5%，须 <= 1e18）
-GOV_REWARD_RATIO=100000000000000000              # 治理奖池占比（10%）
-PROPOSAL_REWARD_RATIO=100000000000000000         # 提案奖池占比（10%）
+PROPOSAL_REWARD_MIN_VOTE_RATIO=5e16              # 提案奖励门槛（5%，须 <= 1e18）
+GOV_REWARD_RATIO=1e17                            # 治理奖池占比（10%）
+PROPOSAL_REWARD_RATIO=1e17                       # 提案奖池占比（10%）
 MAX_BOOST_MULTIPLIER=2
 
 # Submit 部署参数（比例以 1e18 表示 100%）
-SUBMIT_MIN_RATIO=10000000000000000               # 推举门槛（1%）
+SUBMIT_MIN_RATIO=1e16                            # 推举门槛（1%）
 
 # Stake 部署参数
 PROMISED_WAITING_PHASES_MIN=1
 PROMISED_WAITING_PHASES_MAX=100
 
 # 单笔手续费结算占可提取 LP 的比例（1e18 = 100%），同时是结算阈值
-FEE_SETTLEMENT_RATIO=3000000000000000  # 0.3%；每次处理 floor(withdrawableLp * 该值 / 1e18) 个手续费 LP 最小单位
+FEE_SETTLEMENT_RATIO=3e15  # 0.3%；每次处理 floor(withdrawableLp * 该值 / 1e18) 个手续费 LP 最小单位
 ```
+
+值可写成 `<尾数>e<指数>`（`1e17` 即 10%）或带下划线的分组写法（`1_000_000`），由 `script/deploy/params.sh` 在载入时展开为十进制再导出。展开是纯词法的：没有键表，新增或删除参数都不需要改载入器；只对整体形如 `<整数>e<整数>` 的值生效，其余原样保留，写错的写法会留给 `vm.envUint` 在广播前报错。行尾 `#` 注释在展开前丢弃。该机制只作用于 `*.params`，`.account` 仍直接 `source`（密码可能含 `#`）。
 
 `core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；全部部署期静态参数由 `DeployCore` 在广播前校验，部署后再由 `_validateDeployment` 逐项核对完整绑定图，`21_check.sh` 独立复核（含首币 `totalSupply` 与 `DISTRIBUTOR_ADDRESS` 余额）：MemberNFT 四项非零、Phase 五项非零且 `ADJUST_THRESHOLD <= 1e18`、`0 < LAUNCH_RATIO <= 1e18`、`MAX_LAUNCH_COUNT/TOKEN_SYMBOL_LENGTH/LAUNCH_AMOUNT` 非零且 `LAUNCH_AMOUNT <= MAX_SUPPLY`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、两项激励比例之和 `<= 1e18`、`0 < MAX_BOOST_MULTIPLIER <= 1000`、`0 < SUBMIT_MIN_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN > 0` 且 `<= MAX`、`0 < FEE_SETTLEMENT_RATIO <= 0.30%` 池费率。合约 `init` 只防重复初始化并保存配置。
 

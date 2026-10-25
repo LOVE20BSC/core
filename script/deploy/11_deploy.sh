@@ -11,6 +11,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 NETWORK_DIR="$PROJECT_ROOT/script/network/$network"
 
+# 参数文件载入器：1e17 / 1_000_000 这类写法在载入时展开为十进制（见 params.sh）。
+source "$SCRIPT_DIR/params.sh"
+
 if [ ! -d "$NETWORK_DIR" ]; then
     echo "Error: Network directory not found: $NETWORK_DIR"
     exit 1
@@ -31,10 +34,11 @@ for config in network.params addresses.uniswapv2.params core.params .account; do
 done
 
 env_password="${KEYSTORE_PASSWORD:-}"
+params_load "$NETWORK_DIR/network.params"
+params_load "$NETWORK_DIR/addresses.uniswapv2.params"
+params_load "$NETWORK_DIR/core.params"
+# .account 走普通 source：密码可能含 "#"，不能经过参数展开。
 set -a
-source "$NETWORK_DIR/network.params"
-source "$NETWORK_DIR/addresses.uniswapv2.params"
-source "$NETWORK_DIR/core.params"
 source "$NETWORK_DIR/.account"
 set +a
 
