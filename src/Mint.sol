@@ -128,7 +128,6 @@ contract Mint is IMint {
             _govReward[tokenAddress][round] = 0;
             _proposalReward[tokenAddress][round] = 0;
             _eligibleProposalVotes[tokenAddress][round] = 0;
-            // RewardPrepared event emission below provides sufficient audit trail.
             // forge-lint: disable-next-line(missing-events-access-control)
             _isRewardPrepared[tokenAddress][round] = true;
             // slither-disable-next-line reentrancy-events
@@ -149,7 +148,6 @@ contract Mint is IMint {
         _govReward[tokenAddress][round] = govRewardAmount;
         _proposalReward[tokenAddress][round] = proposalRewardAmount;
         _eligibleProposalVotes[tokenAddress][round] = eligibleVotes;
-        // RewardPrepared event emission below provides sufficient audit trail.
         // forge-lint: disable-next-line(missing-events-access-control)
         _isRewardPrepared[tokenAddress][round] = true;
 
@@ -232,7 +230,6 @@ contract Mint is IMint {
 
         ILOVE20Token(tokenAddress).mint(recipient, amount);
 
-        // LOVE20Token.mint has no callbacks; report only after it succeeds.
         // forge-lint: disable-next-line(reentrancy-events)
         emit ProposalRewardMinted(tokenAddress, round, proposalId, recipient, amount);
 
@@ -514,7 +511,6 @@ contract Mint is IMint {
             return;
         }
 
-        // GovernanceRewardMinted records this credit increment; Launch emits converted counts.
         // forge-lint: disable-next-line(missing-events-access-control)
         _launchCredit[tokenAddress][memberId] += mintedAmount;
 
@@ -561,13 +557,11 @@ contract Mint is IMint {
             revert MemberRewardUnavailable(tokenAddress, round, memberId);
         }
 
-        // GovernanceRewardMinted below records this member/round settlement.
         // forge-lint: disable-next-line(missing-events-access-control)
         _govMinted[tokenAddress][round][memberId] = true;
 
         uint256 mintAmount = voteReward + boostReward;
         _rewardMinted[tokenAddress] += mintAmount;
-        // Positive burns emit RewardBurned below; a zero burn changes nothing.
         // forge-lint: disable-next-line(missing-events-access-control)
         _rewardBurned[tokenAddress] += burnReward;
 
@@ -577,14 +571,12 @@ contract Mint is IMint {
         }
 
         if (burnReward > 0) {
-            // Token minting and Launch.addLaunchCount have no callbacks; all changes are atomic.
             // forge-lint: disable-next-line(reentrancy-events)
             emit RewardBurned(tokenAddress, round, burnReward, BurnReason.BoostOverflow);
         }
 
-        // Report settlement after the callback-free Token and Launch interactions succeed.
         // forge-lint: disable-next-line(reentrancy-events)
-        emit GovernanceRewardMinted(tokenAddress, round, memberId, voteReward, boostReward, burnReward);
+        emit GovRewardMinted(tokenAddress, round, memberId, voteReward, boostReward);
 
         return (voteReward, boostReward, burnReward);
     }

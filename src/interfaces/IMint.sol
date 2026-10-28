@@ -17,13 +17,12 @@ interface IMintEvents {
         uint256 rewardReserved,
         uint256 rewardBurned
     );
-    event GovernanceRewardMinted(
+    event GovRewardMinted(
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 indexed memberId,
         uint256 voteReward,
-        uint256 boostReward,
-        uint256 burnReward
+        uint256 boostReward
     );
     event ProposalRewardMinted(
         address indexed tokenAddress,

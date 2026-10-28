@@ -152,18 +152,18 @@ contract Stake is IStake {
         _boostHistoryByMember[tokenAddress][memberId].increase(round, boostAmount);
         _globalBoostHistory[tokenAddress].increase(round, boostAmount);
 
-        // The event reports the boost balance after the tokens arrived, and any failure reverts atomically.
         // forge-lint: disable-next-item(reentrancy-events)
-        emit StakeBoost({
+        emit BoostStaked({
             tokenAddress: tokenAddress,
             round: round,
             memberId: memberId,
             boostAmount: boostAmount,
             promisedWaitingPhases: promisedWaitingPhases,
             govVotesAdded: govVotesAdded,
-            govVotes: member.liquidityShares * member.promisedWaitingPhases,
+            govVotes: _govVotesOf(member),
             boostSharesAdded: boostAmount,
-            boostShares: member.boostShares
+            boostShares: member.boostShares,
+            totalBoostShares: global.totalBoostShares
         });
     }
 
@@ -179,7 +179,7 @@ contract Stake is IStake {
             revert StakeRightsUsed(tokenAddress, round, memberId);
         }
 
-        uint256 govVotes = member.liquidityShares * member.promisedWaitingPhases;
+        uint256 govVotes = _govVotesOf(member);
         uint256 boostShares = member.boostShares;
 
         member.unlockRequestPhase = round;
@@ -192,7 +192,7 @@ contract Stake is IStake {
             _globalBoostHistory[tokenAddress].decrease(round, boostShares);
         }
 
-        emit Unstake({
+        emit Unstaked({
             tokenAddress: tokenAddress,
             round: round,
             memberId: memberId,
@@ -221,7 +221,7 @@ contract Stake is IStake {
             revert InsufficientWaitingPhases(round, member.unlockRequestPhase + promisedWaitingPhases);
         }
 
-        (uint256 tokenAmountForLiquidity, uint256 parentTokenAmountForLiquidity) =
+        (uint256 tokenAmountForLiquidity, uint256 parentTokenAmountForLiquidity, uint256 lpBurned, uint256 lpTransferred) =
             _withdrawLiquidity(tokenAddress, pair, liquidityShares);
 
         // Only the asset and the community share total move here: the boost history was already reduced
@@ -233,9 +233,9 @@ contract Stake is IStake {
 
         delete _memberStake[tokenAddress][memberId];
 
-        // The event carries the amounts the pair returned, so it follows the burn; failures revert atomically.
+        GlobalStake storage global = _globalStake[tokenAddress];
         // forge-lint: disable-next-item(reentrancy-events)
-        emit Withdraw({
+        emit StakeWithdrawn({
             tokenAddress: tokenAddress,
             round: round,
             memberId: memberId,
@@ -243,7 +243,11 @@ contract Stake is IStake {
             liquidityShares: liquidityShares,
             tokenAmountForLiquidity: tokenAmountForLiquidity,
             parentTokenAmountForLiquidity: parentTokenAmountForLiquidity,
-            boostShares: boostShares
+            boostShares: boostShares,
+            lpBurned: lpBurned,
+            lpTransferred: lpTransferred,
+            totalLiquidityShares: global.totalLiquidityShares,
+            totalBoostShares: global.totalBoostShares
         });
     }
 
@@ -275,13 +279,17 @@ contract Stake is IStake {
             _moveBoostHistory(tokenAddress, sourceMemberId, targetMemberId, boostSharesMerged, round);
         }
 
-        emit StakeMerged({
+        emit StakesMerged({
             tokenAddress: tokenAddress,
-            round: round,
             sourceMemberId: sourceMemberId,
             targetMemberId: targetMemberId,
+            round: round,
             liquiditySharesMerged: liquiditySharesMerged,
-            boostSharesMerged: boostSharesMerged
+            boostSharesMerged: boostSharesMerged,
+            targetGovVotes: _govVotesOf(target),
+            targetLiquidityShares: target.liquidityShares,
+            targetBoostShares: target.boostShares,
+            targetPromisedWaitingPhases: target.promisedWaitingPhases
         });
     }
 
@@ -339,7 +347,7 @@ contract Stake is IStake {
     function validGovVotes(address tokenAddress, uint256 memberId) external view returns (uint256) {
         MemberStake storage member = _memberStake[tokenAddress][memberId];
         if (member.unlockRequestPhase != 0) return 0;
-        return member.liquidityShares * member.promisedWaitingPhases;
+        return _govVotesOf(member);
     }
 
     function globalStakeData(address tokenAddress)
@@ -496,15 +504,15 @@ contract Stake is IStake {
         liquiditySharesMerged = source.liquidityShares;
         boostSharesMerged = source.boostShares;
         uint256 promisedWaitingPhases = targetIsEmpty ? source.promisedWaitingPhases : target.promisedWaitingPhases;
-        uint256 govVotesBefore = target.liquidityShares * target.promisedWaitingPhases;
+        uint256 govVotesBefore = _govVotesOf(target);
 
         target.liquidityShares += liquiditySharesMerged;
         target.boostShares += boostSharesMerged;
         target.promisedWaitingPhases = promisedWaitingPhases;
 
-        uint256 govVotesAdded = target.liquidityShares * promisedWaitingPhases - govVotesBefore;
+        uint256 govVotesAdded = _govVotesOf(target) - govVotesBefore;
         _globalGovVotes[tokenAddress] =
-            _globalGovVotes[tokenAddress] - liquiditySharesMerged * source.promisedWaitingPhases + govVotesAdded;
+            _globalGovVotes[tokenAddress] - _govVotesOf(source) + govVotesAdded;
 
         delete _memberStake[tokenAddress][sourceMemberId];
     }
@@ -534,7 +542,7 @@ contract Stake is IStake {
             : (global.totalLiquidityShares * added.lpMinted) / added.withdrawableLpBefore;
 
         govVotesAdded = (member.liquidityShares + liquiditySharesAdded) * promisedWaitingPhases
-            - member.liquidityShares * member.promisedWaitingPhases;
+            - _govVotesOf(member);
 
         member.liquidityShares += liquiditySharesAdded;
         member.promisedWaitingPhases = promisedWaitingPhases;
@@ -544,9 +552,8 @@ contract Stake is IStake {
 
         _updateSqrtKBaseline(global, pair, tokenAddress);
 
-        // The event carries the amounts the pair minted against, so it follows the mint; failures revert atomically.
         // forge-lint: disable-next-item(reentrancy-events)
-        emit StakeLiquidity({
+        emit LiquidityStaked({
             tokenAddress: tokenAddress,
             round: round,
             memberId: memberId,
@@ -556,9 +563,10 @@ contract Stake is IStake {
             parentTokenAmount: added.parentTokenAmount,
             promisedWaitingPhases: promisedWaitingPhases,
             govVotesAdded: govVotesAdded,
-            govVotes: member.liquidityShares * promisedWaitingPhases,
+            govVotes: _govVotesOf(member),
             liquiditySharesAdded: liquiditySharesAdded,
-            liquidityShares: member.liquidityShares
+            liquidityShares: member.liquidityShares,
+            totalLiquidityShares: global.totalLiquidityShares
         });
     }
 
@@ -683,7 +691,7 @@ contract Stake is IStake {
     ///      excludes this round's fees; a failing settlement fails the whole withdrawal.
     function _withdrawLiquidity(address tokenAddress, address pair, uint256 liquidityShares)
         private
-        returns (uint256 tokenAmount, uint256 parentTokenAmount)
+        returns (uint256 tokenAmount, uint256 parentTokenAmount, uint256 lpBurned, uint256 lpTransferred)
     {
         GlobalStake storage global = _globalStake[tokenAddress];
         _settleFees(tokenAddress, pair);
@@ -695,9 +703,11 @@ contract Stake is IStake {
         if (lpAmount > 0) {
             (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
             if (_canBurn(lpAmount, reserveToken, reserveParent, pairTotalSupply)) {
+                lpBurned = lpAmount;
                 _push(pair, pair, lpAmount);
                 (tokenAmount, parentTokenAmount) = _burnLp(IUniswapV2Pair(pair), tokenAddress, msg.sender);
             } else {
+                lpTransferred = lpAmount;
                 _push(pair, msg.sender, lpAmount);
             }
         }
@@ -793,7 +803,6 @@ contract Stake is IStake {
         global.lastFeeLp -= processedFeeLp;
         _updateSqrtKBaseline(global, pair, tokenAddress);
 
-        // The event carries the burned amounts, so it follows the burn and the swap; failures revert atomically.
         // forge-lint: disable-next-item(reentrancy-events)
         emit FeesSettled({
             tokenAddress: tokenAddress,
@@ -826,5 +835,9 @@ contract Stake is IStake {
             parentTokenAmount, amountOutMin, path, address(this), block.timestamp
         );
         tokenAmountOut = amounts[amounts.length - 1];
+    }
+
+    function _govVotesOf(MemberStake storage member) private view returns (uint256) {
+        return member.liquidityShares * member.promisedWaitingPhases;
     }
 }

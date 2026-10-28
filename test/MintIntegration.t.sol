@@ -3,16 +3,24 @@ pragma solidity =0.8.37;
 
 import {Mint} from "../src/Mint.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
-import {IMintErrors} from "../src/interfaces/IMint.sol";
+import {IMintErrors, BurnReason} from "../src/interfaces/IMint.sol";
 import {ISubmitErrors, TargetMode} from "../src/interfaces/ISubmit.sol";
 import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 interface MintVm {
+    struct Log {
+        bytes32[] topics;
+        bytes data;
+        address emitter;
+    }
+
     function prank(address) external;
     function startPrank(address) external;
     function stopPrank() external;
     function warp(uint256) external;
     function expectRevert(bytes calldata) external;
+    function recordLogs() external;
+    function getRecordedLogs() external returns (Log[] memory);
 }
 
 /// @title MintIntegration - Real contract integration simulation tests
@@ -113,6 +121,47 @@ contract MintIntegrationTest {
     }
 
     /// @notice Test 2: Multi-token minting - Same member votes on 2 tokens
+    /// @notice The boost cap overflow burns the excess and reports it in `RewardBurned`
+    function testIntegration_BoostOverflowBurnCarriesRoundAndAmount() public {
+        // A tiny vote share with the whole boost pool puts the member above the 2x boost cap.
+        vote.setMemberVotes(address(token), 1, 1, 10);
+        vote.setTotalVotes(address(token), 1, 1000);
+        vote.setMemberBoost(address(token), 1, 1, 1000);
+        vote.setTotalBoost(address(token), 1, 1000);
+        phase.setCurrentPhase(2);
+
+        (uint256 voteReward, uint256 boostReward, uint256 burnReward,) =
+            mint.govRewardByMemberId(address(token), 1, 1);
+        require(voteReward > 0, "scenario must pay the vote half");
+        require(boostReward > 0, "scenario must pay the boost half");
+        require(burnReward > 0, "scenario must overflow the boost cap");
+
+        uint256 burnedBefore = mint.rewardBurned(address(token));
+
+        vm.recordLogs();
+        vm.prank(member1);
+        mint.mintGovReward(address(token), 1, 1, member1);
+        MintVm.Log[] memory logs = vm.getRecordedLogs();
+
+        bytes32 burnedTopic = keccak256("RewardBurned(address,uint256,uint256,uint8)");
+        uint256 burnedSum;
+        bool seen;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics[0] != burnedTopic) continue;
+            (uint256 amount, uint8 reason) = abi.decode(logs[i].data, (uint256, uint8));
+            burnedSum += amount;
+            // Preparation may burn a cancelled pool first; only the overflow burn is this test's subject.
+            if (reason != uint8(BurnReason.BoostOverflow)) continue;
+            require(logs[i].topics.length == 3, "token and round are indexed");
+            require(logs[i].topics[1] == bytes32(uint256(uint160(address(token)))), "burn token");
+            require(logs[i].topics[2] == bytes32(uint256(1)), "burn round");
+            require(amount > 0, "burn amount");
+            seen = true;
+        }
+        require(seen, "missing the overflow RewardBurned");
+        require(mint.rewardBurned(address(token)) == burnedBefore + burnedSum, "burned folds every event");
+    }
+
     function testIntegration_MultiTokenMinting() public {
         // Create second token
         LOVE20Token token2 = new LOVE20Token(

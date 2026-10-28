@@ -5,17 +5,13 @@ import {IERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions
 import {IERC721Metadata} from "@openzeppelin/contracts/token/ERC721/extensions/IERC721Metadata.sol";
 
 interface IMemberNFTEvents {
-    event Mint(
-        uint256 indexed id,
+    event MemberMinted(
+        uint256 indexed memberId,
         address indexed owner,
+        uint256 cost,
         string name,
-        string normalizedName,
-        uint256 cost
+        string normalizedName
     );
-
-    event AddHolder(address indexed holder, uint256 totalHolders);
-
-    event RemoveHolder(address indexed holder, uint256 totalHolders);
 }
 
 interface IMemberNFTErrors {

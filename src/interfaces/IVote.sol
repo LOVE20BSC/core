@@ -16,12 +16,14 @@ interface IVoteErrors {
 }
 
 interface IVoteEvents {
-    event Voted(
+    event VoteCast(
         address indexed tokenAddress,
         uint256 round,
         uint256 indexed voterId,
         uint256 indexed proposalId,
-        uint256 votes
+        uint256 votes,
+        uint256 voterBoost,
+        uint256 totalVoterBoost
     );
 }
 

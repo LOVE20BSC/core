@@ -120,7 +120,7 @@ contract Phase is IPhase {
             }
         }
         if (!adjusted) newPhaseBlocks = currentPhaseBlocks_;
-        emit PhaseSynchronized(phase, block.number, block.timestamp, adjusted, newPhaseBlocks);
+        emit PhaseSynchronized(phase, newPhaseBlocks);
     }
 
     function _phaseBlocks(uint256 phase) private view returns (uint256) {

@@ -6,12 +6,20 @@ import {Phase} from "../src/Phase.sol";
 import {ISubmitErrors, ProposalBody, ProposalInfo, SubmitInfo, TargetMode} from "../src/interfaces/ISubmit.sol";
 
 interface SubmitVm {
+    struct Log {
+        bytes32[] topics;
+        bytes data;
+        address emitter;
+    }
+
     function roll(uint256 blockNumber) external;
     function warp(uint256 timestamp) external;
     function prank(address) external;
     function expectRevert(bytes calldata) external;
     function pauseGasMetering() external;
     function resumeGasMetering() external;
+    function recordLogs() external;
+    function getRecordedLogs() external returns (Log[] memory logs);
 }
 
 contract MockStake {
@@ -409,11 +417,26 @@ contract SubmitTest {
         uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
 
         vm.roll(200);
-        stake.setValidGovVotes(TOKEN, 2, 100);
-        memberNFT.setOwner(2, address(this));
-        submit.submit(TOKEN, 2, proposalId);
+        stake.setValidGovVotes(TOKEN, 3, 100);
+        memberNFT.setOwner(3, address(this));
+        vm.recordLogs();
+        submit.submit(TOKEN, 3, proposalId);
+        SubmitVm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 topic = keccak256("ProposalSubmitted(address,uint256,uint256,uint256)");
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(submit) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != topic) continue;
+            require(logs[i].topics.length == 4, "three indexed arguments");
+            require(logs[i].topics[1] == bytes32(uint256(uint160(TOKEN))), "event token");
+            require(logs[i].topics[2] == bytes32(uint256(3)), "event submitter");
+            require(logs[i].topics[3] == bytes32(proposalId), "event proposal");
+            require(abi.decode(logs[i].data, (uint256)) == 2, "event round");
+            found = true;
+        }
+        require(found, "missing ProposalSubmitted");
         require(submit.isSubmitted(TOKEN, 2, proposalId), "not submitted in round 2");
-        require(submit.proposalIdBySubmitter(TOKEN, 2, 2) == proposalId, "wrong lookup");
+        require(submit.proposalIdBySubmitter(TOKEN, 2, 3) == proposalId, "wrong lookup");
     }
 
     function testSubmitRejectsNonExistentProposal() external {
@@ -950,6 +973,160 @@ contract SubmitTest {
         for (uint256 i = 0; i < 5; i++) {
             require(infos[i].head.id == ids[i], "wrong id in batch");
         }
+    }
+
+    // ============ Event and Bounds Tests ============
+
+    function testProposalCreatedCarriesTargetData() external {
+        MockTarget target = new MockTarget();
+        bytes[] memory targetData = new bytes[](2);
+        targetData[0] = hex"01";
+        targetData[1] = hex"0203";
+        ProposalBody memory body = ProposalBody({
+            title: "Test Proposal",
+            details: "Detailed description",
+            target: address(target),
+            targetMode: TargetMode.Callback,
+            targetData: targetData
+        });
+
+        // A prior proposal keeps `proposalId` and `authorId` from collapsing onto the same value.
+        stake.setValidGovVotes(TOKEN, 2, 100);
+        vm.prank(ALICE);
+        submit.submitNewProposal(TOKEN, 2, body);
+        vm.recordLogs();
+        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
+
+        bytes32 topic = keccak256("ProposalCreated(address,uint256,uint256,address,uint8,bytes[],string,string)");
+        SubmitVm.Log[] memory logs = vm.getRecordedLogs();
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(submit) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != topic) continue;
+            require(logs[i].topics.length == 4, "three indexed arguments");
+            require(logs[i].topics[1] == bytes32(uint256(uint160(TOKEN))), "event token");
+            require(logs[i].topics[2] == bytes32(proposalId), "event proposal id");
+            require(logs[i].topics[3] == bytes32(uint256(1)), "event author");
+            (
+                address targetAddress,
+                uint8 targetMode,
+                bytes[] memory emittedTargetData,
+                string memory title,
+                string memory details
+            ) = abi.decode(logs[i].data, (address, uint8, bytes[], string, string));
+            require(keccak256(bytes(title)) == keccak256("Test Proposal"), "event title");
+            require(keccak256(bytes(details)) == keccak256("Detailed description"), "event details");
+            require(targetAddress == address(target), "event target");
+            require(targetMode == uint8(TargetMode.Callback), "event target mode");
+            require(emittedTargetData.length == 2, "event target data length");
+            require(keccak256(emittedTargetData[0]) == keccak256(hex"01"), "event target data 0");
+            require(keccak256(emittedTargetData[1]) == keccak256(hex"0203"), "event target data 1");
+            found = true;
+        }
+        require(found, "missing ProposalCreated");
+    }
+
+    function testProposalMetadataBounds() external {
+        ProposalBody memory body = ProposalBody({
+            title: _repeat("T", 1025),
+            details: "",
+            target: address(0x1),
+            targetMode: TargetMode.NoCallback,
+            targetData: new bytes[](0)
+        });
+        _expectSubmitRevert(
+            body, abi.encodeWithSelector(ISubmitErrors.TitleTooLong.selector, 1025, 1024), "title bound"
+        );
+
+        body.title = "ok";
+        body.details = _repeat("D", 1025);
+        _expectSubmitRevert(
+            body, abi.encodeWithSelector(ISubmitErrors.DetailsTooLong.selector, 1025, 1024), "details bound"
+        );
+
+        body.details = "";
+        body.targetData = new bytes[](17);
+        _expectSubmitRevert(
+            body, abi.encodeWithSelector(ISubmitErrors.TargetDataTooMany.selector, 17, 16), "target data count"
+        );
+
+        body.targetData = new bytes[](1);
+        body.targetData[0] = new bytes(16 * 1024 + 1);
+        _expectSubmitRevert(
+            body,
+            abi.encodeWithSelector(ISubmitErrors.TargetDataTooLarge.selector, 16 * 1024 + 1, 16 * 1024),
+            "target data bytes"
+        );
+    }
+
+    /// @notice GroupAction 的验证 schema 作为 `targetData[6]` 仍受 targetData 总量 16 KiB 约束
+    function testProposalTargetDataRejectsOversizedVerificationSchema() external {
+        string[] memory keys = new string[](16);
+        string[] memory descriptions = new string[](16);
+        for (uint256 i; i < 16; ++i) {
+            keys[i] = _repeat("K", 1024);
+            descriptions[i] = "d";
+        }
+
+        bytes[] memory data = new bytes[](7);
+        for (uint256 i; i < 6; ++i) {
+            data[i] = abi.encode(uint256(i));
+        }
+        data[6] = abi.encode(keys, descriptions);
+
+        uint256 total;
+        for (uint256 i; i < data.length; ++i) {
+            total += data[i].length;
+        }
+        require(total > 16 * 1024, "schema payload must exceed the cap");
+
+        ProposalBody memory body = ProposalBody({
+            title: "t",
+            details: "",
+            target: address(0x1),
+            targetMode: TargetMode.NoCallback,
+            targetData: data
+        });
+        _expectSubmitRevert(
+            body,
+            abi.encodeWithSelector(ISubmitErrors.TargetDataTooLarge.selector, total, 16 * 1024),
+            "schema payload cap"
+        );
+    }
+
+    function testProposalMetadataAcceptsExactBounds() external {
+        bytes[] memory data = new bytes[](16);
+        for (uint256 i; i < 16; ++i) {
+            data[i] = new bytes(1024);
+        }
+        ProposalBody memory body = ProposalBody({
+            title: _repeat("T", 1024),
+            details: _repeat("D", 1024),
+            target: address(0x1),
+            targetMode: TargetMode.NoCallback,
+            targetData: data
+        });
+
+        (bool ok, bytes memory result) =
+            address(submit).call(abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body)));
+        require(ok, "exact bounds accepted");
+        require(result.length == 32, "proposal id returned");
+    }
+
+    function _expectSubmitRevert(ProposalBody memory body, bytes memory expected, string memory note) private {
+        (bool ok, bytes memory data) = address(submit).call(
+            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body))
+        );
+        require(!ok, note);
+        require(keccak256(data) == keccak256(expected), note);
+    }
+
+    function _repeat(bytes1 char, uint256 count) private pure returns (string memory result) {
+        bytes memory out = new bytes(count);
+        for (uint256 i; i < count; ++i) {
+            out[i] = char;
+        }
+        result = string(out);
     }
 
     // ============ Helper Functions ============

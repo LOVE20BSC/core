@@ -255,6 +255,19 @@ contract DeployCoreTest is Test {
         deployer.validateConfigForTest(config);
     }
 
+    function testRejectsSymbolLengthWithoutTestPrefixRoom() public {
+        DeployCore.CoreConfig memory config = _validConfig();
+        config.tokenSymbolLength = 29;
+        vm.expectRevert("Token symbol length leaves no room for the Test prefix");
+        deployer.validateConfigForTest(config);
+    }
+
+    function testAcceptsSymbolLengthAtTestPrefixLimit() public view {
+        DeployCore.CoreConfig memory config = _validConfig();
+        config.tokenSymbolLength = 28;
+        deployer.validateConfigForTest(config);
+    }
+
     function testRejectsZeroInitialSupply() public {
         DeployCore.CoreConfig memory config = _validConfig();
         config.initialSupply = 0;

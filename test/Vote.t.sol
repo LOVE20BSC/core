@@ -418,28 +418,28 @@ contract VoteTest {
         }
     }
 
-    /// @dev The `Voted` events emitted by this Vote during the current log recording.
-    function _votedLogs() private returns (VoteVm.Log[] memory filtered) {
+    /// @dev The `VoteCast` events emitted by this Vote during the current log recording.
+    function _voteCastLogs() private returns (VoteVm.Log[] memory filtered) {
         VoteVm.Log[] memory logs = vm.getRecordedLogs();
         uint256 count;
         for (uint256 i = 0; i < logs.length; i++) {
-            if (_isVotedLog(logs[i])) {
+            if (_isVoteCastLog(logs[i])) {
                 count += 1;
             }
         }
         filtered = new VoteVm.Log[](count);
         uint256 next;
         for (uint256 i = 0; i < logs.length; i++) {
-            if (_isVotedLog(logs[i])) {
+            if (_isVoteCastLog(logs[i])) {
                 filtered[next] = logs[i];
                 next += 1;
             }
         }
     }
 
-    function _isVotedLog(VoteVm.Log memory entry) private view returns (bool) {
+    function _isVoteCastLog(VoteVm.Log memory entry) private view returns (bool) {
         return entry.emitter == address(vote) && entry.topics.length > 0
-            && entry.topics[0] == IVoteEvents.Voted.selector;
+            && entry.topics[0] == IVoteEvents.VoteCast.selector;
     }
 
     function _singleton(uint256 value) private pure returns (uint256[] memory out) {
@@ -1346,13 +1346,15 @@ contract VoteTest {
 
     // ============ vote: events ============
 
-    function testVotedEventCarriesTheExactPayload() external {
-        uint256 memberId = _memberIds[0];
+    function testVoteCastEventCarriesTheExactPayload() external {
+        // A member id that differs from the round keeps `voterId` and `round` distinguishable.
+        uint256 memberId = _memberIds[1];
         uint256[] memory ids = _proposeBatch(TOKEN, 2);
+        stake.setBoost(TOKEN, 1, memberId, 50);
 
         vm.recordLogs();
         _voteWithoutData(TOKEN, memberId, ids, _filled(2, 30));
-        VoteVm.Log[] memory events = _votedLogs();
+        VoteVm.Log[] memory events = _voteCastLogs();
 
         require(events.length == 2, "one event per proposal");
         for (uint256 i = 0; i < events.length; i++) {
@@ -1360,9 +1362,12 @@ contract VoteTest {
             require(events[i].topics[1] == bytes32(uint256(uint160(TOKEN))), "tokenAddress");
             require(events[i].topics[2] == bytes32(memberId), "voterId");
             require(events[i].topics[3] == bytes32(ids[i]), "proposalId follows the batch order");
-            (uint256 round, uint256 votes) = abi.decode(events[i].data, (uint256, uint256));
+            (uint256 round, uint256 votes, uint256 voterBoost, uint256 totalVoterBoost) =
+                abi.decode(events[i].data, (uint256, uint256, uint256, uint256));
             require(round == 1, "round is part of the payload");
             require(votes == 30, "votes is the amount for this proposal");
+            require(voterBoost == 50, "voter boost snapshot");
+            require(totalVoterBoost == 50, "global voter boost snapshot");
         }
     }
 
@@ -1377,7 +1382,7 @@ contract VoteTest {
             abi.encodeWithSelector(IVoteErrors.ZeroVotes.selector, ids[0]),
             "zero amount"
         );
-        require(_votedLogs().length == 0, "a reverted call leaves no event behind");
+        require(_voteCastLogs().length == 0, "a reverted call leaves no event behind");
     }
 
     function testEventOrderFollowsTheBatchOrder() external {
@@ -1393,7 +1398,7 @@ contract VoteTest {
 
         vm.recordLogs();
         _voteWithoutData(TOKEN, memberId, ids, _filled(3, 10));
-        VoteVm.Log[] memory events = _votedLogs();
+        VoteVm.Log[] memory events = _voteCastLogs();
 
         require(events.length == 3, "one event per proposal");
         for (uint256 i = 0; i < events.length; i++) {

@@ -271,7 +271,7 @@ contract LaunchTest {
         require(freshLaunch.isLOVE20Token(freshMember.LOVE20_TOKEN_ADDRESS()), "first token registered");
     }
 
-    function testInitEmitsTokenLaunchedForFirstToken() public {
+    function testInitEmitsGenesisTokenCreatedForFirstToken() public {
         MemberNFT freshMember = _newMember();
         Launch freshLaunch = new Launch();
 
@@ -281,13 +281,13 @@ contract LaunchTest {
         address firstTokenAddress = freshMember.LOVE20_TOKEN_ADDRESS();
         bool found;
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 eventSelector = keccak256("TokenLaunched(address,address,uint256,address,string,string)");
+        bytes32 eventSelector = keccak256("GenesisTokenCreated(address,address,address,string,string)");
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(freshLaunch) || logs[i].topics.length == 0) continue;
             if (logs[i].topics[0] != eventSelector) continue;
+            require(logs[i].topics.length == 3, "two indexed arguments");
             require(logs[i].topics[1] == bytes32(uint256(uint160(firstTokenAddress))), "event token");
             require(logs[i].topics[2] == bytes32(uint256(uint160(ROOT))), "event parent");
-            require(logs[i].topics[3] == bytes32(0), "event launcher member");
             (address distributorAddress, string memory name, string memory symbol) =
                 abi.decode(logs[i].data, (address, string, string));
             require(distributorAddress == address(this), "event distributor");
@@ -295,7 +295,54 @@ contract LaunchTest {
             require(keccak256(bytes(symbol)) == keccak256("LOVE"), "event symbol");
             found = true;
         }
-        require(found, "missing TokenLaunched");
+        require(found, "missing GenesisTokenCreated");
+        require(
+            _countLogs(logs, address(freshLaunch), keccak256("TokenLaunched(address,address,uint256,address,uint8,string,string)")) == 0,
+            "init must not emit TokenLaunched"
+        );
+    }
+
+    function testInitRejectsOversizedMetadata() public {
+        LaunchInitParams memory params = _freshParams();
+        params.name = _repeat("N", 97);
+        params.symbol = "LOVE";
+        _requireInitRevert(
+            params, abi.encodeWithSelector(ILaunchErrors.TokenNameTooLong.selector, 97, 96), "oversized name"
+        );
+
+        params = _freshParams();
+        params.name = "LOVE20";
+        params.symbol = _repeat("S", 33);
+        _requireInitRevert(
+            params, abi.encodeWithSelector(ILaunchErrors.TokenSymbolTooLong.selector, 33, 32), "oversized symbol"
+        );
+    }
+
+    function testInitAcceptsMaxMetadata() public {
+        LaunchInitParams memory params = _freshParams();
+        params.name = _repeat("N", 96);
+        params.symbol = _repeat("S", 32);
+
+        Launch freshLaunch = new Launch();
+        freshLaunch.init(params);
+
+        address firstTokenAddress = MemberNFT(params.memberNFTAddress).LOVE20_TOKEN_ADDRESS();
+        require(
+            keccak256(bytes(LOVE20Token(firstTokenAddress).name())) == keccak256(bytes(params.name)),
+            "max name accepted"
+        );
+        require(
+            keccak256(bytes(LOVE20Token(firstTokenAddress).symbol())) == keccak256(bytes(params.symbol)),
+            "max symbol accepted"
+        );
+    }
+
+    function _repeat(bytes1 char, uint256 count) private pure returns (string memory result) {
+        bytes memory out = new bytes(count);
+        for (uint256 i; i < count; ++i) {
+            out[i] = char;
+        }
+        result = string(out);
     }
 
     function testInitRejectsRepeatInitialization() public {
@@ -479,32 +526,52 @@ contract LaunchTest {
     }
 
     function testLaunchTokenEmitsTokenLaunched() public {
-        _grantCount(address(firstToken), aliceMemberId, 1);
+        // A launcher id above 1 keeps `memberId` distinguishable from the consumed `count`.
+        _grantCount(address(firstToken), bobMemberId, 1);
 
         vm.recordLogs();
-        address tokenAddress = _launchOk(alice, "AAA", address(firstToken), aliceMemberId);
+        address tokenAddress = _launchOk(bob, "AAA", address(firstToken), bobMemberId);
 
         bool found;
+        bool consumed;
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 eventSelector = keccak256("TokenLaunched(address,address,uint256,address,string,string)");
+        bytes32 eventSelector = keccak256("TokenLaunched(address,address,uint256,address,uint8,string,string)");
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(launch) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] == keccak256("LaunchCountConsumed(address,uint256,uint256,uint256)")) {
+                require(logs[i].topics[1] == bytes32(uint256(uint160(address(firstToken)))), "consumed ledger");
+                require(logs[i].topics[2] == bytes32(bobMemberId), "consumed member");
+                (uint256 count, uint256 remaining) = abi.decode(logs[i].data, (uint256, uint256));
+                require(count == 1 && remaining == 0, "consumed payload");
+                consumed = true;
+                continue;
+            }
             if (logs[i].topics[0] != eventSelector) continue;
+            require(logs[i].topics.length == 4, "three indexed arguments");
             require(logs[i].topics[1] == bytes32(uint256(uint160(tokenAddress))), "event token");
             require(logs[i].topics[2] == bytes32(uint256(uint160(address(firstToken)))), "event parent");
-            require(logs[i].topics[3] == bytes32(aliceMemberId), "event launcher member");
-            (address distributorAddress, string memory name, string memory symbol) =
-                abi.decode(logs[i].data, (address, string, string));
+            require(logs[i].topics[3] == bytes32(bobMemberId), "event launcher member");
+            (address distributorAddress, uint8 distributorMode, string memory name, string memory symbol) =
+                abi.decode(logs[i].data, (address, uint8, string, string));
             require(distributorAddress == SUB_DISTRIBUTOR, "event distributor");
+            require(distributorMode == uint8(DistributorMode.NoCallback), "event distributor mode");
             require(keccak256(bytes(name)) == keccak256("AAA@LOVE"), "event name");
             require(keccak256(bytes(symbol)) == keccak256("AAA"), "event symbol");
             found = true;
         }
         require(found, "missing TokenLaunched");
+        require(consumed, "missing LaunchCountConsumed");
         // 反向断言：只发一条 TokenLaunched，且不产生其它 Launch 事件
         require(_countLogs(logs, address(launch), eventSelector) == 1, "exactly one TokenLaunched");
-        require(_countLogs(logs, address(launch), keccak256("LaunchCountAdded(address,uint256,uint256)")) == 0, "no added");
-        require(_countLogs(logs, address(launch), keccak256("LaunchCountMerged(address,uint256,uint256,uint256)")) == 0, "no merged");
+        require(
+            _countLogs(logs, address(launch), keccak256("LaunchCountConsumed(address,uint256,uint256,uint256)")) == 1,
+            "exactly one LaunchCountConsumed"
+        );
+        require(_countLogs(logs, address(launch), keccak256("LaunchCountAdded(address,uint256,uint256,uint256,uint256)")) == 0, "no added");
+        require(
+            _countLogs(logs, address(launch), keccak256("LaunchCountMerged(address,uint256,uint256,uint256,uint256,uint256)")) == 0,
+            "no merged"
+        );
         require(_countLogs(logs, address(launch), keccak256("TokenCreated(address,address,string,string,address)")) == 0, "no TokenCreated");
     }
 
@@ -1014,24 +1081,28 @@ contract LaunchTest {
 
         bool found;
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 eventSelector = keccak256("LaunchCountMerged(address,uint256,uint256,uint256)");
+        bytes32 eventSelector = keccak256("LaunchCountMerged(address,uint256,uint256,uint256,uint256,uint256)");
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(launch) || logs[i].topics.length == 0) continue;
             if (logs[i].topics[0] != eventSelector) continue;
             require(logs[i].topics[1] == bytes32(uint256(uint160(address(firstToken)))), "event token");
             require(logs[i].topics[2] == bytes32(aliceMemberId), "event source");
             require(logs[i].topics[3] == bytes32(bobMemberId), "event target");
-            require(abi.decode(logs[i].data, (uint256)) == 3, "event count");
+            (uint256 count, uint256 sourceRemaining, uint256 targetRemaining) =
+                abi.decode(logs[i].data, (uint256, uint256, uint256));
+            require(count == 3, "event count");
+            require(sourceRemaining == 2, "event source remaining");
+            require(targetRemaining == 4, "event target remaining");
             found = true;
         }
         require(found, "missing LaunchCountMerged");
         // 反向断言：只发一条 LaunchCountMerged，且不产生其它 Launch 事件
         require(_countLogs(logs, address(launch), eventSelector) == 1, "exactly one LaunchCountMerged");
         require(
-            _countLogs(logs, address(launch), keccak256("TokenLaunched(address,address,uint256,address,string,string)")) == 0,
+            _countLogs(logs, address(launch), keccak256("TokenLaunched(address,address,uint256,address,uint8,string,string)")) == 0,
             "no launch event"
         );
-        require(_countLogs(logs, address(launch), keccak256("LaunchCountAdded(address,uint256,uint256)")) == 0, "no added");
+        require(_countLogs(logs, address(launch), keccak256("LaunchCountAdded(address,uint256,uint256,uint256,uint256)")) == 0, "no added");
 
         // 目标不需要由调用者持有：向 carol 的成员融合同样成立
         (ok, ) = _merge(alice, address(firstToken), aliceMemberId, carolMemberId, 2);
@@ -1194,26 +1265,35 @@ contract LaunchTest {
         bool foundFirst;
         bool foundRoot;
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 eventSelector = keccak256("LaunchCountAdded(address,uint256,uint256)");
+        bytes32 eventSelector = keccak256("LaunchCountAdded(address,uint256,uint256,uint256,uint256)");
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(launch) || logs[i].topics.length == 0) continue;
             if (logs[i].topics[0] != eventSelector) continue;
+            (uint256 count, uint256 issuedCount, uint256 memberRemaining) =
+                abi.decode(logs[i].data, (uint256, uint256, uint256));
             if (logs[i].topics[1] == bytes32(uint256(uint160(address(firstToken))))) {
                 require(logs[i].topics[2] == bytes32(aliceMemberId), "event member");
-                require(abi.decode(logs[i].data, (uint256)) == 4, "event count");
+                require(count == 4, "event count");
+                require(issuedCount == 4, "event issued count");
+                require(memberRemaining == 4, "event member remaining");
                 foundFirst = true;
             } else if (logs[i].topics[1] == bytes32(uint256(uint160(ROOT)))) {
                 require(logs[i].topics[2] == bytes32(aliceMemberId), "root event member");
-                require(abi.decode(logs[i].data, (uint256)) == 4, "root event count");
+                require(count == 4, "root event count");
+                require(issuedCount == 4, "root event issued count");
+                require(memberRemaining == 4, "root event member remaining");
                 foundRoot = true;
             }
         }
         require(foundFirst && foundRoot, "missing LaunchCountAdded");
         // 反向断言：首币与根父币各一条 LaunchCountAdded，且不产生其它 Launch 事件
         require(_countLogs(logs, address(launch), eventSelector) == 2, "two LaunchCountAdded");
-        require(_countLogs(logs, address(launch), keccak256("LaunchCountMerged(address,uint256,uint256,uint256)")) == 0, "no merged");
         require(
-            _countLogs(logs, address(launch), keccak256("TokenLaunched(address,address,uint256,address,string,string)")) == 0,
+            _countLogs(logs, address(launch), keccak256("LaunchCountMerged(address,uint256,uint256,uint256,uint256,uint256)")) == 0,
+            "no merged"
+        );
+        require(
+            _countLogs(logs, address(launch), keccak256("TokenLaunched(address,address,uint256,address,uint8,string,string)")) == 0,
             "no launch event"
         );
 
@@ -1223,6 +1303,29 @@ contract LaunchTest {
         require(launch.issuedLaunchCount(address(firstToken)) == 5, "issued accumulated");
         require(launch.launchCount(ROOT, aliceMemberId) == 5, "root accumulated");
         require(launch.issuedLaunchCount(ROOT) == 5, "root issued accumulated");
+    }
+
+    function testAddLaunchCountIssuedCountMatchesFold() public {
+        mintAccount.addLaunchCount(launch, address(firstToken), aliceMemberId, 4);
+
+        vm.recordLogs();
+        mintAccount.addLaunchCount(launch, address(firstToken), aliceMemberId, 3);
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 eventSelector = keccak256("LaunchCountAdded(address,uint256,uint256,uint256,uint256)");
+        uint256 foldedIssued;
+        uint256 seen;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(launch) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != eventSelector) continue;
+            (uint256 count, uint256 issuedCount,) = abi.decode(logs[i].data, (uint256, uint256, uint256));
+            require(count == 3, "event count");
+            require(issuedCount == 7, "issuedCount equals fold");
+            foldedIssued = issuedCount;
+            ++seen;
+        }
+        require(seen == 2, "first token and root each emit once");
+        require(foldedIssued == launch.issuedLaunchCount(address(firstToken)), "matches ledger");
     }
 
     function testAddLaunchCountRejectsUnauthorizedCaller() public {
@@ -1795,5 +1898,37 @@ contract LaunchTest {
             return abi.encodeWithSelector(ILaunchErrors.InvalidTokenSymbolLength.selector, length, expected);
         }
         return abi.encodeWithSelector(ILaunchErrors.InvalidTokenSymbolCharacters.selector);
+    }
+
+    /// E1：首币构造期的 `TokenMinted` 先于 `GenesisTokenCreated`，且事件地址等于部署地址。
+    function testGenesisOrdersTokenMintedBeforeCreation() public {
+        LaunchInitParams memory params = _freshParams();
+        Launch freshLaunch = new Launch();
+
+        vm.recordLogs();
+        freshLaunch.init(params);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        address firstTokenAddress = MemberNFT(params.memberNFTAddress).LOVE20_TOKEN_ADDRESS();
+        bytes32 mintedTopic = keccak256("TokenMinted(address,uint256)");
+        bytes32 createdTopic = keccak256("GenesisTokenCreated(address,address,address,string,string)");
+        uint256 mintedIndex = type(uint256).max;
+        uint256 createdIndex = type(uint256).max;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics.length == 0) continue;
+            if (logs[i].emitter == firstTokenAddress && logs[i].topics[0] == mintedTopic) {
+                if (mintedIndex == type(uint256).max) mintedIndex = i;
+            }
+            if (logs[i].emitter == address(freshLaunch) && logs[i].topics[0] == createdTopic) {
+                require(
+                    logs[i].topics[1] == bytes32(uint256(uint160(firstTokenAddress))),
+                    "creation event carries the deployed address"
+                );
+                createdIndex = i;
+            }
+        }
+        require(mintedIndex != type(uint256).max, "missing TokenMinted");
+        require(createdIndex != type(uint256).max, "missing GenesisTokenCreated");
+        require(mintedIndex < createdIndex, "mint precedes creation");
     }
 }

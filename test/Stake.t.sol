@@ -2073,52 +2073,284 @@ contract StakeTest {
     // ============ Advanced Coverage Tests ============
 
     function testStakeLiquidityEmitsCorrectEvent() external {
+        // A second member keeps `liquidityShares` and `totalLiquidityShares` apart.
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+        vm().recordLogs();
+        (uint256 govVotes, uint256 shares) = stakeAsOwner(owner2, memberId2, 1000e18, 1000e18, 10);
+        require(govVotes > 0, "Should add gov votes");
+        require(shares > 0, "Should add shares");
+
+        (uint256 totalLiquidityShares, , , , , , ) = stake.globalStakeData(address(childToken));
+        Vm.Log[] memory logs = vm().getRecordedLogs();
+        bytes32 topic = keccak256(
+            "LiquidityStaked(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+        );
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(stake) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != topic) continue;
+            require(logs[i].topics.length == 4, "three indexed arguments");
+            require(logs[i].topics[1] == bytes32(uint256(uint160(address(childToken)))), "event token");
+            require(logs[i].topics[2] == bytes32(uint256(1)), "event round");
+            require(logs[i].topics[3] == bytes32(memberId2), "event member");
+            (
+                ,
+                ,
+                ,
+                ,
+                uint256 promisedWaitingPhases,
+                ,
+                ,
+                ,
+                uint256 liquidityShares,
+                uint256 totalLiquidityShares_
+            ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
+            require(promisedWaitingPhases == 10, "event promised phases");
+            require(liquidityShares == shares, "event member shares");
+            require(totalLiquidityShares_ == totalLiquidityShares, "event global shares");
+            found = true;
+        }
+        require(found, "missing LiquidityStaked");
+    }
+
+    function testSettleFeesEmitsCorrectEvent() external {
+        stakeAsOwner(owner1, memberId1, 10000e18, 10000e18, 10);
+        childToken.transfer(address(stake), 10000e18);
+        parentToken.transfer(address(stake), 10000e18);
+        childToken.transfer(address(pair), 5000e18);
+        parentToken.transfer(address(pair), 5000e18);
+        pair.setReserves(115000e18, 115000e18);
+
+        vm().recordLogs();
+        vm().prank(owner1);
+        stake.settleFees(address(childToken));
+
+        Vm.Log[] memory logs = vm().getRecordedLogs();
+        bytes32 topic = keccak256("FeesSettled(address,uint256,uint256,uint256,uint256)");
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(stake) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != topic) continue;
+            require(logs[i].topics.length == 3, "two indexed arguments");
+            require(logs[i].topics[1] == bytes32(uint256(uint160(address(childToken)))), "event token");
+            require(uint256(logs[i].topics[2]) == 1, "event round");
+            (uint256 feeLp, uint256 tokenBurned, ) = abi.decode(logs[i].data, (uint256, uint256, uint256));
+            require(feeLp > 0 || tokenBurned > 0, "event fee or burn");
+            found = true;
+        }
+        require(found, "missing FeesSettled");
+    }
+
+    function testStakeBoostEmitsCorrectEvent() external {
+        stakeAsOwner(owner2, memberId2, 1000e18, 1000e18, 10);
+        vm().prank(owner2);
+        childToken.approve(address(stake), 1000e18);
+
+        // A warm-up stake gives the measured call a non-zero history and a non-zero vote delta;
+        // a second member keeps `boostShares` and `totalBoostShares` apart.
+        vm().prank(owner2);
+        stake.stakeBoost(address(childToken), 250e18, 10, memberId2);
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
         vm().prank(owner1);
         childToken.approve(address(stake), 1000e18);
         vm().prank(owner1);
-        parentToken.approve(address(stake), 1000e18);
+        stake.stakeBoost(address(childToken), 1000e18, 10, memberId1);
 
-        // The event verification is implicit - if staking succeeds, event was emitted
-        vm().prank(owner1);
-        (uint256 govVotes, uint256 shares) = stake.stakeLiquidity(
-            address(childToken),
-            1000e18,
-            1000e18,
-            0.05e18,
-            10,
-            memberId1
+        vm().recordLogs();
+        vm().prank(owner2);
+        stake.stakeBoost(address(childToken), 500e18, 12, memberId2);
+
+        Vm.Log[] memory logs = vm().getRecordedLogs();
+        bytes32 topic = keccak256(
+            "BoostStaked(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
         );
-
-        require(govVotes > 0, "Should add gov votes");
-        require(shares > 0, "Should add shares");
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(stake) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != topic) continue;
+            require(logs[i].topics.length == 4, "three indexed arguments");
+            require(logs[i].topics[2] == bytes32(uint256(1)), "event round");
+            require(logs[i].topics[3] == bytes32(memberId2), "event member");
+            (
+                uint256 boostAmount,
+                uint256 promisedWaitingPhases,
+                uint256 govVotesAdded,
+                uint256 govVotes,
+                uint256 boostSharesAdded,
+                uint256 boostShares,
+                uint256 totalBoostShares
+            ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256));
+            require(boostAmount == 500e18, "event boost amount");
+            require(promisedWaitingPhases == 12, "event promised waiting phases");
+            require(govVotesAdded > 0 && govVotes > govVotesAdded, "event vote delta and total");
+            require(boostSharesAdded == 500e18, "event boost added");
+            require(boostShares == 750e18, "event member boost");
+            require(totalBoostShares == 1750e18, "event global boost");
+            found = true;
+        }
+        require(found, "missing BoostStaked");
     }
 
     function testUnstakeEmitsCorrectEvent() external {
-        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+        stakeAsOwner(owner2, memberId2, 1000e18, 1000e18, 10);
 
-        // Unstake - event is emitted
-        vm().prank(owner1);
-        stake.unstake(address(childToken), memberId1);
+        vm().recordLogs();
+        vm().prank(owner2);
+        stake.unstake(address(childToken), memberId2);
 
-        (uint256 shares, , , uint256 unlock, , ) = stake.stakeData(address(childToken), memberId1);
+        (uint256 shares, , , uint256 unlock, , ) = stake.stakeData(address(childToken), memberId2);
         require(shares > 0, "Shares should still exist");
         require(unlock == 1, "Unlock should be marked");
+
+        Vm.Log[] memory logs = vm().getRecordedLogs();
+        bytes32 topic = keccak256("Unstaked(address,uint256,uint256,uint256,uint256,uint256,uint256)");
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(stake) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != topic) continue;
+            require(logs[i].topics.length == 4, "three indexed arguments");
+            require(logs[i].topics[2] == bytes32(uint256(1)), "event round");
+            require(logs[i].topics[3] == bytes32(memberId2), "event member");
+            (uint256 promisedWaitingPhases, , uint256 liquidityShares, ) =
+                abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
+            require(promisedWaitingPhases == 10, "event promised phases");
+            require(liquidityShares == shares, "event member shares");
+            found = true;
+        }
+        require(found, "missing Unstaked");
     }
 
     function testWithdrawEmitsCorrectEvent() external {
-        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+        stakeAsOwner(owner2, memberId2, 1000e18, 1000e18, 10);
+        (uint256 sharesBefore, , , , , ) = stake.stakeData(address(childToken), memberId2);
+        vm().prank(owner2);
+        childToken.approve(address(stake), 500e18);
+        vm().prank(owner2);
+        stake.stakeBoost(address(childToken), 500e18, 10, memberId2);
 
-        vm().prank(owner1);
-        stake.unstake(address(childToken), memberId1);
+        vm().prank(owner2);
+        stake.unstake(address(childToken), memberId2);
 
         phase.setPhase(12);
 
-        // Withdraw - event is emitted
+        vm().recordLogs();
+        vm().prank(owner2);
+        stake.withdraw(address(childToken), memberId2);
+
+        (uint256 shares, , , , , ) = stake.stakeData(address(childToken), memberId2);
+        require(shares == 0, "Shares should be cleared");
+
+        Vm.Log[] memory logs = vm().getRecordedLogs();
+        bytes32 topic = keccak256(
+            "StakeWithdrawn(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+        );
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(stake) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != topic) continue;
+            require(logs[i].topics.length == 4, "three indexed arguments");
+            require(logs[i].topics[2] == bytes32(uint256(12)), "event round");
+            require(logs[i].topics[3] == bytes32(memberId2), "event member");
+            (
+                uint256 promisedWaitingPhases,
+                uint256 liquidityShares,
+                ,
+                ,
+                uint256 boostShares,
+                uint256 lpBurned,
+                uint256 lpTransferred,
+                uint256 totalLiquidityShares,
+                uint256 totalBoostShares
+            ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
+            require(promisedWaitingPhases == 10, "event promised phases");
+            require(liquidityShares == sharesBefore, "event liquidity shares");
+            require(boostShares == 500e18, "event boost shares");
+            require(lpBurned + lpTransferred > 0, "event lp payout");
+            require(lpBurned == 0 || lpTransferred == 0, "lp is either burned or transferred");
+            require(totalLiquidityShares == 0, "event global liquidity shares");
+            require(totalBoostShares == 0, "event global boost shares");
+            found = true;
+        }
+        require(found, "missing StakeWithdrawn");
+    }
+
+    function testFeesSettledPrecedesStakeWithdrawn() external {
+        stakeAsOwner(owner1, memberId1, 10000e18, 10000e18, 10);
+        childToken.transfer(address(stake), 10000e18);
+        parentToken.transfer(address(stake), 10000e18);
+        childToken.transfer(address(pair), 5000e18);
+        parentToken.transfer(address(pair), 5000e18);
+        pair.setReserves(115000e18, 115000e18);
+
+        vm().prank(owner1);
+        stake.unstake(address(childToken), memberId1);
+        phase.setPhase(12);
+
+        vm().recordLogs();
         vm().prank(owner1);
         stake.withdraw(address(childToken), memberId1);
 
-        (uint256 shares, , , , , ) = stake.stakeData(address(childToken), memberId1);
-        require(shares == 0, "Shares should be cleared");
+        Vm.Log[] memory logs = vm().getRecordedLogs();
+        bytes32 feesTopic = keccak256("FeesSettled(address,uint256,uint256,uint256,uint256)");
+        bytes32 withdrawnTopic = keccak256(
+            "StakeWithdrawn(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+        );
+        uint256 feesIndex = type(uint256).max;
+        uint256 withdrawnIndex = type(uint256).max;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(stake) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] == feesTopic && feesIndex == type(uint256).max) feesIndex = i;
+            if (logs[i].topics[0] == withdrawnTopic && withdrawnIndex == type(uint256).max) withdrawnIndex = i;
+        }
+        require(feesIndex != type(uint256).max, "missing FeesSettled");
+        require(withdrawnIndex != type(uint256).max, "missing StakeWithdrawn");
+        require(feesIndex < withdrawnIndex, "fees must settle before withdraw");
+    }
+
+    function testMergeStakeEmitsTargetPostState() external {
+        (, uint256 shares) = stakeAsOwner(owner2, memberId2, 1000e18, 1000e18, 10);
+        // A non-empty target keeps `liquiditySharesMerged` and `targetLiquidityShares` apart.
+        (, uint256 targetSharesBefore) = stakeAsOwner(owner1, memberId3, 500e18, 500e18, 10);
+        vm().prank(owner1);
+        childToken.approve(address(stake), 200e18);
+        vm().prank(owner1);
+        stake.stakeBoost(address(childToken), 200e18, 10, memberId3);
+
+        vm().recordLogs();
+        vm().prank(owner2);
+        stake.mergeStake(address(childToken), memberId2, memberId3);
+
+        Vm.Log[] memory logs = vm().getRecordedLogs();
+        bytes32 topic = keccak256(
+            "StakesMerged(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+        );
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(stake) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != topic) continue;
+            require(logs[i].topics.length == 4, "three indexed arguments");
+            require(logs[i].topics[1] == bytes32(uint256(uint160(address(childToken)))), "event token");
+            require(logs[i].topics[2] == bytes32(memberId2), "event source member");
+            require(logs[i].topics[3] == bytes32(memberId3), "event target member");
+            (
+                uint256 round,
+                uint256 liquiditySharesMerged,
+                uint256 boostSharesMerged,
+                uint256 targetGovVotes,
+                uint256 targetLiquidityShares,
+                uint256 targetBoostShares,
+                uint256 targetPromisedWaitingPhases
+            ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256));
+            require(round == 1, "event round is not indexed");
+            require(liquiditySharesMerged == shares, "event merged shares");
+            require(boostSharesMerged == 0, "event merged boost");
+            require(targetLiquidityShares == shares + targetSharesBefore, "event target shares");
+            require(targetBoostShares == 200e18, "event target boost");
+            require(targetPromisedWaitingPhases == 10, "event target phases");
+            require(targetGovVotes == (shares + targetSharesBefore) * 10, "event target gov votes");
+            found = true;
+        }
+        require(found, "missing StakesMerged");
     }
 
     function testBoostIncreasesGlobalBoostShares() external {
@@ -2545,7 +2777,15 @@ contract MockPairZeroMint {
 }
 
 interface Vm {
+    struct Log {
+        bytes32[] topics;
+        bytes data;
+        address emitter;
+    }
+
     function prank(address) external;
     function expectRevert(bytes4) external;
     function expectRevert(bytes calldata) external;
+    function recordLogs() external;
+    function getRecordedLogs() external returns (Log[] memory logs);
 }

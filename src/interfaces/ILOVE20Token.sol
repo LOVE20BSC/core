@@ -6,8 +6,14 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 interface ILOVE20TokenEvents {
-    event TokenMint(address indexed to, uint256 amount);
-    event TokenBurn(address indexed from, uint256 amount);
+    event TokenMinted(
+        address indexed to,
+        uint256 amount
+    );
+    event TokenBurned(
+        address indexed from,
+        uint256 amount
+    );
 }
 
 interface ILOVE20TokenErrors {

@@ -23,7 +23,7 @@ interface IStakeErrors {
     error ZeroTokenAmount();
     error ZeroParentTokenAmount();
     error ZeroBoostAmount();
-    error InvalidPromisedWaitingPhases(uint256 value, uint256 min, uint256 max);
+    error InvalidPromisedWaitingPhases(uint256 value, uint256 minPhases, uint256 maxPhases);
     error PromisedWaitingPhasesDecreased(uint256 requested, uint256 current);
     error UnstakeAlreadyRequested(address tokenAddress, uint256 memberId);
     error UnstakeNotRequested(address tokenAddress, uint256 memberId);
@@ -41,7 +41,7 @@ interface IStakeErrors {
 }
 
 interface IStakeEvents {
-    event StakeLiquidity(
+    event LiquidityStaked(
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 indexed memberId,
@@ -53,9 +53,10 @@ interface IStakeEvents {
         uint256 govVotesAdded,
         uint256 govVotes,
         uint256 liquiditySharesAdded,
-        uint256 liquidityShares
+        uint256 liquidityShares,
+        uint256 totalLiquidityShares
     );
-    event StakeBoost(
+    event BoostStaked(
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 indexed memberId,
@@ -64,9 +65,10 @@ interface IStakeEvents {
         uint256 govVotesAdded,
         uint256 govVotes,
         uint256 boostSharesAdded,
-        uint256 boostShares
+        uint256 boostShares,
+        uint256 totalBoostShares
     );
-    event Unstake(
+    event Unstaked(
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 indexed memberId,
@@ -75,7 +77,7 @@ interface IStakeEvents {
         uint256 liquidityShares,
         uint256 boostShares
     );
-    event Withdraw(
+    event StakeWithdrawn(
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 indexed memberId,
@@ -83,7 +85,11 @@ interface IStakeEvents {
         uint256 liquidityShares,
         uint256 tokenAmountForLiquidity,
         uint256 parentTokenAmountForLiquidity,
-        uint256 boostShares
+        uint256 boostShares,
+        uint256 lpBurned,
+        uint256 lpTransferred,
+        uint256 totalLiquidityShares,
+        uint256 totalBoostShares
     );
     event FeesSettled(
         address indexed tokenAddress,
@@ -92,13 +98,17 @@ interface IStakeEvents {
         uint256 tokenBurned,
         uint256 parentTokenBurned
     );
-    event StakeMerged(
+    event StakesMerged(
         address indexed tokenAddress,
-        uint256 indexed round,
+        uint256 round,
         uint256 indexed sourceMemberId,
-        uint256 targetMemberId,
+        uint256 indexed targetMemberId,
         uint256 liquiditySharesMerged,
-        uint256 boostSharesMerged
+        uint256 boostSharesMerged,
+        uint256 targetGovVotes,
+        uint256 targetLiquidityShares,
+        uint256 targetBoostShares,
+        uint256 targetPromisedWaitingPhases
     );
 }
 

@@ -4,6 +4,17 @@ pragma solidity =0.8.37;
 import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {ILOVE20TokenErrors} from "../src/interfaces/ILOVE20Token.sol";
 
+interface Vm {
+    struct Log {
+        bytes32[] topics;
+        bytes data;
+        address emitter;
+    }
+
+    function recordLogs() external;
+    function getRecordedLogs() external returns (Log[] memory logs);
+}
+
 contract TokenCaller {
     function mint(LOVE20Token token, address to, uint256 amount) external {
         token.mint(to, amount);
@@ -22,6 +33,7 @@ contract TokenCaller {
 }
 
 contract LOVE20TokenTest {
+    Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
     /// 父币地址只作为构造参数保存，代币本体不再与父币发生任何转账
     address private PARENT;
     LOVE20Token private token;
@@ -51,6 +63,38 @@ contract LOVE20TokenTest {
         require(token.maxSupply() == 150 ether, "max supply");
         require(token.minter() == address(minter), "minter");
         require(token.parentTokenAddress() == PARENT, "parent");
+    }
+
+    function testTokenMintedAndTokenBurnedEvents() public {
+        vm.recordLogs();
+        minter.mint(token, address(this), 1 ether);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 mintedTopic = keccak256("TokenMinted(address,uint256)");
+        bool minted;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(token) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != mintedTopic) continue;
+            require(logs[i].topics.length == 2, "to is indexed");
+            require(logs[i].topics[1] == bytes32(uint256(uint160(address(this)))), "event to");
+            require(abi.decode(logs[i].data, (uint256)) == 1 ether, "event amount");
+            minted = true;
+        }
+        require(minted, "missing TokenMinted");
+
+        vm.recordLogs();
+        token.burn(1 ether);
+        logs = vm.getRecordedLogs();
+        bytes32 burnedTopic = keccak256("TokenBurned(address,uint256)");
+        bool burned;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(token) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != burnedTopic) continue;
+            require(logs[i].topics.length == 2, "from is indexed");
+            require(logs[i].topics[1] == bytes32(uint256(uint160(address(this)))), "event from");
+            require(abi.decode(logs[i].data, (uint256)) == 1 ether, "event amount");
+            burned = true;
+        }
+        require(burned, "missing TokenBurned");
     }
 
     function testMinterCanMintUpToMaxSupply() public {

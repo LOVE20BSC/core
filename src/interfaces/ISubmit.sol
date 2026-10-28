@@ -30,6 +30,10 @@ struct SubmitInfo {
 interface ISubmitErrors {
     error AlreadyInitialized();
     error TitleEmpty();
+    error TitleTooLong(uint256 length, uint256 maxLength);
+    error DetailsTooLong(uint256 length, uint256 maxLength);
+    error TargetDataTooMany(uint256 count, uint256 maxCount);
+    error TargetDataTooLarge(uint256 totalLength, uint256 maxLength);
     error ZeroTargetAddress();
     error CallbackTargetNotContract(address target);
     error NotMemberOwner(uint256 memberId);
@@ -43,15 +47,15 @@ interface ISubmitErrors {
     error MemberAlreadySubmitted(address tokenAddress, uint256 round, uint256 memberId);
 }
 interface ISubmitEvents {
-    // Events
     event ProposalCreated(
         address indexed tokenAddress,
         uint256 indexed proposalId,
-        uint256 indexed author,
-        string title,
-        string details,
+        uint256 indexed authorId,
         address target,
-        TargetMode targetMode
+        TargetMode targetMode,
+        bytes[] targetData,
+        string title,
+        string details
     );
 
     event ProposalSubmitted(
@@ -68,6 +72,10 @@ interface ISubmit is ISubmitErrors, ISubmitEvents {
     function memberNFTAddress() external view returns (address);
 
     function SUBMIT_MIN_RATIO() external view returns (uint256);
+    function MAX_TITLE_LENGTH() external view returns (uint256);
+    function MAX_DETAILS_LENGTH() external view returns (uint256);
+    function MAX_TARGET_DATA_BYTES() external view returns (uint256);
+    function MAX_TARGET_DATA_COUNT() external view returns (uint256);
 
     function initialized() external view returns (bool);
 

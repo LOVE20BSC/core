@@ -15,6 +15,11 @@ contract Submit is ISubmit {
 
     uint256 private constant _SUBMIT_ROUND_LIMIT = 1000;
 
+    uint256 public constant MAX_TITLE_LENGTH = 1024;
+    uint256 public constant MAX_DETAILS_LENGTH = 1024;
+    uint256 public constant MAX_TARGET_DATA_BYTES = 16 * 1024;
+    uint256 public constant MAX_TARGET_DATA_COUNT = 16;
+
     bool public initialized;
     address public phaseAddress;
     address public stakeAddress;
@@ -214,7 +219,25 @@ contract Submit is ISubmit {
     }
 
     function _validateProposalBody(ProposalBody calldata proposalBody) internal view {
-        if (bytes(proposalBody.title).length == 0) revert TitleEmpty();
+        uint256 titleLength = bytes(proposalBody.title).length;
+        if (titleLength == 0) revert TitleEmpty();
+        if (titleLength > MAX_TITLE_LENGTH) revert TitleTooLong(titleLength, MAX_TITLE_LENGTH);
+
+        uint256 detailsLength = bytes(proposalBody.details).length;
+        if (detailsLength > MAX_DETAILS_LENGTH) revert DetailsTooLong(detailsLength, MAX_DETAILS_LENGTH);
+
+        uint256 targetDataCount = proposalBody.targetData.length;
+        if (targetDataCount > MAX_TARGET_DATA_COUNT) {
+            revert TargetDataTooMany(targetDataCount, MAX_TARGET_DATA_COUNT);
+        }
+        uint256 targetDataBytes = 0;
+        for (uint256 i = 0; i < targetDataCount; ++i) {
+            targetDataBytes += proposalBody.targetData[i].length;
+        }
+        if (targetDataBytes > MAX_TARGET_DATA_BYTES) {
+            revert TargetDataTooLarge(targetDataBytes, MAX_TARGET_DATA_BYTES);
+        }
+
         if (proposalBody.target == address(0)) revert ZeroTargetAddress();
         if (proposalBody.targetMode == TargetMode.Callback && proposalBody.target.code.length == 0) {
             revert CallbackTargetNotContract(proposalBody.target);
@@ -239,11 +262,12 @@ contract Submit is ISubmit {
         emit ProposalCreated({
             tokenAddress: tokenAddress,
             proposalId: proposalId,
-            author: memberId,
-            title: proposalBody.title,
-            details: proposalBody.details,
+            authorId: memberId,
             target: proposalBody.target,
-            targetMode: proposalBody.targetMode
+            targetMode: proposalBody.targetMode,
+            targetData: proposalBody.targetData,
+            title: proposalBody.title,
+            details: proposalBody.details
         });
 
         return proposalId;

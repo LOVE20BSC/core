@@ -3,13 +3,24 @@ pragma solidity =0.8.37;
 
 import {Mint} from "../src/Mint.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
-import {IMintErrors, IMintEvents, BurnReason} from "../src/interfaces/IMint.sol";
+import {IMintErrors, BurnReason} from "../src/interfaces/IMint.sol";
 import {ISubmitErrors, TargetMode} from "../src/interfaces/ISubmit.sol";
 import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 interface MintVm {
+    struct Log {
+        bytes32[] topics;
+        bytes data;
+        address emitter;
+    }
+
     function expectEmit(bool, bool, bool, bool) external;
+
     function prank(address sender) external;
+
+    function recordLogs() external;
+
+    function getRecordedLogs() external returns (Log[] memory);
 }
 
 /// @title MintEvents - Comprehensive event verification tests
@@ -20,6 +31,8 @@ contract MintEventsTest {
     Mint mint;
     LOVE20Token token;
     address constant TARGET = address(0x1234);
+    bool zeroBoost;
+    uint256 issuedCount;
 
     event RewardPrepared(
         address indexed tokenAddress,
@@ -31,13 +44,12 @@ contract MintEventsTest {
         uint256 rewardBurned
     );
 
-    event GovernanceRewardMinted(
+    event GovRewardMinted(
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 indexed memberId,
         uint256 voteReward,
-        uint256 boostReward,
-        uint256 burnReward
+        uint256 boostReward
     );
 
     event ProposalRewardMinted(
@@ -53,6 +65,14 @@ contract MintEventsTest {
         uint256 indexed round,
         uint256 amount,
         BurnReason reason
+    );
+
+    event LaunchCountAdded(
+        address indexed tokenAddress,
+        uint256 indexed memberId,
+        uint256 count,
+        uint256 issuedCount,
+        uint256 memberRemaining
     );
 
     function setUp() public {
@@ -110,13 +130,14 @@ contract MintEventsTest {
         }
     }
 
-    function stakedAmountOfVoters(address, uint256) external pure returns (uint256) {
-        return 5000;
+    function stakedAmountOfVoters(address, uint256) external view returns (uint256) {
+        return zeroBoost ? 0 : 5000;
     }
 
+    // 30% of the boost pool against 20% of the vote pool, so `voteReward` and `boostReward` differ.
     function stakedAmountOfVotersByMemberId(address, uint256, uint256 id) external pure returns (uint256) {
         if (id == 0) return 0;
-        return 1000;
+        return 1500;
     }
 
     function proposalTarget(address, uint256 id) external pure returns (address, TargetMode) {
@@ -124,12 +145,14 @@ contract MintEventsTest {
         return (TARGET, TargetMode.NoCallback);
     }
 
-    function addLaunchCount(address, uint256, uint256) external view {
+    function addLaunchCount(address tokenAddress, uint256 memberId, uint256 count) external {
         require(msg.sender == address(mint));
+        issuedCount += count;
+        emit LaunchCountAdded(tokenAddress, memberId, count, issuedCount, count);
     }
 
-    function issuedLaunchCount(address) external pure returns (uint256) {
-        return 0;
+    function issuedLaunchCount(address) external view returns (uint256) {
+        return issuedCount;
     }
 
     function MAX_LAUNCH_COUNT() external pure returns (uint256) {
@@ -160,10 +183,11 @@ contract MintEventsTest {
         mint.mintGovReward(address(token), 1, round, address(this));
     }
 
-    /// @notice Verify GovernanceRewardMinted event with exact amounts
-    function testEvent_GovernanceRewardMintedEmitsCorrectFields() public {
+    /// @notice Verify GovRewardMinted event with exact amounts
+    function testEvent_GovRewardMintedEmitsCorrectFields() public {
         uint256 round = 1;
-        uint256 memberId = 1;
+        // A member id above 1 keeps `round` and `memberId` distinguishable.
+        uint256 memberId = 2;
 
 
         (uint256 voteReward, uint256 boostReward, uint256 burnReward,) =
@@ -178,15 +202,14 @@ contract MintEventsTest {
             emit RewardBurned(address(token), round, burnReward, BurnReason.BoostOverflow);
         }
 
-        // Then expect GovernanceRewardMinted
+        // Then expect GovRewardMinted
         vm.expectEmit(true, true, true, true);
-        emit GovernanceRewardMinted(
+        emit GovRewardMinted(
             address(token),
             round,
             memberId,
             voteReward,
-            boostReward,
-            burnReward
+            boostReward
         );
 
         mint.mintGovReward(address(token), memberId, round, address(this));
@@ -195,7 +218,8 @@ contract MintEventsTest {
     /// @notice Verify ProposalRewardMinted event with exact amount and target
     function testEvent_ProposalRewardMintedEmitsCorrectFields() public {
         uint256 round = 1;
-        uint256 proposalId = 1;
+        // A proposal id above 1 keeps `round` and `proposalId` distinguishable.
+        uint256 proposalId = 2;
 
 
         (uint256 amount,) = mint.proposalRewardByProposalId(address(token), round, proposalId);
@@ -213,69 +237,11 @@ contract MintEventsTest {
         mint.mintProposalReward(address(token), round, proposalId, TARGET);
     }
 
-    /// @notice Verify RewardBurned event for boost overflow
-    function testEvent_RewardBurnedForBoostOverflow() public {
-        // Create scenario with boost overflow
-        MockVoteWithHighBoost mockVote = new MockVoteWithHighBoost();
-        Mint mint2 = new Mint();
-        mint2.init(
-            address(this),
-            address(mockVote),
-            address(this),
-            address(this),
-            5e16,
-            1e17,
-            1e17,
-            2
-        );
-
-        LOVE20Token token2 = new LOVE20Token("Test2", "TS2", 10000, 1000000, address(this), address(mint2), address(this));
-
-
-        (uint256 voteReward, uint256 boostReward, uint256 burnReward,) = mint2.govRewardByMemberId(address(token2), 1, 1);
-
-        // Skip if no reward or no burn
-        if (voteReward == 0 && boostReward == 0) return;
-        if (burnReward == 0) return;
-
-        vm.expectEmit(true, true, false, true);
-        emit RewardBurned(
-            address(token2),
-            1,
-            burnReward,
-            BurnReason.BoostOverflow
-        );
-
-        mint2.mintGovReward(address(token2), 1, 1, address(this));
-    }
-
-    /// @notice Verify RewardBurned event for cancelled boost pool
-    function testEvent_RewardBurnedForCancelledBoostPool() public pure {
-        // MintEventsTest's stakedAmountOfVoters returns 5000, not 0
-        // Need to verify that matt-gov version has different mock behavior
-        // This test validates the state-based verification approach
-
-        // For now, skip this test as the test contract's mock returns non-zero boost
-        // The real scenario is tested in matt-gov/test/MintEvents.t.sol
-        return;
-    }
-
     function assertEq(uint256 a, uint256 b, string memory message) internal pure {
         require(a == b, message);
     }
 
-    /// @notice Verify RewardBurned event for cancelled proposal pool
-    function testEvent_RewardBurnedForCancelledProposalPool() public pure {
-        // MintEventsTest's votesNumByProposalId returns 600, not 40
-        // Need to verify that matt-gov version has different mock behavior
-        // This test validates the state-based verification approach
-
-        // For now, skip this test as the test contract's mock returns eligible proposals
-        // The real scenario is tested in matt-gov/test/MintEvents.t.sol
-        return;
-    }
-
-    /// @notice Verify batch minting emits multiple GovernanceRewardMinted events
+    /// @notice Verify batch minting emits multiple GovRewardMinted events
     function testEvent_BatchMintEmitsMultipleEvents() public {
         uint256 memberId = 1;
         uint256[] memory rounds = new uint256[](3);
@@ -300,7 +266,7 @@ contract MintEventsTest {
         }
 
         vm.expectEmit(true, true, true, true);
-        emit GovernanceRewardMinted(address(token), 1, memberId, voteReward1, boostReward1, burnReward1);
+        emit GovRewardMinted(address(token), 1, memberId, voteReward1, boostReward1);
 
         // Note: Cannot verify all 3 events in one call with current tooling
         // This demonstrates the pattern for the first event
@@ -321,63 +287,126 @@ contract MintEventsTest {
         assertEq(mint.rewardMinted(address(token)), settled, "minted ledger");
         assertEq(token.balanceOf(TARGET), settled, "tokens held by the recipient");
     }
-}
 
-/// @notice Mock Vote with high boost causing overflow
-contract MockVoteWithHighBoost {
-    function isRoundEnded(uint256) external pure returns (bool) { return true; }
-    function votesNum(address, uint256) external pure returns (uint256) { return 1000; }
-    function votesNumByMemberId(address, uint256, uint256) external pure returns (uint256) { return 200; }
-    function votesNumByProposalId(address, uint256, uint256 id) external pure returns (uint256) {
-        if (id == 0 || id > 3) return 0;
-        return 600;
-    }
-    function votedProposalIds(address, uint256, uint256, uint256 limit, bool)
-        external pure returns (uint256[] memory ids, uint256 total) {
-        total = 3;
-        ids = new uint256[](limit > 3 ? 3 : limit);
-        for (uint256 i = 0; i < ids.length; i++) { ids[i] = i + 1; }
-    }
-    function stakedAmountOfVoters(address, uint256) external pure returns (uint256) { return 5000; }
-    function stakedAmountOfVotersByMemberId(address, uint256, uint256) external pure returns (uint256) { return 4000; }
-}
+    /// @notice 取消池燃烧必须先于奖池准备（依赖序），累计 `rewardBurned` 必须等于折叠值
+    function testEvent_RewardBurnedPrecedesRewardPrepared() public {
+        zeroBoost = true;
 
-/// @notice Mock Vote with zero boost
-contract MockVoteWithZeroBoost {
-    function isRoundEnded(uint256) external pure returns (bool) { return true; }
-    function votesNum(address, uint256) external pure returns (uint256) { return 1000; }
-    function votesNumByMemberId(address, uint256, uint256) external pure returns (uint256) { return 200; }
-    function votesNumByProposalId(address, uint256, uint256 id) external pure returns (uint256) {
-        if (id == 0 || id > 3) return 0;
-        return 40; // Below threshold, so eligibleVotes = 0, proposal pool burned
-    }
-    function votedProposalIds(address, uint256, uint256, uint256 limit, bool)
-        external pure returns (uint256[] memory ids, uint256 total) {
-        total = 3;
-        ids = new uint256[](limit > 3 ? 3 : limit);
-        for (uint256 i = 0; i < ids.length; i++) { ids[i] = i + 1; }
-    }
-    function stakedAmountOfVoters(address, uint256) external pure returns (uint256) { return 0; }
-    function stakedAmountOfVotersByMemberId(address, uint256, uint256) external pure returns (uint256) { return 0; }
-}
+        vm.recordLogs();
+        mint.mintGovReward(address(token), 1, 1, address(this));
 
-/// @notice Mock Vote with zero boost only (eligible proposals exist)
-contract MockVoteWithZeroBoostOnly {
-    function isRoundEnded(uint256) external pure returns (bool) { return true; }
-    function votesNum(address, uint256) external pure returns (uint256) { return 1000; }
-    function votesNumByMemberId(address, uint256, uint256) external pure returns (uint256) { return 200; }
-    function votesNumByProposalId(address, uint256, uint256 id) external pure returns (uint256) {
-        if (id == 0 || id > 3) return 0;
-        return 600; // Above threshold
+        (uint256 burnedIndex, uint256 preparedIndex, uint256 burnedTotal, uint256 cumulative) =
+            _scanRewardLogs(vm.getRecordedLogs());
+
+        require(burnedIndex != type(uint256).max, "missing RewardBurned");
+        require(preparedIndex != type(uint256).max, "missing RewardPrepared");
+        require(burnedIndex < preparedIndex, "burn must precede prepare");
+        require(burnedTotal > 0, "burn amount");
+        assertEq(cumulative, burnedTotal, "rewardBurned equals folded burns");
     }
-    function votedProposalIds(address, uint256, uint256, uint256 limit, bool)
-        external pure returns (uint256[] memory ids, uint256 total) {
-        total = 3;
-        ids = new uint256[](limit > 3 ? 3 : limit);
-        for (uint256 i = 0; i < ids.length; i++) { ids[i] = i + 1; }
+
+    /// @notice 跨轮累计：每轮 `RewardPrepared.rewardBurned` 等于此前全部 `RewardBurned` 之和
+    function testEvent_RewardPreparedCumulativeMatchesFoldedBurns() public {
+        zeroBoost = true;
+        uint256 foldedBurned;
+
+        for (uint256 round = 1; round <= 2; ++round) {
+            vm.recordLogs();
+            mint.mintGovReward(address(token), 1, round, address(this));
+
+            (, uint256 preparedIndex, uint256 burnedThisRound, uint256 cumulative) =
+                _scanRewardLogs(vm.getRecordedLogs());
+            require(preparedIndex != type(uint256).max, "missing RewardPrepared");
+
+            foldedBurned += burnedThisRound;
+            assertEq(cumulative, foldedBurned, "cumulative rewardBurned");
+        }
     }
-    function stakedAmountOfVoters(address, uint256) external pure returns (uint256) { return 0; }
-    function stakedAmountOfVotersByMemberId(address, uint256, uint256) external pure returns (uint256) { return 0; }
+
+    /// @notice 跨轮累计：每轮 `RewardPrepared.rewardReserved` 等于此前全部 (govReward + proposalReward) 之和
+    function testEvent_RewardPreparedReservedMatchesFold() public {
+        uint256 foldedReserved;
+
+        for (uint256 round = 1; round <= 2; ++round) {
+            vm.recordLogs();
+            mint.mintGovReward(address(token), 1, round, address(this));
+
+            (uint256 govReward, uint256 proposalReward, uint256 reserved) =
+                _scanPreparedReserved(vm.getRecordedLogs());
+            foldedReserved += govReward + proposalReward;
+            assertEq(reserved, foldedReserved, "cumulative rewardReserved");
+        }
+    }
+
+    /// 依赖序：`TokenMinted` 与 `LaunchCountAdded` 都先于依赖它们的 `GovRewardMinted`。
+    function testEvent_LaunchCountAddedPrecedesGovRewardMinted() public {
+        vm.recordLogs();
+        mint.mintGovReward(address(token), 1, 1, address(this));
+
+        MintVm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 mintTopic = keccak256("TokenMinted(address,uint256)");
+        bytes32 launchTopic = keccak256("LaunchCountAdded(address,uint256,uint256,uint256,uint256)");
+        bytes32 govTopic = keccak256("GovRewardMinted(address,uint256,uint256,uint256,uint256)");
+        uint256 mintIndex = type(uint256).max;
+        uint256 launchIndex = type(uint256).max;
+        uint256 govIndex = type(uint256).max;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics.length == 0) continue;
+            if (logs[i].emitter == address(token) && logs[i].topics[0] == mintTopic) mintIndex = i;
+            if (logs[i].topics[0] == launchTopic) launchIndex = i;
+            if (logs[i].emitter == address(mint) && logs[i].topics[0] == govTopic) govIndex = i;
+        }
+
+        require(mintIndex != type(uint256).max, "missing TokenMinted");
+        require(launchIndex != type(uint256).max, "missing LaunchCountAdded");
+        require(govIndex != type(uint256).max, "missing GovRewardMinted");
+        require(mintIndex < govIndex, "token mint precedes gov reward");
+        require(launchIndex < govIndex, "launch count precedes gov reward");
+    }
+
+    /// @dev 折叠 `RewardPrepared`：(govReward, proposalReward, eligibleVotes, rewardReserved, rewardBurned)
+    function _scanPreparedReserved(MintVm.Log[] memory logs)
+        private
+        view
+        returns (uint256 govReward, uint256 proposalReward, uint256 reserved)
+    {
+        bytes32 preparedTopic =
+            keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256,uint256)");
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(mint) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != preparedTopic) continue;
+            (govReward, proposalReward,, reserved,) =
+                abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256));
+            found = true;
+        }
+        require(found, "missing RewardPrepared");
+    }
+
+    function _scanRewardLogs(MintVm.Log[] memory logs)
+        private
+        view
+        returns (uint256 burnedIndex, uint256 preparedIndex, uint256 burnedTotal, uint256 cumulative)
+    {
+        bytes32 burnedTopic = keccak256("RewardBurned(address,uint256,uint256,uint8)");
+        bytes32 preparedTopic =
+            keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256,uint256)");
+        burnedIndex = type(uint256).max;
+        preparedIndex = type(uint256).max;
+
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(mint) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] == burnedTopic) {
+                (uint256 amount,) = abi.decode(logs[i].data, (uint256, uint256));
+                burnedTotal += amount;
+                if (burnedIndex == type(uint256).max) burnedIndex = i;
+            } else if (logs[i].topics[0] == preparedTopic) {
+                (, , , , cumulative) =
+                    abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256));
+                preparedIndex = i;
+            }
+        }
+    }
 }
 
 /// @notice Mock Vote with no eligible proposals

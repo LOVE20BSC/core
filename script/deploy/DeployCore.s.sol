@@ -28,6 +28,9 @@ interface IUniswapV2RouterWeth {
 contract DeployCore is Script {
     // Uniswap V2 池费率 0.30%，按 1e18 精度换算；手续费结算比例不得超过可提取的费率本身。
     uint256 internal constant MAX_FEE_SETTLEMENT_RATIO = 3e15;
+    // 与 Launch.MAX_TOKEN_SYMBOL_LENGTH 同源：子币符号加 "Test" 前缀（4 字节）后仍不得超上限。
+    uint256 internal constant MAX_TOKEN_SYMBOL_LENGTH = 32;
+    uint256 internal constant TEST_PREFIX_BYTES = 4;
 
     struct DeploymentAddresses {
         address token;
@@ -138,6 +141,10 @@ contract DeployCore is Script {
         require(config.launchRatio != 0 && config.launchRatio <= 1e18, "Launch ratio out of range");
         require(config.maxLaunchCount != 0, "Max launch count must be nonzero");
         require(config.tokenSymbolLength != 0, "Token symbol length must be nonzero");
+        require(
+            config.tokenSymbolLength + TEST_PREFIX_BYTES <= MAX_TOKEN_SYMBOL_LENGTH,
+            "Token symbol length leaves no room for the Test prefix"
+        );
         require(
             config.initialSupply != 0 && config.initialSupply <= config.maxSupply, "Initial supply out of range"
         );

@@ -8,9 +8,6 @@ interface IPhaseErrors {
 interface IPhaseEvents {
     event PhaseSynchronized(
         uint256 indexed phase,
-        uint256 blockNumber,
-        uint256 timestamp,
-        bool adjusted,
         uint256 phaseBlocks
     );
     event PhaseAdjusted(

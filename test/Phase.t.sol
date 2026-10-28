@@ -63,8 +63,23 @@ contract PhaseTest {
 
         vm.roll(origin + PHASE_BLOCKS + 1);
         vm.warp(timestamp + 1000);
+        vm.recordLogs();
         (adjusted, length) = phase.sync();
         require(adjusted && length > PHASE_BLOCKS);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 adjustedTopic = keccak256("PhaseAdjusted(uint256,uint256,uint256)");
+        bool foundAdjusted;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(phase) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != adjustedTopic) continue;
+            require(logs[i].topics.length == 2, "one indexed argument");
+            require(logs[i].topics[1] == bytes32(uint256(3)), "effective phase");
+            (uint256 oldPhaseBlocks, uint256 newPhaseBlocks) = abi.decode(logs[i].data, (uint256, uint256));
+            require(oldPhaseBlocks == PHASE_BLOCKS, "old phase blocks");
+            require(newPhaseBlocks == length, "new phase blocks");
+            foundAdjusted = true;
+        }
+        require(foundAdjusted, "missing PhaseAdjusted");
         require(_observationsCount(phase) == 2);
         require(phase.phaseAtBlock(origin + PHASE_BLOCKS) == 2);
         (uint256 start, uint256 phaseLength) = phase.phaseInfo(2);
@@ -168,6 +183,23 @@ contract PhaseTest {
         vm.recordLogs();
         phase.sync();
         require(vm.getRecordedLogs().length == 0);
+    }
+
+    function testPhaseSynchronizedCarriesOnlyPhaseAndBlocks() external {
+        uint256 origin = block.number + 1;
+        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT);
+        vm.roll(origin);
+        vm.warp(block.timestamp + 1000);
+
+        vm.recordLogs();
+        phase.sync();
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        require(logs.length == 1, "one synchronization event");
+        require(logs[0].topics.length == 2, "only phase is indexed");
+        require(logs[0].topics[0] == keccak256("PhaseSynchronized(uint256,uint256)"), "event signature");
+        require(logs[0].topics[1] == bytes32(uint256(1)), "event phase");
+        require(abi.decode(logs[0].data, (uint256)) == PHASE_BLOCKS, "event phase blocks");
     }
 
     function testObservationPaginationBounds() external {

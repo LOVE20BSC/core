@@ -265,53 +265,58 @@ contract Vote is IVote {
         }
 
         // Update boost snapshot: check and add delta if member staked more
-        uint256 currentBoost = _stakedBoostOfVotersByMemberId[tokenAddress][round][memberId];
-        // forge-lint: disable-next-line(calls-loop, unused-return)
-        uint256 actualBoost = IStake(_stakeAddress).cumulatedBoostShares(tokenAddress, round, memberId);
+        {
+            uint256 currentBoost = _stakedBoostOfVotersByMemberId[tokenAddress][round][memberId];
+            // forge-lint: disable-next-line(calls-loop, unused-return)
+            uint256 actualBoost = IStake(_stakeAddress).cumulatedBoostShares(tokenAddress, round, memberId);
 
-        if (currentBoost == 0) {
-            // First vote in this round: record snapshot
-            _stakedBoostOfVotersByMemberId[tokenAddress][round][memberId] = actualBoost;
-            _stakedBoostOfVoters[tokenAddress][round] += actualBoost;
-        } else if (actualBoost > currentBoost) {
-            // Member staked more: record delta
-            uint256 delta = actualBoost - currentBoost;
-            _stakedBoostOfVotersByMemberId[tokenAddress][round][memberId] = actualBoost;
-            _stakedBoostOfVoters[tokenAddress][round] += delta;
-        }
-
-        bool isNewProposal = _votesNumByMemberIdByProposalId[tokenAddress][round][memberId][proposalId] == 0;
-
-        _votesNum[tokenAddress][round] += votes;
-        _votesNumByProposalId[tokenAddress][round][proposalId] += votes;
-        _votesNumByMemberId[tokenAddress][round][memberId] += votes;
-        _votesNumByMemberIdByProposalId[tokenAddress][round][memberId][proposalId] += votes;
-
-        if (isNewProposal) {
-            if (_votesNumByProposalId[tokenAddress][round][proposalId] == votes) {
-                _votedProposalIds[tokenAddress][round].push(proposalId);
+            if (currentBoost == 0) {
+                // First vote in this round: record snapshot
+                _stakedBoostOfVotersByMemberId[tokenAddress][round][memberId] = actualBoost;
+                _stakedBoostOfVoters[tokenAddress][round] += actualBoost;
+            } else if (actualBoost > currentBoost) {
+                // Member staked more: record delta
+                uint256 delta = actualBoost - currentBoost;
+                _stakedBoostOfVotersByMemberId[tokenAddress][round][memberId] = actualBoost;
+                _stakedBoostOfVoters[tokenAddress][round] += delta;
             }
-            _votedProposalIdsByMemberId[tokenAddress][round][memberId].push(proposalId);
-            _voterIdsByProposalId[tokenAddress][round][proposalId].push(memberId);
         }
 
-        if (_votesNumByMemberId[tokenAddress][round][memberId] > maxVotes) {
-            // forge-lint: disable-next-item(require-revert-in-loop)
-            revert VoteLimitExceeded(
-                tokenAddress, round, memberId, _votesNumByMemberId[tokenAddress][round][memberId], maxVotes
-            );
+        {
+            bool isNewProposal = _votesNumByMemberIdByProposalId[tokenAddress][round][memberId][proposalId] == 0;
+
+            _votesNum[tokenAddress][round] += votes;
+            _votesNumByProposalId[tokenAddress][round][proposalId] += votes;
+            _votesNumByMemberId[tokenAddress][round][memberId] += votes;
+            _votesNumByMemberIdByProposalId[tokenAddress][round][memberId][proposalId] += votes;
+
+            if (isNewProposal) {
+                if (_votesNumByProposalId[tokenAddress][round][proposalId] == votes) {
+                    _votedProposalIds[tokenAddress][round].push(proposalId);
+                }
+                _votedProposalIdsByMemberId[tokenAddress][round][memberId].push(proposalId);
+                _voterIdsByProposalId[tokenAddress][round][proposalId].push(memberId);
+            }
+
+            if (_votesNumByMemberId[tokenAddress][round][memberId] > maxVotes) {
+                // forge-lint: disable-next-item(require-revert-in-loop)
+                revert VoteLimitExceeded(
+                    tokenAddress, round, memberId, _votesNumByMemberId[tokenAddress][round][memberId], maxVotes
+                );
+            }
         }
 
         // forge-lint: disable-next-item(reentrancy-events)
-        emit Voted({
+        emit VoteCast({
             tokenAddress: tokenAddress,
             round: round,
             voterId: memberId,
             proposalId: proposalId,
-            votes: votes
+            votes: votes,
+            voterBoost: _stakedBoostOfVotersByMemberId[tokenAddress][round][memberId],
+            totalVoterBoost: _stakedBoostOfVoters[tokenAddress][round]
         });
 
-        // Callback to proposal target if configured (after event emission to follow CEI pattern)
         // forge-lint: disable-next-item(calls-loop, reentrancy-events)
         (address target, TargetMode targetMode) = ISubmit(_submitAddress).proposalTarget(tokenAddress, proposalId);
 

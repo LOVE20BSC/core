@@ -38,6 +38,8 @@ contract Launch is ILaunch {
     uint256 public LAUNCH_AMOUNT;
     // maximum supply of every launched token
     uint256 public MAX_SUPPLY;
+    uint256 public constant MAX_TOKEN_SYMBOL_LENGTH = 32;
+    uint256 public constant MAX_TOKEN_NAME_LENGTH = 96;
     bool public initialized;
 
     modifier onlyMint() {
@@ -99,12 +101,10 @@ contract Launch is ILaunch {
         // MemberNFT is initialized with the first token in the same transaction; it does not store Launch.
         IMemberNFT(params.memberNFTAddress).init(firstToken);
 
-        // The first token address is known only after deployment, so this event follows the external call.
         // forge-lint: disable-next-item(reentrancy-events)
-        emit TokenLaunched({
+        emit GenesisTokenCreated({
             tokenAddress: firstToken,
             parentTokenAddress: params.rootParentTokenAddress,
-            launcherMemberId: 0,
             distributor: params.distributor,
             name: params.name,
             symbol: params.symbol
@@ -158,7 +158,14 @@ contract Launch is ILaunch {
         uint256 availableCount = _launchCount[parentTokenAddress][memberId];
         if (availableCount == 0) revert InsufficientLaunchCount(memberId, availableCount, 1);
 
-        _launchCount[parentTokenAddress][memberId] = availableCount - 1;
+        {
+            uint256 remainingCount = availableCount - 1;
+            _launchCount[parentTokenAddress][memberId] = remainingCount;
+
+            emit LaunchCountConsumed({
+                tokenAddress: parentTokenAddress, memberId: memberId, count: 1, remaining: remainingCount
+            });
+        }
 
         // Mainnet test support: a parent symbol starting with "Test" prefixes the sub-token symbol; a
         // root-level launch reads the first token instead, since the root parent symbol is shared across
@@ -183,13 +190,13 @@ contract Launch is ILaunch {
         _tokenAddressBySymbol[subTokenSymbol] = tokenAddress;
         _childTokens[parentTokenAddress].push(tokenAddress);
 
-        // The new token address is known only after deployment, so this event follows the external call.
         // forge-lint: disable-next-item(reentrancy-events)
         emit TokenLaunched({
             tokenAddress: tokenAddress,
             parentTokenAddress: parentTokenAddress,
             launcherMemberId: memberId,
             distributor: distributor,
+            distributorMode: distributorMode,
             name: tokenName,
             symbol: subTokenSymbol
         });
@@ -227,11 +234,18 @@ contract Launch is ILaunch {
         uint256 sourceCount = _launchCount[tokenAddress][sourceMemberId];
         if (sourceCount < count) revert InsufficientLaunchCount(sourceMemberId, sourceCount, count);
 
-        _launchCount[tokenAddress][sourceMemberId] = sourceCount - count;
-        _launchCount[tokenAddress][targetMemberId] += count;
+        uint256 sourceRemaining = sourceCount - count;
+        uint256 targetRemaining = _launchCount[tokenAddress][targetMemberId] + count;
+        _launchCount[tokenAddress][sourceMemberId] = sourceRemaining;
+        _launchCount[tokenAddress][targetMemberId] = targetRemaining;
 
         emit LaunchCountMerged({
-            tokenAddress: tokenAddress, sourceMemberId: sourceMemberId, targetMemberId: targetMemberId, count: count
+            tokenAddress: tokenAddress,
+            sourceMemberId: sourceMemberId,
+            targetMemberId: targetMemberId,
+            count: count,
+            sourceRemaining: sourceRemaining,
+            targetRemaining: targetRemaining
         });
     }
 
@@ -259,16 +273,11 @@ contract Launch is ILaunch {
             revert LaunchCountLimitExceeded(tokenAddress, count, MAX_LAUNCH_COUNT - issuedCount);
         }
 
-        _launchCount[tokenAddress][memberId] += count;
-        _issuedLaunchCount[tokenAddress] = issuedCount + count;
-
-        emit LaunchCountAdded({tokenAddress: tokenAddress, memberId: memberId, count: count});
+        _addLaunchCount(tokenAddress, memberId, count);
 
         // The first token's counts are mirrored 1:1 into the root-level ledger of the same member.
         if (tokenAddress == firstTokenAddress) {
-            _launchCount[rootParentTokenAddress][memberId] += count;
-            _issuedLaunchCount[rootParentTokenAddress] += count;
-            emit LaunchCountAdded({tokenAddress: rootParentTokenAddress, memberId: memberId, count: count});
+            _addLaunchCount(rootParentTokenAddress, memberId, count);
         }
     }
 
@@ -352,8 +361,14 @@ contract Launch is ILaunch {
         internal
         returns (address tokenAddress)
     {
-        if (bytes(name).length == 0) revert TokenNameEmpty();
-        if (bytes(symbol).length == 0) revert TokenSymbolEmpty();
+        uint256 nameLength = bytes(name).length;
+        if (nameLength == 0) revert TokenNameEmpty();
+        if (nameLength > MAX_TOKEN_NAME_LENGTH) revert TokenNameTooLong(nameLength, MAX_TOKEN_NAME_LENGTH);
+
+        uint256 symbolLength = bytes(symbol).length;
+        if (symbolLength == 0) revert TokenSymbolEmpty();
+        if (symbolLength > MAX_TOKEN_SYMBOL_LENGTH) revert TokenSymbolTooLong(symbolLength, MAX_TOKEN_SYMBOL_LENGTH);
+
         tokenAddress = address(
             new LOVE20Token(name, symbol, LAUNCH_AMOUNT, MAX_SUPPLY, distributor, mintAddress, parentTokenAddress)
         );
@@ -468,5 +483,22 @@ contract Launch is ILaunch {
             return string(abi.encodePacked("Test", tokenSymbol));
         }
         return tokenSymbol;
+    }
+
+    function _addLaunchCount(
+        address tokenAddress,
+        uint256 memberId,
+        uint256 count
+    ) private {
+        uint256 issuedCount = _issuedLaunchCount[tokenAddress] + count;
+        _issuedLaunchCount[tokenAddress] = issuedCount;
+        _launchCount[tokenAddress][memberId] += count;
+        emit LaunchCountAdded({
+            tokenAddress: tokenAddress,
+            memberId: memberId,
+            count: count,
+            issuedCount: issuedCount,
+            memberRemaining: _launchCount[tokenAddress][memberId]
+        });
     }
 }

@@ -1,0 +1,25 @@
+# Event -> family map, enforced by script/check-events.py.
+# Families and slot rules: matt-gov/docs/event-standards.md §6.1.
+TokenMinted core.token
+TokenBurned core.token
+GenesisTokenCreated core.registry
+TokenLaunched core.registry
+LaunchCountAdded core.registry
+LaunchCountMerged core.registry
+LaunchCountConsumed core.registry
+MemberMinted core.member
+RewardPrepared core.round
+GovRewardMinted core.round
+ProposalRewardMinted core.round
+RewardBurned core.round
+PhaseSynchronized core.phase
+PhaseAdjusted core.phase
+LiquidityStaked core.stake
+BoostStaked core.stake
+Unstaked core.stake
+StakeWithdrawn core.stake
+FeesSettled core.stake
+StakesMerged core.stake
+ProposalCreated core.proposal
+ProposalSubmitted core.proposal
+VoteCast core.proposal

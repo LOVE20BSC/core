@@ -86,6 +86,38 @@ contract MemberCaller {
     }
 }
 
+/// 在 `onERC721Received` 中重入 `mint`，用于锁定 E3 的重入交错行为。
+contract ReentrantMinter {
+    MemberNFT private immutable nft;
+    string private innerName;
+    uint256 public innerId;
+    bool private _reentered;
+
+    constructor(MemberNFT nft_) {
+        nft = nft_;
+    }
+
+    function arm(string calldata name) external {
+        innerName = name;
+    }
+
+    function approveToken(address token, uint256 amount) external {
+        IERC20(token).approve(address(nft), amount);
+    }
+
+    function mint(string calldata name) external returns (uint256 id, uint256 cost) {
+        return nft.mint(name);
+    }
+
+    function onERC721Received(address, address, uint256, bytes calldata) external returns (bytes4) {
+        if (!_reentered) {
+            _reentered = true;
+            (innerId,) = nft.mint(innerName);
+        }
+        return bytes4(keccak256("onERC721Received(address,address,uint256,bytes)"));
+    }
+}
+
 contract MemberNFTTest {
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -527,50 +559,115 @@ contract MemberNFTTest {
         require(page.length == 0, "reverse out of bounds empty page");
     }
 
-    function testMintAndHolderEvents() public {
+    function testMemberMintedAndTransferEvents() public {
         bob.mint(nft, "ccc");
 
         vm.recordLogs();
-        (uint256 id, uint256 cost) = alice.mint(nft, "alice");
+        (uint256 id, uint256 cost) = alice.mint(nft, "Alice");
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 mintTopic = keccak256("Mint(uint256,address,string,string,uint256)");
-        bytes32 addTopic = keccak256("AddHolder(address,uint256)");
+        bytes32 mintTopic = keccak256("MemberMinted(uint256,address,uint256,string,string)");
+        bytes32 transferTopic = keccak256("Transfer(address,address,uint256)");
         bool minted;
-        bool added;
+        bool mintTransfer;
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(nft) || logs[i].topics.length == 0) continue;
             if (logs[i].topics[0] == mintTopic) {
                 require(logs[i].topics[1] == bytes32(id), "mint id");
                 require(logs[i].topics[2] == bytes32(uint256(uint160(address(alice)))), "mint owner");
-                (string memory name, string memory normalized, uint256 eventCost) = abi.decode(
+                (uint256 eventCost, string memory name, string memory normalized) = abi.decode(
                     logs[i].data,
-                    (string, string, uint256)
+                    (uint256, string, string)
                 );
-                require(keccak256(bytes(name)) == keccak256("alice"), "mint name");
+                require(keccak256(bytes(name)) == keccak256("Alice"), "mint name");
                 require(keccak256(bytes(normalized)) == keccak256("alice"), "mint normalized name");
                 require(eventCost == cost, "mint cost");
                 minted = true;
-            } else if (logs[i].topics[0] == addTopic) {
-                require(logs[i].topics[1] == bytes32(uint256(uint160(address(alice)))), "add holder");
-                require(abi.decode(logs[i].data, (uint256)) == 2, "add holder total");
-                added = true;
+            } else if (
+                logs[i].topics[0] == transferTopic && logs[i].topics[1] == bytes32(0)
+                    && logs[i].topics[2] == bytes32(uint256(uint160(address(alice))))
+            ) {
+                mintTransfer = true;
             }
         }
-        require(minted && added, "missing mint or add holder event");
+        require(minted, "missing MemberMinted event");
+        require(mintTransfer, "mint must emit the ERC721 transfer");
+        require(
+            _countLogs(logs, address(nft), keccak256("AddHolder(address,uint256)")) == 0, "AddHolder removed"
+        );
+        require(
+            _countLogs(logs, address(nft), keccak256("RemoveHolder(address,uint256)")) == 0, "RemoveHolder removed"
+        );
 
         vm.recordLogs();
         alice.transferNft(nft, address(bob), id);
         logs = vm.getRecordedLogs();
-        bytes32 removeTopic = keccak256("RemoveHolder(address,uint256)");
-        bool removed;
+        bool transferred;
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(nft) || logs[i].topics.length == 0) continue;
-            if (logs[i].topics[0] != removeTopic) continue;
-            require(logs[i].topics[1] == bytes32(uint256(uint160(address(alice)))), "remove holder");
-            require(abi.decode(logs[i].data, (uint256)) == 1, "remove holder total");
-            removed = true;
+            if (logs[i].topics[0] != transferTopic) continue;
+            require(logs[i].topics[1] == bytes32(uint256(uint160(address(alice)))), "transfer from");
+            require(logs[i].topics[2] == bytes32(uint256(uint160(address(bob)))), "transfer to");
+            transferred = true;
         }
-        require(removed, "missing remove holder event");
+        require(transferred, "missing ERC721 transfer");
+        require(
+            _countLogs(logs, address(nft), keccak256("RemoveHolder(address,uint256)")) == 0, "RemoveHolder removed"
+        );
+    }
+
+    /// E3：接收方在 `onERC721Received` 中重入 `mint`，日志顺序不保证等于 id 顺序，
+    /// 但每个 `MemberMinted` 的 id / owner / name 仍是正确的铸造事实。
+    function testMintReentrancyInterleavesEventsButKeepsFacts() public {
+        ReentrantMinter minter = new ReentrantMinter(nft);
+        require(token.transfer(address(minter), 10 ether), "fund minter");
+        minter.approveToken(address(token), type(uint256).max);
+        minter.arm("inner");
+
+        vm.recordLogs();
+        (uint256 outerId, uint256 outerCost) = minter.mint("outer");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        uint256 innerId = minter.innerId();
+        require(outerId == 1, "outer id");
+        require(innerId == 2, "inner id");
+
+        require(keccak256(bytes(nft.nameOf(outerId))) == keccak256("outer"), "outer name");
+        require(keccak256(bytes(nft.nameOf(innerId))) == keccak256("inner"), "inner name");
+        require(nft.idOf("inner") == innerId, "inner normalized lookup");
+        require(nft.idOf("outer") == outerId, "outer normalized lookup");
+        require(nft.ownerOf(outerId) == address(minter), "outer owner");
+        require(nft.ownerOf(innerId) == address(minter), "inner owner");
+
+        bytes32 mintTopic = keccak256("MemberMinted(uint256,address,uint256,string,string)");
+        uint256 firstIdSeen;
+        uint256 secondIdSeen;
+        uint256 mintedCount;
+        uint256 burnedSum;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(nft) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != mintTopic) continue;
+            if (mintedCount == 0) firstIdSeen = uint256(logs[i].topics[1]);
+            if (mintedCount == 1) secondIdSeen = uint256(logs[i].topics[1]);
+            require(
+                logs[i].topics[2] == bytes32(uint256(uint160(address(minter)))), "mint recipient is the minter"
+            );
+            (uint256 eventCost,,) = abi.decode(logs[i].data, (uint256, string, string));
+            burnedSum += eventCost;
+            ++mintedCount;
+        }
+
+        require(mintedCount == 2, "two mint facts");
+        require(firstIdSeen == innerId && secondIdSeen == outerId, "inner mint fact logged first");
+        require(burnedSum == nft.totalBurnedForMint(), "burned total folds");
+        require(outerCost > 0, "outer cost");
+    }
+
+    function _countLogs(Vm.Log[] memory logs, address emitter, bytes32 topic0) private pure returns (uint256 count) {
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter == emitter && logs[i].topics.length != 0 && logs[i].topics[0] == topic0) {
+                count += 1;
+            }
+        }
     }
 
     // ============ Helpers ============

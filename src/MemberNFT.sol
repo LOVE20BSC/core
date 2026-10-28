@@ -113,14 +113,13 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
 
         _safeMint(memberOwner, id);
 
-        // Keep this event after _safeMint to preserve the established event order; failures revert atomically.
         // forge-lint: disable-next-item(reentrancy-events)
-        emit Mint({
-            id: id,
+        emit MemberMinted({
+            memberId: id,
             owner: memberOwner,
+            cost: mintCost,
             name: name,
-            normalizedName: normalizedName,
-            cost: mintCost
+            normalizedName: normalizedName
         });
 
         return id;
@@ -252,8 +251,6 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         uint256 index = _allHolders.length;
         _allHolders.push(holder);
         _holderIndex[holder] = index; // 0-based index
-
-        emit AddHolder({holder: holder, totalHolders: _allHolders.length});
     }
 
     /**
@@ -271,8 +268,6 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         }
         _allHolders.pop();
         delete _holderIndex[holder];
-
-        emit RemoveHolder({holder: holder, totalHolders: _allHolders.length});
     }
 
     function _update(
