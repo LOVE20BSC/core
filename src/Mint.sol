@@ -576,7 +576,7 @@ contract Mint is IMint {
         }
 
         // forge-lint: disable-next-line(reentrancy-events)
-        emit GovRewardMinted(tokenAddress, round, memberId, voteReward, boostReward);
+        emit GovRewardMinted(tokenAddress, round, memberId, voteReward, boostReward, burnReward);
 
         return (voteReward, boostReward, burnReward);
     }

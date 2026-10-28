@@ -370,6 +370,21 @@ contract StakeTest {
         );
     }
 
+    function _validGovVotes(address tokenAddress, uint256 memberId) internal view returns (uint256) {
+        return stake.validGovVotes(tokenAddress, phase.currentPhase(), memberId);
+    }
+
+    function _totalValidGovVotes(address tokenAddress) internal view returns (uint256) {
+        return stake.totalValidGovVotes(tokenAddress, phase.currentPhase());
+    }
+
+    /// @dev `StakeWithdrawn` payload order: promisedWaitingPhases, liquidityShares, the two token
+    ///      amounts, boostShares, lpBurned, lpToMember, totalLiquidityShares, totalBoostShares.
+    function _withdrawnLp(bytes memory data) internal pure returns (uint256 lpBurned, uint256 lpToMember) {
+        (,,,,, lpBurned, lpToMember, , ) =
+            abi.decode(data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
+    }
+
     function _expectRevertData(
         address target,
         bytes memory callData,
@@ -535,7 +550,7 @@ contract StakeTest {
         (uint256 shares1, , uint256 phases1, , , ) = stake.stakeData(address(childToken), memberId1);
         require(phases1 == 5, "Should have 5 promised phases");
 
-        uint256 govVotes1 = stake.validGovVotes(address(childToken), memberId1);
+        uint256 govVotes1 = _validGovVotes(address(childToken), memberId1);
         require(govVotes1 == shares1 * 5, "Gov votes should match shares * phases");
 
         // Stake again with 10 phases (increase)
@@ -545,7 +560,7 @@ contract StakeTest {
         require(phases2 == 10, "Should have updated to 10 promised phases");
         require(shares2 == shares1 + sharesAdded, "Shares should accumulate");
 
-        uint256 govVotes2 = stake.validGovVotes(address(childToken), memberId1);
+        uint256 govVotes2 = _validGovVotes(address(childToken), memberId1);
         require(govVotes2 == shares2 * 10, "Gov votes should reflect new phases");
         require(govVotesAdded == shares2 * 10 - shares1 * 5, "Gov votes added should be correct");
     }
@@ -610,7 +625,7 @@ contract StakeTest {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 5);
 
         (uint256 shares, , , , , ) = stake.stakeData(address(childToken), memberId1);
-        uint256 govVotesBefore = stake.validGovVotes(address(childToken), memberId1);
+        uint256 govVotesBefore = _validGovVotes(address(childToken), memberId1);
 
         // Boost with increased phases
         vm().prank(owner1);
@@ -619,7 +634,7 @@ contract StakeTest {
         vm().prank(owner1);
         uint256 govVotesAdded = stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
 
-        uint256 govVotesAfter = stake.validGovVotes(address(childToken), memberId1);
+        uint256 govVotesAfter = _validGovVotes(address(childToken), memberId1);
         require(govVotesAdded == shares * 5, "Should add gov votes for phase increase");
         require(govVotesAfter == govVotesBefore + govVotesAdded, "Gov votes should increase");
     }
@@ -638,7 +653,7 @@ contract StakeTest {
         (, , , uint256 unlockAfter, , ) = stake.stakeData(address(childToken), memberId1);
         require(unlockAfter == 1, "Should mark unlock at current phase");
 
-        uint256 govVotes = stake.validGovVotes(address(childToken), memberId1);
+        uint256 govVotes = _validGovVotes(address(childToken), memberId1);
         require(govVotes == 0, "Gov votes should be zero after unstake");
     }
 
@@ -668,7 +683,7 @@ contract StakeTest {
 
         (, , , uint256 unlockPhase, , ) = stake.stakeData(address(childToken), memberId1);
         require(unlockPhase == 0, "Unlock must not be recorded");
-        require(stake.validGovVotes(address(childToken), memberId1) > 0, "Vote weight must stay live");
+        require(_validGovVotes(address(childToken), memberId1) > 0, "Vote weight must stay live");
     }
 
     function testUnstakeRevertsIfMemberSubmittedInCurrentRound() external {
@@ -772,7 +787,7 @@ contract StakeTest {
         phase.setPhase(3);
 
         (uint256 totalSharesBefore,, uint256 withdrawableBefore,, uint256 totalBoostBefore,,) =
-            stake.globalStakeData(address(childToken));
+            stake.totalStakeData(address(childToken));
         require(tinyShares * withdrawableBefore / totalSharesBefore == 0, "expected zero LP payout");
         uint256 balanceBefore = childToken.balanceOf(owner1);
         uint256 lpBefore = pair.balanceOf(address(stake));
@@ -786,7 +801,7 @@ contract StakeTest {
             require(shares == 0 && boost == 0 && waiting == 0 && requested == 0, "position must be cleared");
         }
         (uint256 totalSharesAfter,, uint256 withdrawableAfter,, uint256 totalBoostAfter,,) =
-            stake.globalStakeData(address(childToken));
+            stake.totalStakeData(address(childToken));
         require(totalSharesAfter + tinyShares == totalSharesBefore, "only exiting shares are removed");
         require(withdrawableAfter == withdrawableBefore, "remaining LP must stay in the ledger");
         require(totalBoostAfter + 1e18 == totalBoostBefore, "boost liability must be removed");
@@ -806,7 +821,7 @@ contract StakeTest {
         stake.unstake(address(childToken), memberId3);
         phase.setPhase(3);
 
-        (uint256 totalShares,, uint256 withdrawable,,,,) = stake.globalStakeData(address(childToken));
+        (uint256 totalShares,, uint256 withdrawable,,,,) = stake.totalStakeData(address(childToken));
         uint256 lpAmount = shares * withdrawable / totalShares;
         require(lpAmount > 0, "expected a positive LP payout");
         require(lpAmount < pair.totalSupply(), "payout must stay below the pair supply");
@@ -819,6 +834,7 @@ contract StakeTest {
         uint256 parentBefore = parentToken.balanceOf(owner1);
         uint256 lpStakeBefore = pair.balanceOf(address(stake));
         uint256 lpUserBefore = pair.balanceOf(owner1);
+        vm().recordLogs();
         vm().prank(owner1);
         stake.withdraw(address(childToken), memberId3);
 
@@ -826,6 +842,23 @@ contract StakeTest {
         require(parentToken.balanceOf(owner1) == parentBefore, "no parent payout");
         require(pair.balanceOf(owner1) == lpUserBefore + lpAmount, "LP must be handed to the withdrawer");
         require(pair.balanceOf(address(stake)) == lpStakeBefore - lpAmount, "contract LP must match the ledger");
+
+        // The same branch seen from the event: nothing burned, the whole converted LP handed over.
+        Vm.Log[] memory logs = vm().getRecordedLogs();
+        bytes32 topic = keccak256(
+            "StakeWithdrawn(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+        );
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(stake) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != topic) continue;
+            require(logs[i].topics[3] == bytes32(memberId3), "event member");
+            (uint256 lpBurned, uint256 lpToMember) = _withdrawnLp(logs[i].data);
+            require(lpBurned == 0, "the handover branch burns nothing");
+            require(lpToMember == lpAmount, "the whole converted LP goes to the member");
+            found = true;
+        }
+        require(found, "missing StakeWithdrawn");
         (uint256 sharedAfter, uint256 boostAfter, uint256 waitingAfter, uint256 requestedAfter,,) =
             stake.stakeData(address(childToken), memberId3);
         require(
@@ -992,7 +1025,7 @@ contract StakeTest {
 
         // Check that fees were classified
         (, uint256 totalLp, uint256 withdrawableLp, uint256 feeLp, , , ) =
-            stake.globalStakeData(address(childToken));
+            stake.totalStakeData(address(childToken));
 
         require(withdrawableLp > 0, "Withdrawable LP should exist");
         require(feeLp > 0, "Fee LP should be classified");
@@ -1034,7 +1067,7 @@ contract StakeTest {
         require(shares > 0, "Should mint shares");
         require(govVotes == shares * 10, "Gov votes should be shares * phases");
 
-        (, , uint256 withdrawableLp, , , , ) = stake.globalStakeData(address(childToken));
+        (, , uint256 withdrawableLp, , , , ) = stake.totalStakeData(address(childToken));
         require(withdrawableLp > 0, "Should have withdrawable LP");
     }
 
@@ -1123,7 +1156,7 @@ contract StakeTest {
     function testBoostHistoryTracking() external {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 
-        uint256 boostBefore = stake.cumulatedBoostShares(address(childToken), 1, memberId1);
+        uint256 boostBefore = stake.validBoostShares(address(childToken), 1, memberId1);
         require(boostBefore == 0, "Should have no boost initially");
 
         // Add boost
@@ -1132,16 +1165,105 @@ contract StakeTest {
         vm().prank(owner1);
         stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
 
-        uint256 boostAfter = stake.cumulatedBoostShares(address(childToken), 1, memberId1);
+        uint256 boostAfter = stake.validBoostShares(address(childToken), 1, memberId1);
         require(boostAfter == 500e18, "Should track boost shares");
+        require(
+            stake.totalValidBoostShares(address(childToken), 1) == boostAfter,
+            "the only booster's valid shares are the community total"
+        );
 
-        // Check global boost
-        (, uint256 totalCount) =
-            stake.globalBoostUpdatedRounds(address(childToken), 0, 10, false);
-        require(totalCount >= 1, "Should have at least one boost update");
     }
 
-    function testBoostHistoryRevertsForFutureRound() external {
+    function testValidGovVotesLedgerSplitsIntoAddedAndRemoved() external {
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+        uint256 afterStake = _totalValidGovVotes(address(childToken));
+
+        // Raising the waiting phases raises the same member's votes, so the community total grows.
+        vm().prank(owner1);
+        childToken.approve(address(stake), 500e18);
+        vm().prank(owner1);
+        stake.stakeBoost(address(childToken), 500e18, 12, memberId1);
+        uint256 memberVotes = _validGovVotes(address(childToken), memberId1);
+        require(memberVotes > afterStake, "the boost raises the member's votes");
+
+        // A second member keeps the community total from dropping to zero on the unlock below.
+        stakeAsOwner(owner2, memberId2, 400e18, 400e18, 10);
+        uint256 peak = _totalValidGovVotes(address(childToken));
+        require(peak > memberVotes, "two members hold more than one");
+
+        vm().prank(owner1);
+        stake.unstake(address(childToken), memberId1);
+
+        uint256 round = phase.currentPhase();
+        require(stake.totalValidGovVotesAdded(address(childToken), round) == peak, "added equals the peak");
+        require(
+            stake.totalValidGovVotesRemoved(address(childToken), round) == memberVotes,
+            "removed equals what the unlocked member held"
+        );
+        require(
+            _totalValidGovVotes(address(childToken)) == peak - memberVotes,
+            "total is added minus removed"
+        );
+        require(_validGovVotes(address(childToken), memberId1) == 0, "the unlocked member holds no votes");
+        require(
+            _validGovVotes(address(childToken), memberId2) == peak - memberVotes,
+            "the remaining member holds the rest"
+        );
+    }
+
+    function testValidBoostSharesLedgerSplitsIntoAddedAndRemoved() external {
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+        vm().prank(owner1);
+        childToken.approve(address(stake), 300e18);
+        vm().prank(owner1);
+        stake.stakeBoost(address(childToken), 300e18, 10, memberId1);
+
+        stakeAsOwner(owner2, memberId2, 1000e18, 1000e18, 10);
+        vm().prank(owner2);
+        childToken.approve(address(stake), 200e18);
+        vm().prank(owner2);
+        stake.stakeBoost(address(childToken), 200e18, 10, memberId2);
+
+        uint256 round = phase.currentPhase();
+        require(stake.totalValidBoostSharesAdded(address(childToken), round) == 500e18, "added is the sum");
+        require(stake.totalValidBoostSharesRemoved(address(childToken), round) == 0, "nothing removed yet");
+
+        vm().prank(owner1);
+        stake.unstake(address(childToken), memberId1);
+        require(stake.totalValidBoostSharesRemoved(address(childToken), round) == 300e18, "removed is the unlock");
+        require(stake.totalValidBoostShares(address(childToken), round) == 200e18, "total is added minus removed");
+        require(stake.validBoostShares(address(childToken), round, memberId1) == 0, "the unlocked member is out");
+        require(stake.validBoostShares(address(childToken), round, memberId2) == 200e18, "the other keeps its own");
+    }
+
+    function testValidGovVotesHistoryKeepsPastRounds() external {
+        (, uint256 shares) = stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+        uint256 roundOneVotes = shares * 10;
+
+        phase.setPhase(2);
+        vm().prank(owner1);
+        stake.unstake(address(childToken), memberId1);
+
+        require(
+            stake.validGovVotes(address(childToken), 1, memberId1) == roundOneVotes,
+            "round 1 keeps the weight the member had"
+        );
+        require(stake.validGovVotes(address(childToken), 2, memberId1) == 0, "round 2 records the unlock");
+        require(stake.totalValidGovVotes(address(childToken), 1) == roundOneVotes, "round 1 total is frozen");
+        require(stake.totalValidGovVotes(address(childToken), 2) == 0, "round 2 total follows the unlock");
+        require(
+            stake.totalValidGovVotesRemoved(address(childToken), 2) == roundOneVotes,
+            "the removal is recorded in round 2"
+        );
+        require(
+            stake.totalValidGovVotesAdded(address(childToken), 1)
+                == stake.totalValidGovVotesAdded(address(childToken), 2),
+            "round 2 adds nothing"
+        );
+        require(stake.totalValidGovVotesRemoved(address(childToken), 1) == 0, "round 1 removes nothing");
+    }
+
+    function testRoundGatedGettersRevertForFutureRound() external {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 
         vm().prank(owner1);
@@ -1149,19 +1271,40 @@ contract StakeTest {
         vm().prank(owner1);
         stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
 
-        // Try to query future round
-        _expectRevertData(
-            address(stake),
-            abi.encodeWithSelector(stake.cumulatedBoostShares.selector, address(childToken), 999, memberId1),
-            abi.encodeWithSelector(IStakeErrors.RoundNotStarted.selector, 999, 1),
-            "Should revert for future round"
-        );
+        // Every point-in-time read is gated the same way, so no getter can report the latest record as
+        // if it belonged to a round that has not started.
+        bytes4[2] memory memberScoped = [stake.validGovVotes.selector, stake.validBoostShares.selector];
+        for (uint256 i; i < memberScoped.length; ++i) {
+            _expectRevertData(
+                address(stake),
+                abi.encodeWithSelector(memberScoped[i], address(childToken), 999, memberId1),
+                abi.encodeWithSelector(IStakeErrors.RoundNotStarted.selector, 999, 1),
+                "the member ledger rejects a future round"
+            );
+        }
+
+        bytes4[6] memory communityScoped = [
+            stake.totalValidGovVotes.selector,
+            stake.totalValidGovVotesAdded.selector,
+            stake.totalValidGovVotesRemoved.selector,
+            stake.totalValidBoostShares.selector,
+            stake.totalValidBoostSharesAdded.selector,
+            stake.totalValidBoostSharesRemoved.selector
+        ];
+        for (uint256 i; i < communityScoped.length; ++i) {
+            _expectRevertData(
+                address(stake),
+                abi.encodeWithSelector(communityScoped[i], address(childToken), 999),
+                abi.encodeWithSelector(IStakeErrors.RoundNotStarted.selector, 999, 1),
+                "the community ledger rejects the same future round"
+            );
+        }
     }
 
-    function testGlobalStakeDataReturnsZeroForUnregisteredToken() external view {
+    function testTotalStakeDataReturnsZeroForUnregisteredToken() external view {
         address fakeToken = address(0xdead);
         (uint256 totalShares, uint256 totalLp, uint256 withdrawableLp, uint256 feeLp, , , ) =
-            stake.globalStakeData(fakeToken);
+            stake.totalStakeData(fakeToken);
 
         require(totalShares == 0, "Should return zero total shares");
         require(totalLp == 0, "Should return zero total LP");
@@ -1519,14 +1662,14 @@ contract StakeTest {
         vm().prank(owner1);
         stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
 
-        uint256 boostAtRound1 = stake.cumulatedBoostShares(address(childToken), 1, memberId1);
+        uint256 boostAtRound1 = stake.validBoostShares(address(childToken), 1, memberId1);
         require(boostAtRound1 == 500e18, "Should have boost at round 1");
 
         // Move to round 5
         phase.setPhase(5);
 
         // Query completed round 1
-        uint256 boostStillAtRound1 = stake.cumulatedBoostShares(address(childToken), 1, memberId1);
+        uint256 boostStillAtRound1 = stake.validBoostShares(address(childToken), 1, memberId1);
         require(boostStillAtRound1 == 500e18, "Should still have boost at round 1");
     }
 
@@ -1543,7 +1686,7 @@ contract StakeTest {
         phase.setPhase(5);
 
         // Query round 3 (no record, should return latest not later than round 3)
-        uint256 boostAtRound3 = stake.cumulatedBoostShares(address(childToken), 3, memberId1);
+        uint256 boostAtRound3 = stake.validBoostShares(address(childToken), 3, memberId1);
         require(boostAtRound3 == 500e18, "Should return latest boost not later than round 3");
     }
 
@@ -1561,7 +1704,7 @@ contract StakeTest {
         stake.unstake(address(childToken), memberId1);
 
         // Query should return 0
-        uint256 boostAfterUnstake = stake.cumulatedBoostShares(address(childToken), 1, memberId1);
+        uint256 boostAfterUnstake = stake.validBoostShares(address(childToken), 1, memberId1);
         require(boostAfterUnstake == 0, "Should return 0 after unstake");
     }
 
@@ -1580,7 +1723,7 @@ contract StakeTest {
         stake.settleFees(address(childToken));
 
         // Check that some fees were processed
-        (, , , uint256 feeLpAfter, , , ) = stake.globalStakeData(address(childToken));
+        (, , , uint256 feeLpAfter, , , ) = stake.totalStakeData(address(childToken));
         require(feeLpAfter > 0, "Should have remaining fee LP");
     }
 
@@ -1596,13 +1739,13 @@ contract StakeTest {
         vm().prank(owner1);
         stake.settleFees(address(childToken));
 
-        (, , , uint256 feeLpAfterFirst, , , ) = stake.globalStakeData(address(childToken));
+        (, , , uint256 feeLpAfterFirst, , , ) = stake.totalStakeData(address(childToken));
 
         // Second settlement in same phase (should have no effect on feeLp)
         vm().prank(owner1);
         stake.settleFees(address(childToken));
 
-        (, , , uint256 feeLpAfterSecond, , , ) = stake.globalStakeData(address(childToken));
+        (, , , uint256 feeLpAfterSecond, , , ) = stake.totalStakeData(address(childToken));
         require(feeLpAfterSecond == feeLpAfterFirst, "Second settlement should not change feeLp in same phase");
     }
 
@@ -1619,7 +1762,7 @@ contract StakeTest {
         stake.settleFees(address(childToken));
 
         // Fees should be reclassified but not realized
-        (, , , uint256 feeLp, , , ) = stake.globalStakeData(address(childToken));
+        (, , , uint256 feeLp, , , ) = stake.totalStakeData(address(childToken));
         require(feeLp > 0, "Should have fee LP");
 
         uint256 totalBurnedBefore = stake.totalBurnedToken(address(childToken));
@@ -1675,14 +1818,14 @@ contract StakeTest {
         vm().prank(owner1);
         stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
 
-        uint256 boostBefore = stake.cumulatedBoostShares(address(childToken), 1, memberId1);
+        uint256 boostBefore = stake.validBoostShares(address(childToken), 1, memberId1);
         require(boostBefore == 500e18, "Should have 500 boost");
 
         // Unstake decreases boost history
         vm().prank(owner1);
         stake.unstake(address(childToken), memberId1);
 
-        uint256 boostAfterUnstake = stake.cumulatedBoostShares(address(childToken), 1, memberId1);
+        uint256 boostAfterUnstake = stake.validBoostShares(address(childToken), 1, memberId1);
         require(boostAfterUnstake == 0, "Boost should be removed from history");
     }
 
@@ -1694,8 +1837,8 @@ contract StakeTest {
         vm().prank(owner1);
         stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
 
-        uint256 sourceBoostBefore = stake.cumulatedBoostShares(address(childToken), 1, memberId1);
-        uint256 targetBoostBefore = stake.cumulatedBoostShares(address(childToken), 1, memberId3);
+        uint256 sourceBoostBefore = stake.validBoostShares(address(childToken), 1, memberId1);
+        uint256 targetBoostBefore = stake.validBoostShares(address(childToken), 1, memberId3);
         require(sourceBoostBefore == 500e18, "Source should have boost");
         require(targetBoostBefore == 0, "Target should have no boost");
 
@@ -1703,8 +1846,8 @@ contract StakeTest {
         vm().prank(owner1);
         stake.mergeStake(address(childToken), memberId1, memberId3);
 
-        uint256 sourceBoostAfter = stake.cumulatedBoostShares(address(childToken), 1, memberId1);
-        uint256 targetBoostAfter = stake.cumulatedBoostShares(address(childToken), 1, memberId3);
+        uint256 sourceBoostAfter = stake.validBoostShares(address(childToken), 1, memberId1);
+        uint256 targetBoostAfter = stake.validBoostShares(address(childToken), 1, memberId3);
 
         require(sourceBoostAfter == 0, "Source boost should be moved");
         require(targetBoostAfter == 500e18, "Target should receive boost");
@@ -1713,7 +1856,7 @@ contract StakeTest {
     // ============ Reserve Boundary Tests ============
 
     function testReservesZeroBeforeFirstStake() external view {
-        (uint256 totalShares, uint256 totalLp, , , , , ) = stake.globalStakeData(address(childToken));
+        (uint256 totalShares, uint256 totalLp, , , , , ) = stake.totalStakeData(address(childToken));
         require(totalShares == 0, "Should have no shares initially");
         require(totalLp == 0, "Should have no LP initially");
     }
@@ -1728,79 +1871,6 @@ contract StakeTest {
         require(reserve1After > reserve1Before, "Reserve1 should increase");
     }
 
-
-    // ============ Pagination Tests ============
-
-    function testGlobalBoostUpdatedRoundsEmpty() external view {
-        (uint256[] memory rounds, uint256 totalCount) =
-            stake.globalBoostUpdatedRounds(address(childToken), 0, 10, false);
-        require(rounds.length == 0, "Should have no rounds initially");
-        require(totalCount == 0, "Total count should be zero");
-    }
-
-    function testGlobalBoostUpdatedRoundsAfterBoost() external {
-        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
-
-        vm().prank(owner1);
-        childToken.approve(address(stake), 500e18);
-        vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
-
-        (uint256[] memory rounds, uint256 totalCount) =
-            stake.globalBoostUpdatedRounds(address(childToken), 0, 10, false);
-        require(totalCount >= 1, "Should have at least one round");
-        require(rounds[0] == 1, "First round should be 1");
-    }
-
-    function testBoostUpdatedRoundsPagination() external {
-        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
-
-        // Add boosts in multiple rounds
-        for (uint256 i = 1; i <= 5; i++) {
-            phase.setPhase(i);
-            vm().prank(owner1);
-            childToken.approve(address(stake), 100e18);
-            vm().prank(owner1);
-            stake.stakeBoost(address(childToken), 100e18, 10, memberId1);
-        }
-
-        // Test pagination
-        (uint256[] memory rounds, uint256 totalCount) =
-            stake.boostUpdatedRounds(address(childToken), memberId1, 0, 3, false);
-        require(totalCount == 5, "Should have 5 rounds");
-        require(rounds.length == 3, "Should return 3 rounds");
-
-        // Test offset
-        (uint256[] memory roundsOffset, ) =
-            stake.boostUpdatedRounds(address(childToken), memberId1, 3, 10, false);
-        require(roundsOffset.length == 2, "Should return remaining 2 rounds");
-    }
-
-    function testBoostUpdatedRoundsReverse() external {
-        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
-
-        vm().prank(owner1);
-        childToken.approve(address(stake), 500e18);
-        vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
-
-        phase.setPhase(2);
-        vm().prank(owner1);
-        childToken.approve(address(stake), 300e18);
-        vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 300e18, 10, memberId1);
-
-        // Forward
-        (uint256[] memory roundsForward, ) =
-            stake.boostUpdatedRounds(address(childToken), memberId1, 0, 10, false);
-
-        // Reverse
-        (uint256[] memory roundsReverse, ) =
-            stake.boostUpdatedRounds(address(childToken), memberId1, 0, 10, true);
-
-        require(roundsForward[0] == roundsReverse[roundsReverse.length - 1],
-            "Forward first should equal reverse last");
-    }
 
     // ============ NFT Ownership Tests ============
 
@@ -1899,23 +1969,23 @@ contract StakeTest {
     }
 
     function testGlobalGovVotesTracking() external {
-        uint256 govVotesBefore = stake.globalGovVotes(address(childToken));
+        uint256 govVotesBefore = _totalValidGovVotes(address(childToken));
         require(govVotesBefore == 0, "Should start at zero");
 
         (uint256 govVotesAdded, ) = stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 
-        uint256 govVotesAfter = stake.globalGovVotes(address(childToken));
+        uint256 govVotesAfter = _totalValidGovVotes(address(childToken));
         require(govVotesAfter == govVotesAdded, "Global votes should match added");
     }
 
     function testGlobalGovVotesDecreasesOnUnstake() external {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
-        uint256 govVotesBefore = stake.globalGovVotes(address(childToken));
+        uint256 govVotesBefore = _totalValidGovVotes(address(childToken));
 
         vm().prank(owner1);
         stake.unstake(address(childToken), memberId1);
 
-        uint256 govVotesAfter = stake.globalGovVotes(address(childToken));
+        uint256 govVotesAfter = _totalValidGovVotes(address(childToken));
         require(govVotesAfter == 0, "Global votes should be zero after unstake");
         require(govVotesBefore > 0, "Should have had votes before");
     }
@@ -1993,7 +2063,7 @@ contract StakeTest {
     function testFeeClassificationMaintainsTotalLp() external {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 
-        stake.globalStakeData(address(childToken));
+        stake.totalStakeData(address(childToken));
 
         // Simulate fees
         childToken.transfer(address(pair), 50e18);
@@ -2005,7 +2075,7 @@ contract StakeTest {
         stake.settleFees(address(childToken));
 
         (, uint256 totalLpAfter, uint256 withdrawableLp, uint256 feeLp, , , ) =
-            stake.globalStakeData(address(childToken));
+            stake.totalStakeData(address(childToken));
 
         require(totalLpAfter == withdrawableLp + feeLp, "Total should equal sum of parts");
     }
@@ -2080,10 +2150,11 @@ contract StakeTest {
         require(govVotes > 0, "Should add gov votes");
         require(shares > 0, "Should add shares");
 
-        (uint256 totalLiquidityShares, , , , , , ) = stake.globalStakeData(address(childToken));
+        (uint256 totalLiquidityShares, , , , , , ) = stake.totalStakeData(address(childToken));
+        uint256 totalValidGovVotes = _totalValidGovVotes(address(childToken));
         Vm.Log[] memory logs = vm().getRecordedLogs();
         bytes32 topic = keccak256(
-            "LiquidityStaked(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+            "LiquidityStaked(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
         );
         bool found;
         for (uint256 i; i < logs.length; ++i) {
@@ -2103,11 +2174,13 @@ contract StakeTest {
                 ,
                 ,
                 uint256 liquidityShares,
-                uint256 totalLiquidityShares_
-            ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
+                uint256 totalLiquidityShares_,
+                uint256 totalValidGovVotes_
+            ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
             require(promisedWaitingPhases == 10, "event promised phases");
             require(liquidityShares == shares, "event member shares");
             require(totalLiquidityShares_ == totalLiquidityShares, "event global shares");
+            require(totalValidGovVotes_ == totalValidGovVotes, "event global votes");
             found = true;
         }
         require(found, "missing LiquidityStaked");
@@ -2126,7 +2199,7 @@ contract StakeTest {
         stake.settleFees(address(childToken));
 
         Vm.Log[] memory logs = vm().getRecordedLogs();
-        bytes32 topic = keccak256("FeesSettled(address,uint256,uint256,uint256,uint256)");
+        bytes32 topic = keccak256("FeesSettled(address,uint256,uint256,uint256,uint256,uint256,uint256)");
         bool found;
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(stake) || logs[i].topics.length == 0) continue;
@@ -2134,8 +2207,14 @@ contract StakeTest {
             require(logs[i].topics.length == 3, "two indexed arguments");
             require(logs[i].topics[1] == bytes32(uint256(uint160(address(childToken)))), "event token");
             require(uint256(logs[i].topics[2]) == 1, "event round");
-            (uint256 feeLp, uint256 tokenBurned, ) = abi.decode(logs[i].data, (uint256, uint256, uint256));
+            (uint256 feeLp, uint256 tokenBurned, , uint256 burnedTotal, uint256 parentBurnedTotal) =
+                abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256));
             require(feeLp > 0 || tokenBurned > 0, "event fee or burn");
+            require(burnedTotal == stake.totalBurnedToken(address(childToken)), "event burned total");
+            require(
+                parentBurnedTotal == stake.totalParentTokenBurned(address(childToken)),
+                "event parent burned total"
+            );
             found = true;
         }
         require(found, "missing FeesSettled");
@@ -2146,15 +2225,26 @@ contract StakeTest {
         vm().prank(owner2);
         childToken.approve(address(stake), 1000e18);
 
-        // A warm-up stake gives the measured call a non-zero history and a non-zero vote delta;
-        // a second member keeps `boostShares` and `totalBoostShares` apart.
+        // A warm-up stake gives the measured call a non-zero history and a non-zero vote delta.
         vm().prank(owner2);
         stake.stakeBoost(address(childToken), 250e18, 10, memberId2);
+
+        // A member that unlocks before the measured call keeps `totalBoostShares` and
+        // `totalValidBoostShares` apart: the balance still counts it, the round history does not.
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
         vm().prank(owner1);
         childToken.approve(address(stake), 1000e18);
         vm().prank(owner1);
         stake.stakeBoost(address(childToken), 1000e18, 10, memberId1);
+        vm().prank(owner1);
+        stake.unstake(address(childToken), memberId1);
+
+        // A still-active booster keeps the global cumulated total off the measured member's balance.
+        stakeAsOwner(owner1, memberId3, 1000e18, 1000e18, 10);
+        vm().prank(owner1);
+        childToken.approve(address(stake), 400e18);
+        vm().prank(owner1);
+        stake.stakeBoost(address(childToken), 400e18, 10, memberId3);
 
         vm().recordLogs();
         vm().prank(owner2);
@@ -2162,7 +2252,7 @@ contract StakeTest {
 
         Vm.Log[] memory logs = vm().getRecordedLogs();
         bytes32 topic = keccak256(
-            "BoostStaked(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+            "BoostStaked(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
         );
         bool found;
         for (uint256 i; i < logs.length; ++i) {
@@ -2176,22 +2266,46 @@ contract StakeTest {
                 uint256 promisedWaitingPhases,
                 uint256 govVotesAdded,
                 uint256 govVotes,
-                uint256 boostSharesAdded,
                 uint256 boostShares,
-                uint256 totalBoostShares
-            ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256));
+                uint256 totalBoostShares,
+                uint256 totalValidBoostShares,
+                uint256 totalValidGovVotes
+            ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
             require(boostAmount == 500e18, "event boost amount");
             require(promisedWaitingPhases == 12, "event promised waiting phases");
             require(govVotesAdded > 0 && govVotes > govVotesAdded, "event vote delta and total");
-            require(boostSharesAdded == 500e18, "event boost added");
             require(boostShares == 750e18, "event member boost");
-            require(totalBoostShares == 1750e18, "event global boost");
+            require(totalBoostShares == 2150e18, "event global boost");
+            (, , , , uint256 balanceBoostTotal, , ) = stake.totalStakeData(address(childToken));
+            require(totalBoostShares == balanceBoostTotal, "the event balance total matches totalStakeData");
+            require(totalValidBoostShares == 1150e18, "event global valid boost");
+            require(
+                totalValidBoostShares == stake.totalValidBoostShares(address(childToken), 1),
+                "event total matches the community ledger"
+            );
+            require(totalValidGovVotes == _totalValidGovVotes(address(childToken)), "event global votes");
             found = true;
         }
         require(found, "missing BoostStaked");
     }
 
     function testUnstakeEmitsCorrectEvent() external {
+        // A member that unlocked earlier keeps the balance total above the round history, and a member
+        // that did not keeps the global cumulated boost non-zero: the four readings stay distinct.
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+        vm().prank(owner1);
+        childToken.approve(address(stake), 300e18);
+        vm().prank(owner1);
+        stake.stakeBoost(address(childToken), 300e18, 10, memberId1);
+        vm().prank(owner1);
+        stake.unstake(address(childToken), memberId1);
+
+        stakeAsOwner(owner1, memberId3, 1000e18, 1000e18, 10);
+        vm().prank(owner1);
+        childToken.approve(address(stake), 100e18);
+        vm().prank(owner1);
+        stake.stakeBoost(address(childToken), 100e18, 10, memberId3);
+
         stakeAsOwner(owner2, memberId2, 1000e18, 1000e18, 10);
 
         vm().recordLogs();
@@ -2202,8 +2316,11 @@ contract StakeTest {
         require(shares > 0, "Shares should still exist");
         require(unlock == 1, "Unlock should be marked");
 
+        (, , , , uint256 balanceBoost, , ) = stake.totalStakeData(address(childToken));
+        require(balanceBoost == 400e18, "the unlocked boost still counts in the balance total");
+
         Vm.Log[] memory logs = vm().getRecordedLogs();
-        bytes32 topic = keccak256("Unstaked(address,uint256,uint256,uint256,uint256,uint256,uint256)");
+        bytes32 topic = keccak256("Unstaked(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)");
         bool found;
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(stake) || logs[i].topics.length == 0) continue;
@@ -2211,10 +2328,25 @@ contract StakeTest {
             require(logs[i].topics.length == 4, "three indexed arguments");
             require(logs[i].topics[2] == bytes32(uint256(1)), "event round");
             require(logs[i].topics[3] == bytes32(memberId2), "event member");
-            (uint256 promisedWaitingPhases, , uint256 liquidityShares, ) =
-                abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
+            (
+                uint256 promisedWaitingPhases,
+                uint256 removedVotes,
+                uint256 liquidityShares,
+                uint256 boostShares,
+                uint256 totalValidBoostShares,
+                uint256 totalValidGovVotes
+            ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256));
             require(promisedWaitingPhases == 10, "event promised phases");
             require(liquidityShares == shares, "event member shares");
+            require(removedVotes == liquidityShares * 10, "event removed votes");
+            require(boostShares == 0, "event member boost");
+            require(totalValidBoostShares == 100e18, "event global valid boost");
+            require(
+                totalValidBoostShares == stake.totalValidBoostShares(address(childToken), 1),
+                "event total matches the community ledger"
+            );
+            require(totalValidGovVotes == _totalValidGovVotes(address(childToken)), "event global votes");
+            require(totalValidGovVotes != totalValidBoostShares, "vote and boost totals stay apart");
             found = true;
         }
         require(found, "missing Unstaked");
@@ -2232,6 +2364,11 @@ contract StakeTest {
         stake.unstake(address(childToken), memberId2);
 
         phase.setPhase(12);
+
+        (uint256 totalSharesBefore, , uint256 withdrawableBefore, , , , ) =
+            stake.totalStakeData(address(childToken));
+        uint256 expectedLp = (sharesBefore * withdrawableBefore) / totalSharesBefore;
+        require(expectedLp > 0, "the fixture must burn a non-zero LP");
 
         vm().recordLogs();
         vm().prank(owner2);
@@ -2258,15 +2395,15 @@ contract StakeTest {
                 ,
                 uint256 boostShares,
                 uint256 lpBurned,
-                uint256 lpTransferred,
+                uint256 lpToMember,
                 uint256 totalLiquidityShares,
                 uint256 totalBoostShares
             ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
             require(promisedWaitingPhases == 10, "event promised phases");
             require(liquidityShares == sharesBefore, "event liquidity shares");
             require(boostShares == 500e18, "event boost shares");
-            require(lpBurned + lpTransferred > 0, "event lp payout");
-            require(lpBurned == 0 || lpTransferred == 0, "lp is either burned or transferred");
+            require(lpBurned == expectedLp, "lp burned equals the converted share");
+            require(lpToMember == 0, "the burn branch hands nothing to the member");
             require(totalLiquidityShares == 0, "event global liquidity shares");
             require(totalBoostShares == 0, "event global boost shares");
             found = true;
@@ -2291,7 +2428,7 @@ contract StakeTest {
         stake.withdraw(address(childToken), memberId1);
 
         Vm.Log[] memory logs = vm().getRecordedLogs();
-        bytes32 feesTopic = keccak256("FeesSettled(address,uint256,uint256,uint256,uint256)");
+        bytes32 feesTopic = keccak256("FeesSettled(address,uint256,uint256,uint256,uint256,uint256,uint256)");
         bytes32 withdrawnTopic = keccak256(
             "StakeWithdrawn(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
         );
@@ -2307,6 +2444,19 @@ contract StakeTest {
         require(feesIndex < withdrawnIndex, "fees must settle before withdraw");
     }
 
+    struct StakesMergedPayload {
+        uint256 round;
+        uint256 liquiditySharesMerged;
+        uint256 boostSharesMerged;
+        uint256 targetGovVotes;
+        uint256 targetLiquidityShares;
+        uint256 targetBoostShares;
+        uint256 targetPromisedWaitingPhases;
+        uint256 prevSourceGovVotes;
+        uint256 prevSourcePromisedWaitingPhases;
+        uint256 totalValidGovVotes;
+    }
+
     function testMergeStakeEmitsTargetPostState() external {
         (, uint256 shares) = stakeAsOwner(owner2, memberId2, 1000e18, 1000e18, 10);
         // A non-empty target keeps `liquiditySharesMerged` and `targetLiquidityShares` apart.
@@ -2315,6 +2465,8 @@ contract StakeTest {
         childToken.approve(address(stake), 200e18);
         vm().prank(owner1);
         stake.stakeBoost(address(childToken), 200e18, 10, memberId3);
+        // A third position keeps `targetGovVotes` and `totalValidGovVotes` apart.
+        stakeAsOwner(owner1, memberId1, 400e18, 400e18, 10);
 
         vm().recordLogs();
         vm().prank(owner2);
@@ -2322,7 +2474,7 @@ contract StakeTest {
 
         Vm.Log[] memory logs = vm().getRecordedLogs();
         bytes32 topic = keccak256(
-            "StakesMerged(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+            "StakesMerged(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
         );
         bool found;
         for (uint256 i; i < logs.length; ++i) {
@@ -2332,38 +2484,48 @@ contract StakeTest {
             require(logs[i].topics[1] == bytes32(uint256(uint160(address(childToken)))), "event token");
             require(logs[i].topics[2] == bytes32(memberId2), "event source member");
             require(logs[i].topics[3] == bytes32(memberId3), "event target member");
-            (
-                uint256 round,
-                uint256 liquiditySharesMerged,
-                uint256 boostSharesMerged,
-                uint256 targetGovVotes,
-                uint256 targetLiquidityShares,
-                uint256 targetBoostShares,
-                uint256 targetPromisedWaitingPhases
-            ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256));
-            require(round == 1, "event round is not indexed");
-            require(liquiditySharesMerged == shares, "event merged shares");
-            require(boostSharesMerged == 0, "event merged boost");
-            require(targetLiquidityShares == shares + targetSharesBefore, "event target shares");
-            require(targetBoostShares == 200e18, "event target boost");
-            require(targetPromisedWaitingPhases == 10, "event target phases");
-            require(targetGovVotes == (shares + targetSharesBefore) * 10, "event target gov votes");
+            StakesMergedPayload memory payload = abi.decode(logs[i].data, (StakesMergedPayload));
+            require(payload.round == 1, "event round is not indexed");
+            require(payload.liquiditySharesMerged == shares, "event merged shares");
+            require(payload.boostSharesMerged == 0, "event merged boost");
+            require(payload.targetLiquidityShares == shares + targetSharesBefore, "event target shares");
+            require(payload.targetBoostShares == 200e18, "event target boost");
+            require(payload.targetPromisedWaitingPhases == 10, "event target phases");
+            require(payload.targetGovVotes == (shares + targetSharesBefore) * 10, "event target gov votes");
+            require(payload.prevSourceGovVotes == shares * 10, "event source votes before the merge");
+            require(payload.prevSourcePromisedWaitingPhases == 10, "event source phases before the merge");
+            require(
+                payload.totalValidGovVotes == _totalValidGovVotes(address(childToken)),
+                "event global votes after the merge"
+            );
+            require(payload.totalValidGovVotes != payload.targetGovVotes, "global and target votes stay apart");
             found = true;
         }
         require(found, "missing StakesMerged");
+
+        // The community total is not maintained on its own: it has to equal the sum of the members at
+        // every write point, and the merge is the only one where the two ledgers move by different
+        // amounts (the source is removed at its own waiting phases, the target is re-priced at its own).
+        uint256 memberSum = _validGovVotes(address(childToken), memberId1)
+            + _validGovVotes(address(childToken), memberId2) + _validGovVotes(address(childToken), memberId3);
+        require(memberSum > 0, "the fixture keeps the sum non-zero");
+        require(
+            _totalValidGovVotes(address(childToken)) == memberSum, "the community total equals the sum of members"
+        );
+        require(_validGovVotes(address(childToken), memberId2) == 0, "the merged source holds no votes");
     }
 
     function testBoostIncreasesGlobalBoostShares() external {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 
-        (, , , , uint256 globalBoostBefore, , ) = stake.globalStakeData(address(childToken));
+        (, , , , uint256 globalBoostBefore, , ) = stake.totalStakeData(address(childToken));
 
         vm().prank(owner1);
         childToken.approve(address(stake), 500e18);
         vm().prank(owner1);
         stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
 
-        (, , , , uint256 globalBoostAfter, , ) = stake.globalStakeData(address(childToken));
+        (, , , , uint256 globalBoostAfter, , ) = stake.totalStakeData(address(childToken));
 
         require(globalBoostAfter == globalBoostBefore + 500e18, "Global boost should increase");
     }
@@ -2376,7 +2538,7 @@ contract StakeTest {
         vm().prank(owner1);
         stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
 
-        (, , , , uint256 globalBoostBefore, , ) = stake.globalStakeData(address(childToken));
+        (, , , , uint256 globalBoostBefore, , ) = stake.totalStakeData(address(childToken));
 
         vm().prank(owner1);
         stake.unstake(address(childToken), memberId1);
@@ -2385,7 +2547,7 @@ contract StakeTest {
         vm().prank(owner1);
         stake.withdraw(address(childToken), memberId1);
 
-        (, , , , uint256 globalBoostAfter, , ) = stake.globalStakeData(address(childToken));
+        (, , , , uint256 globalBoostAfter, , ) = stake.totalStakeData(address(childToken));
 
         require(globalBoostAfter == 0, "Global boost should be zero");
         require(globalBoostBefore > 0, "Should have had boost before");
@@ -2403,22 +2565,22 @@ contract StakeTest {
     function testValidGovVotesReturnsZeroAfterUnstake() external {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 
-        uint256 votesBefore = stake.validGovVotes(address(childToken), memberId1);
+        uint256 votesBefore = _validGovVotes(address(childToken), memberId1);
         require(votesBefore > 0, "Should have votes before unstake");
 
         vm().prank(owner1);
         stake.unstake(address(childToken), memberId1);
 
-        uint256 votesAfter = stake.validGovVotes(address(childToken), memberId1);
+        uint256 votesAfter = _validGovVotes(address(childToken), memberId1);
         require(votesAfter == 0, "Should have zero votes after unstake");
     }
 
     function testValidGovVotesForNonExistentStake() external view {
-        uint256 votes = stake.validGovVotes(address(childToken), 999);
+        uint256 votes = _validGovVotes(address(childToken), 999);
         require(votes == 0, "Should return zero for non-existent stake");
     }
 
-    function testGlobalStakeDataWithNoStakes() external view {
+    function testTotalStakeDataWithNoStakes() external view {
         (
             uint256 totalShares,
             uint256 totalLp,
@@ -2427,7 +2589,7 @@ contract StakeTest {
             uint256 totalBoost,
             uint256 tokenAmount,
             uint256 parentAmount
-        ) = stake.globalStakeData(address(childToken));
+        ) = stake.totalStakeData(address(childToken));
 
         require(totalShares == 0, "Total shares should be zero");
         require(totalLp == 0, "Total LP should be zero");
@@ -2467,7 +2629,7 @@ contract StakeTest {
     }
 
     function testGlobalGovVotesStartsAtZero() external view {
-        uint256 votes = stake.globalGovVotes(address(childToken));
+        uint256 votes = _totalValidGovVotes(address(childToken));
         require(votes == 0, "Should start at zero");
     }
 
@@ -2484,11 +2646,11 @@ contract StakeTest {
         require(shares2 > 0, "User 2 should have shares");
     }
 
-    function testGlobalStakeReflectsMultipleUsers() external {
+    function testTotalStakeReflectsMultipleUsers() external {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
         stakeAsOwner(owner2, memberId2, 500e18, 500e18, 10);
 
-        (uint256 totalShares, , , , , , ) = stake.globalStakeData(address(childToken));
+        (uint256 totalShares, , , , , , ) = stake.totalStakeData(address(childToken));
         (uint256 shares1, , , , , ) = stake.stakeData(address(childToken), memberId1);
         (uint256 shares2, , , , , ) = stake.stakeData(address(childToken), memberId2);
 

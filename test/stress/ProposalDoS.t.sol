@@ -98,13 +98,15 @@ contract ProposalDoSTest is Test {
             }));
             amounts[0] = amount;
             vote.vote(address(token), memberId, ids, amounts, new bytes[][](0));
-            assertEq(stake.validGovVotes(address(token), memberId), amount);
+            assertEq(stake.validGovVotes(address(token), 1, memberId), amount);
         }
         vm.roll(1001);
         for (uint256 i; i < count; i++) {
             stake.unstake(address(token), memberIds[i]);
         }
-        assertEq(stake.globalGovVotes(address(token)), 0);
+        // The unlock lands in a later round, so round 1 keeps its peak and only the live round clears.
+        assertEq(stake.totalValidGovVotes(address(token), 1), (2 * count - 1) * 1e18);
+        assertEq(stake.totalValidGovVotes(address(token), phase.currentPhase()), 0);
         vm.stopPrank();
         vm.resumeGasMetering();
         (, uint256 actualCount) = vote.votedProposalIds(address(token), 1, 0, 0, false);

@@ -135,6 +135,10 @@ contract MintIntegrationTest {
         require(voteReward > 0, "scenario must pay the vote half");
         require(boostReward > 0, "scenario must pay the boost half");
         require(burnReward > 0, "scenario must overflow the boost cap");
+        require(
+            voteReward != boostReward && boostReward != burnReward && voteReward != burnReward,
+            "the three amounts must be tellable apart, otherwise swapping them is invisible"
+        );
 
         uint256 burnedBefore = mint.rewardBurned(address(token));
 
@@ -143,10 +147,22 @@ contract MintIntegrationTest {
         mint.mintGovReward(address(token), 1, 1, member1);
         MintVm.Log[] memory logs = vm.getRecordedLogs();
 
+        bytes32 mintedTopic = keccak256("GovRewardMinted(address,uint256,uint256,uint256,uint256,uint256)");
         bytes32 burnedTopic = keccak256("RewardBurned(address,uint256,uint256,uint8)");
         uint256 burnedSum;
         bool seen;
+        bool mintedSeen;
         for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics[0] == mintedTopic) {
+                (uint256 emittedVote, uint256 emittedBoost, uint256 emittedBurn) =
+                    abi.decode(logs[i].data, (uint256, uint256, uint256));
+                require(emittedVote == voteReward, "the event reports the vote half");
+                require(emittedBoost == boostReward, "the event reports the boost half");
+                // The overflow the member caused is only attributable here: `RewardBurned` carries no
+                // member id, and a settlement that mints nothing but burns everything is reachable.
+                require(emittedBurn == burnReward, "the event reports the overflow as burnReward");
+                mintedSeen = true;
+            }
             if (logs[i].topics[0] != burnedTopic) continue;
             (uint256 amount, uint8 reason) = abi.decode(logs[i].data, (uint256, uint8));
             burnedSum += amount;
@@ -159,6 +175,7 @@ contract MintIntegrationTest {
             seen = true;
         }
         require(seen, "missing the overflow RewardBurned");
+        require(mintedSeen, "missing GovRewardMinted");
         require(mint.rewardBurned(address(token)) == burnedBefore + burnedSum, "burned folds every event");
     }
 

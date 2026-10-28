@@ -163,7 +163,7 @@ contract Launch is ILaunch {
             _launchCount[parentTokenAddress][memberId] = remainingCount;
 
             emit LaunchCountConsumed({
-                tokenAddress: parentTokenAddress, memberId: memberId, count: 1, remaining: remainingCount
+                tokenAddress: parentTokenAddress, memberId: memberId, remaining: remainingCount
             });
         }
 

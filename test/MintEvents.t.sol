@@ -49,7 +49,8 @@ contract MintEventsTest {
         uint256 indexed round,
         uint256 indexed memberId,
         uint256 voteReward,
-        uint256 boostReward
+        uint256 boostReward,
+        uint256 burnReward
     );
 
     event ProposalRewardMinted(
@@ -209,7 +210,8 @@ contract MintEventsTest {
             round,
             memberId,
             voteReward,
-            boostReward
+            boostReward,
+            burnReward
         );
 
         mint.mintGovReward(address(token), memberId, round, address(this));
@@ -266,7 +268,7 @@ contract MintEventsTest {
         }
 
         vm.expectEmit(true, true, true, true);
-        emit GovRewardMinted(address(token), 1, memberId, voteReward1, boostReward1);
+        emit GovRewardMinted(address(token), 1, memberId, voteReward1, boostReward1, burnReward1);
 
         // Note: Cannot verify all 3 events in one call with current tooling
         // This demonstrates the pattern for the first event
@@ -346,7 +348,7 @@ contract MintEventsTest {
         MintVm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 mintTopic = keccak256("TokenMinted(address,uint256)");
         bytes32 launchTopic = keccak256("LaunchCountAdded(address,uint256,uint256,uint256,uint256)");
-        bytes32 govTopic = keccak256("GovRewardMinted(address,uint256,uint256,uint256,uint256)");
+        bytes32 govTopic = keccak256("GovRewardMinted(address,uint256,uint256,uint256,uint256,uint256)");
         uint256 mintIndex = type(uint256).max;
         uint256 launchIndex = type(uint256).max;
         uint256 govIndex = type(uint256).max;

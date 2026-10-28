@@ -5,7 +5,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {RoundHistoryUint256} from "@libs/RoundHistoryUint256.sol";
-import {Pagination} from "@libs/Pagination.sol";
 import {IPhase} from "./interfaces/IPhase.sol";
 import {ILaunch} from "./interfaces/ILaunch.sol";
 import {ISubmit} from "./interfaces/ISubmit.sol";
@@ -15,7 +14,7 @@ import {IUniswapV2Pair} from "./interfaces/UniswapV2/IUniswapV2Pair.sol";
 import {IUniswapV2Factory} from "./interfaces/UniswapV2/IUniswapV2Factory.sol";
 import {IUniswapV2Router02} from "./interfaces/UniswapV2/IUniswapV2Router02.sol";
 import {IVote} from "./interfaces/IVote.sol";
-import {IStake, MemberStake, GlobalStake} from "./interfaces/IStake.sol";
+import {IStake, MemberStake, TotalStake} from "./interfaces/IStake.sol";
 
 // The swap amounts actually deposited and the share price basis of this add have to travel together from
 // `_addLiquidity` to `_creditLiquidity`; packing them into one memory struct keeps the two functions
@@ -29,9 +28,23 @@ struct AddedLiquidity {
     uint256 withdrawableLpBefore;
 }
 
+// The merge payload has to be assembled while the source position still exists and emitted only after
+// the boost history moved; carrying its nine values in one memory struct keeps `mergeStake` below the
+// 16-slot limit instead of holding nine locals alive across the emit.
+struct MergedStake {
+    uint256 liquidityShares;
+    uint256 boostShares;
+    uint256 prevSourceGovVotes;
+    uint256 prevSourcePromisedWaitingPhases;
+    uint256 targetGovVotes;
+    uint256 targetLiquidityShares;
+    uint256 targetBoostShares;
+    uint256 targetPromisedWaitingPhases;
+    uint256 totalValidGovVotes;
+}
+
 contract Stake is IStake {
     using RoundHistoryUint256 for RoundHistoryUint256.History;
-    using Pagination for uint256[];
     using SafeERC20 for IERC20;
 
     uint256 private constant SLIPPAGE_PRECISION = 1e18;
@@ -48,13 +61,18 @@ contract Stake is IStake {
     uint256 public FEE_SETTLEMENT_RATIO;
 
     mapping(address => address) internal _pairAddress;
-    mapping(address => GlobalStake) internal _globalStake;
+    mapping(address => TotalStake) internal _totalStake;
     mapping(address => mapping(uint256 => MemberStake)) internal _memberStake;
-    mapping(address => uint256) internal _globalGovVotes;
     mapping(address => uint256) internal _totalBurnedToken;
     mapping(address => uint256) internal _totalParentTokenBurned;
-    mapping(address => RoundHistoryUint256.History) internal _globalBoostHistory;
-    mapping(address => mapping(uint256 => RoundHistoryUint256.History)) internal _boostHistoryByMember;
+    // Valid weights are kept as two cumulative ledgers per community; the level is their difference,
+    // so `total == added - removed` holds by construction instead of by maintenance.
+    mapping(address => RoundHistoryUint256.History) internal _totalValidGovVotesAdded;
+    mapping(address => RoundHistoryUint256.History) internal _totalValidGovVotesRemoved;
+    mapping(address => RoundHistoryUint256.History) internal _totalValidBoostSharesAdded;
+    mapping(address => RoundHistoryUint256.History) internal _totalValidBoostSharesRemoved;
+    mapping(address => mapping(uint256 => RoundHistoryUint256.History)) internal _validGovVotesByMember;
+    mapping(address => mapping(uint256 => RoundHistoryUint256.History)) internal _validBoostSharesByMember;
     // tokenAddress => phase of the last realised settlement; one settlement per community per phase
     mapping(address => uint256) internal _lastSettlePhase;
 
@@ -139,18 +157,22 @@ contract Stake is IStake {
         // accounting changes, so a reentrant call can only observe the state this call already settled.
         _pull(tokenAddress, msg.sender, boostAmount);
 
-        GlobalStake storage global = _globalStake[tokenAddress];
+        TotalStake storage totals = _totalStake[tokenAddress];
         member.boostShares += boostAmount;
-        global.totalBoostShares += boostAmount;
+        totals.totalBoostShares += boostAmount;
 
         if (promisedWaitingPhases > member.promisedWaitingPhases) {
             govVotesAdded = member.liquidityShares * (promisedWaitingPhases - member.promisedWaitingPhases);
             member.promisedWaitingPhases = promisedWaitingPhases;
-            _globalGovVotes[tokenAddress] += govVotesAdded;
+            _totalValidGovVotesAdded[tokenAddress].increase(round, govVotesAdded);
+            _validGovVotesByMember[tokenAddress][memberId].increase(round, govVotesAdded);
         }
 
-        _boostHistoryByMember[tokenAddress][memberId].increase(round, boostAmount);
-        _globalBoostHistory[tokenAddress].increase(round, boostAmount);
+        _validBoostSharesByMember[tokenAddress][memberId].increase(round, boostAmount);
+        _totalValidBoostSharesAdded[tokenAddress].increase(round, boostAmount);
+
+        uint256 validBoostSharesTotal = _totalValidBoostSharesAt(tokenAddress, round);
+        uint256 govVotesTotal = _totalValidGovVotesAt(tokenAddress, round);
 
         // forge-lint: disable-next-item(reentrancy-events)
         emit BoostStaked({
@@ -161,9 +183,10 @@ contract Stake is IStake {
             promisedWaitingPhases: promisedWaitingPhases,
             govVotesAdded: govVotesAdded,
             govVotes: _govVotesOf(member),
-            boostSharesAdded: boostAmount,
             boostShares: member.boostShares,
-            totalBoostShares: global.totalBoostShares
+            totalBoostShares: totals.totalBoostShares,
+            totalValidBoostShares: validBoostSharesTotal,
+            totalValidGovVotes: govVotesTotal
         });
     }
 
@@ -183,14 +206,18 @@ contract Stake is IStake {
         uint256 boostShares = member.boostShares;
 
         member.unlockRequestPhase = round;
-        _globalGovVotes[tokenAddress] -= govVotes;
+        _totalValidGovVotesRemoved[tokenAddress].increase(round, govVotes);
+        _validGovVotesByMember[tokenAddress][memberId].decrease(round, govVotes);
 
         // The boost leaves the community history as soon as the unlock is requested, keeping the old
         // `LOVE20Stake` behaviour; the withdrawal must not subtract it a second time.
         if (boostShares > 0) {
-            _boostHistoryByMember[tokenAddress][memberId].decrease(round, boostShares);
-            _globalBoostHistory[tokenAddress].decrease(round, boostShares);
+            _validBoostSharesByMember[tokenAddress][memberId].decrease(round, boostShares);
+            _totalValidBoostSharesRemoved[tokenAddress].increase(round, boostShares);
         }
+
+        uint256 validBoostSharesTotal = _totalValidBoostSharesAt(tokenAddress, round);
+        uint256 govVotesTotal = _totalValidGovVotesAt(tokenAddress, round);
 
         emit Unstaked({
             tokenAddress: tokenAddress,
@@ -199,7 +226,9 @@ contract Stake is IStake {
             promisedWaitingPhases: member.promisedWaitingPhases,
             govVotes: govVotes,
             liquidityShares: member.liquidityShares,
-            boostShares: member.boostShares
+            boostShares: member.boostShares,
+            totalValidBoostShares: validBoostSharesTotal,
+            totalValidGovVotes: govVotesTotal
         });
     }
 
@@ -221,19 +250,19 @@ contract Stake is IStake {
             revert InsufficientWaitingPhases(round, member.unlockRequestPhase + promisedWaitingPhases);
         }
 
-        (uint256 tokenAmountForLiquidity, uint256 parentTokenAmountForLiquidity, uint256 lpBurned, uint256 lpTransferred) =
+        (uint256 tokenAmountForLiquidity, uint256 parentTokenAmountForLiquidity, uint256 lpBurned, uint256 lpToMember) =
             _withdrawLiquidity(tokenAddress, pair, liquidityShares);
 
         // Only the asset and the community share total move here: the boost history was already reduced
         // when the unlock was requested.
         if (boostShares > 0) {
             _push(tokenAddress, msg.sender, boostShares);
-            _globalStake[tokenAddress].totalBoostShares -= boostShares;
+            _totalStake[tokenAddress].totalBoostShares -= boostShares;
         }
 
         delete _memberStake[tokenAddress][memberId];
 
-        GlobalStake storage global = _globalStake[tokenAddress];
+        TotalStake storage totals = _totalStake[tokenAddress];
         // forge-lint: disable-next-item(reentrancy-events)
         emit StakeWithdrawn({
             tokenAddress: tokenAddress,
@@ -245,9 +274,9 @@ contract Stake is IStake {
             parentTokenAmountForLiquidity: parentTokenAmountForLiquidity,
             boostShares: boostShares,
             lpBurned: lpBurned,
-            lpTransferred: lpTransferred,
-            totalLiquidityShares: global.totalLiquidityShares,
-            totalBoostShares: global.totalBoostShares
+            lpToMember: lpToMember,
+            totalLiquidityShares: totals.totalLiquidityShares,
+            totalBoostShares: totals.totalBoostShares
         });
     }
 
@@ -272,11 +301,10 @@ contract Stake is IStake {
             revert StakeRightsUsed(tokenAddress, round, sourceMemberId);
         }
 
-        (uint256 liquiditySharesMerged, uint256 boostSharesMerged) =
-            _mergeIntoTarget(tokenAddress, sourceMemberId, targetMemberId);
+        MergedStake memory merged = _mergeIntoTarget(tokenAddress, round, sourceMemberId, targetMemberId);
 
-        if (boostSharesMerged > 0) {
-            _moveBoostHistory(tokenAddress, sourceMemberId, targetMemberId, boostSharesMerged, round);
+        if (merged.boostShares > 0) {
+            _moveBoostHistory(tokenAddress, sourceMemberId, targetMemberId, merged.boostShares, round);
         }
 
         emit StakesMerged({
@@ -284,12 +312,15 @@ contract Stake is IStake {
             sourceMemberId: sourceMemberId,
             targetMemberId: targetMemberId,
             round: round,
-            liquiditySharesMerged: liquiditySharesMerged,
-            boostSharesMerged: boostSharesMerged,
-            targetGovVotes: _govVotesOf(target),
-            targetLiquidityShares: target.liquidityShares,
-            targetBoostShares: target.boostShares,
-            targetPromisedWaitingPhases: target.promisedWaitingPhases
+            liquiditySharesMerged: merged.liquidityShares,
+            boostSharesMerged: merged.boostShares,
+            targetGovVotes: merged.targetGovVotes,
+            targetLiquidityShares: merged.targetLiquidityShares,
+            targetBoostShares: merged.targetBoostShares,
+            targetPromisedWaitingPhases: merged.targetPromisedWaitingPhases,
+            prevSourceGovVotes: merged.prevSourceGovVotes,
+            prevSourcePromisedWaitingPhases: merged.prevSourcePromisedWaitingPhases,
+            totalValidGovVotes: merged.totalValidGovVotes
         });
     }
 
@@ -305,8 +336,28 @@ contract Stake is IStake {
         return _totalParentTokenBurned[tokenAddress];
     }
 
-    function globalGovVotes(address tokenAddress) external view returns (uint256) {
-        return _globalGovVotes[tokenAddress];
+    function validGovVotes(address tokenAddress, uint256 round, uint256 memberId)
+        external
+        view
+        returns (uint256)
+    {
+        _requireRoundStarted(round);
+        return _validGovVotesByMember[tokenAddress][memberId].value(round);
+    }
+
+    function totalValidGovVotes(address tokenAddress, uint256 round) external view returns (uint256) {
+        _requireRoundStarted(round);
+        return _totalValidGovVotesAt(tokenAddress, round);
+    }
+
+    function totalValidGovVotesAdded(address tokenAddress, uint256 round) external view returns (uint256) {
+        _requireRoundStarted(round);
+        return _totalValidGovVotesAdded[tokenAddress].value(round);
+    }
+
+    function totalValidGovVotesRemoved(address tokenAddress, uint256 round) external view returns (uint256) {
+        _requireRoundStarted(round);
+        return _totalValidGovVotesRemoved[tokenAddress].value(round);
     }
 
     function stakeData(address tokenAddress, uint256 memberId)
@@ -327,12 +378,12 @@ contract Stake is IStake {
         promisedWaitingPhases = member.promisedWaitingPhases;
         unlockRequestPhase = member.unlockRequestPhase;
 
-        GlobalStake storage global = _globalStake[tokenAddress];
+        TotalStake storage totals = _totalStake[tokenAddress];
         address pair = _pairAddress[tokenAddress];
-        if (pair != address(0) && global.totalLiquidityShares != 0) {
+        if (pair != address(0) && totals.totalLiquidityShares != 0) {
             (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
-            (, uint256 withdrawableLp, ) = _reclassify(global, reserveToken, reserveParent, pairTotalSupply);
-            uint256 lpAmount = (liquidityShares * withdrawableLp) / global.totalLiquidityShares;
+            (, uint256 withdrawableLp, ) = _reclassify(totals, reserveToken, reserveParent, pairTotalSupply);
+            uint256 lpAmount = (liquidityShares * withdrawableLp) / totals.totalLiquidityShares;
             if (pairTotalSupply != 0) {
                 // The share is converted in two steps on purpose: `lpAmount` is the value the spec defines
                 // and folding both divisions into one expression would round a different quantity.
@@ -344,13 +395,7 @@ contract Stake is IStake {
         }
     }
 
-    function validGovVotes(address tokenAddress, uint256 memberId) external view returns (uint256) {
-        MemberStake storage member = _memberStake[tokenAddress][memberId];
-        if (member.unlockRequestPhase != 0) return 0;
-        return _govVotesOf(member);
-    }
-
-    function globalStakeData(address tokenAddress)
+    function totalStakeData(address tokenAddress)
         external
         view
         returns (
@@ -363,16 +408,16 @@ contract Stake is IStake {
             uint256 parentTokenAmountForLiquidity
         )
     {
-        GlobalStake storage global = _globalStake[tokenAddress];
-        totalLiquidityShares = global.totalLiquidityShares;
-        totalLp = global.totalLp;
-        totalBoostShares = global.totalBoostShares;
+        TotalStake storage totals = _totalStake[tokenAddress];
+        totalLiquidityShares = totals.totalLiquidityShares;
+        totalLp = totals.totalLp;
+        totalBoostShares = totals.totalBoostShares;
 
         address pair = _pairAddress[tokenAddress];
         if (pair == address(0)) return (totalLiquidityShares, totalLp, 0, 0, totalBoostShares, 0, 0);
 
         (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
-        (feeLp, withdrawableLp, ) = _reclassify(global, reserveToken, reserveParent, pairTotalSupply);
+        (feeLp, withdrawableLp, ) = _reclassify(totals, reserveToken, reserveParent, pairTotalSupply);
         if (pairTotalSupply != 0) {
             tokenAmountForLiquidity = (withdrawableLp * reserveToken) / pairTotalSupply;
             parentTokenAmountForLiquidity = (withdrawableLp * reserveParent) / pairTotalSupply;
@@ -387,35 +432,49 @@ contract Stake is IStake {
         return _currentRound() > member.unlockRequestPhase + member.promisedWaitingPhases;
     }
 
-    function cumulatedBoostShares(address tokenAddress, uint256 round, uint256 memberId)
+    function validBoostShares(address tokenAddress, uint256 round, uint256 memberId)
         external
         view
         returns (uint256)
     {
-        // A round that has not started has no record yet: reverting keeps the old behaviour instead of
-        // reporting the latest record as if it belonged to a future round.
-        if (round > _currentRound()) revert RoundNotStarted(round, _currentRound());
-        return _boostHistoryByMember[tokenAddress][memberId].value(round);
+        _requireRoundStarted(round);
+        return _validBoostSharesByMember[tokenAddress][memberId].value(round);
     }
 
-    function globalBoostUpdatedRounds(address tokenAddress, uint256 offset, uint256 limit, bool reverse)
-        external
-        view
-        returns (uint256[] memory rounds, uint256 totalCount)
-    {
-        return _globalBoostHistory[tokenAddress].index.keys.paginate(offset, limit, reverse);
+    function totalValidBoostShares(address tokenAddress, uint256 round) external view returns (uint256) {
+        _requireRoundStarted(round);
+        return _totalValidBoostSharesAt(tokenAddress, round);
     }
 
-    function boostUpdatedRounds(address tokenAddress, uint256 memberId, uint256 offset, uint256 limit, bool reverse)
-        external
-        view
-        returns (uint256[] memory rounds, uint256 totalCount)
-    {
-        return _boostHistoryByMember[tokenAddress][memberId].index.keys.paginate(offset, limit, reverse);
+    function totalValidBoostSharesAdded(address tokenAddress, uint256 round) external view returns (uint256) {
+        _requireRoundStarted(round);
+        return _totalValidBoostSharesAdded[tokenAddress].value(round);
+    }
+
+    function totalValidBoostSharesRemoved(address tokenAddress, uint256 round) external view returns (uint256) {
+        _requireRoundStarted(round);
+        return _totalValidBoostSharesRemoved[tokenAddress].value(round);
     }
 
     function _currentRound() private view returns (uint256) {
         return IPhase(phaseAddress).currentPhase();
+    }
+
+    /// @dev A round that has not started has no record yet: reverting keeps the old behaviour instead
+    ///      of reporting the latest record as if it belonged to a future round.
+    function _requireRoundStarted(uint256 round) private view {
+        uint256 currentRound = _currentRound();
+        if (round > currentRound) revert RoundNotStarted(round, currentRound);
+    }
+
+    function _totalValidGovVotesAt(address tokenAddress, uint256 round) private view returns (uint256) {
+        return _totalValidGovVotesAdded[tokenAddress].value(round)
+            - _totalValidGovVotesRemoved[tokenAddress].value(round);
+    }
+
+    function _totalValidBoostSharesAt(address tokenAddress, uint256 round) private view returns (uint256) {
+        return _totalValidBoostSharesAdded[tokenAddress].value(round)
+            - _totalValidBoostSharesRemoved[tokenAddress].value(round);
     }
 
     function _requireActiveRound() private view returns (uint256 round) {
@@ -487,10 +546,12 @@ contract Stake is IStake {
     /// @dev Moves the source stake into the target and re-prices the merged governance votes. The target
     ///      keeps its own waiting phases when it is not empty, so the merged liquidity can only raise the
     ///      vote count and the subtraction below cannot underflow.
-    function _mergeIntoTarget(address tokenAddress, uint256 sourceMemberId, uint256 targetMemberId)
-        private
-        returns (uint256 liquiditySharesMerged, uint256 boostSharesMerged)
-    {
+    function _mergeIntoTarget(
+        address tokenAddress,
+        uint256 round,
+        uint256 sourceMemberId,
+        uint256 targetMemberId
+    ) private returns (MergedStake memory merged) {
         MemberStake storage source = _memberStake[tokenAddress][sourceMemberId];
         MemberStake storage target = _memberStake[tokenAddress][targetMemberId];
         bool targetIsEmpty = target.liquidityShares == 0 && target.boostShares == 0;
@@ -501,18 +562,33 @@ contract Stake is IStake {
             );
         }
 
-        liquiditySharesMerged = source.liquidityShares;
-        boostSharesMerged = source.boostShares;
-        uint256 promisedWaitingPhases = targetIsEmpty ? source.promisedWaitingPhases : target.promisedWaitingPhases;
+        merged.liquidityShares = source.liquidityShares;
+        merged.boostShares = source.boostShares;
+        merged.prevSourcePromisedWaitingPhases = source.promisedWaitingPhases;
+        merged.prevSourceGovVotes = _govVotesOf(source);
         uint256 govVotesBefore = _govVotesOf(target);
 
-        target.liquidityShares += liquiditySharesMerged;
-        target.boostShares += boostSharesMerged;
-        target.promisedWaitingPhases = promisedWaitingPhases;
+        target.liquidityShares += merged.liquidityShares;
+        target.boostShares += merged.boostShares;
+        if (targetIsEmpty) {
+            target.promisedWaitingPhases = merged.prevSourcePromisedWaitingPhases;
+        }
 
         uint256 govVotesAdded = _govVotesOf(target) - govVotesBefore;
-        _globalGovVotes[tokenAddress] =
-            _globalGovVotes[tokenAddress] - _govVotesOf(source) + govVotesAdded;
+        if (merged.prevSourceGovVotes > 0) {
+            _totalValidGovVotesRemoved[tokenAddress].increase(round, merged.prevSourceGovVotes);
+            _validGovVotesByMember[tokenAddress][sourceMemberId].decrease(round, merged.prevSourceGovVotes);
+        }
+        if (govVotesAdded > 0) {
+            _totalValidGovVotesAdded[tokenAddress].increase(round, govVotesAdded);
+            _validGovVotesByMember[tokenAddress][targetMemberId].increase(round, govVotesAdded);
+        }
+
+        merged.targetGovVotes = _govVotesOf(target);
+        merged.targetLiquidityShares = target.liquidityShares;
+        merged.targetBoostShares = target.boostShares;
+        merged.targetPromisedWaitingPhases = target.promisedWaitingPhases;
+        merged.totalValidGovVotes = _totalValidGovVotesAt(tokenAddress, round);
 
         delete _memberStake[tokenAddress][sourceMemberId];
     }
@@ -520,8 +596,8 @@ contract Stake is IStake {
     function _moveBoostHistory(address tokenAddress, uint256 sourceMemberId, uint256 targetMemberId, uint256 shares, uint256 round)
         private
     {
-        _boostHistoryByMember[tokenAddress][sourceMemberId].decrease(round, shares);
-        _boostHistoryByMember[tokenAddress][targetMemberId].increase(round, shares);
+        _validBoostSharesByMember[tokenAddress][sourceMemberId].decrease(round, shares);
+        _validBoostSharesByMember[tokenAddress][targetMemberId].increase(round, shares);
     }
 
     function _creditLiquidity(
@@ -533,24 +609,27 @@ contract Stake is IStake {
         AddedLiquidity memory added
     ) private returns (uint256 govVotesAdded, uint256 liquiditySharesAdded) {
         MemberStake storage member = _memberStake[tokenAddress][memberId];
-        GlobalStake storage global = _globalStake[tokenAddress];
+        TotalStake storage totals = _totalStake[tokenAddress];
 
         // Zero-priced basis keeps the old `LOVE20SLToken` branch: the whole basis was reclassified into
         // fees, so the deposit is worth its own LP amount instead of dividing by zero.
-        liquiditySharesAdded = global.totalLiquidityShares == 0 || added.withdrawableLpBefore == 0
+        liquiditySharesAdded = totals.totalLiquidityShares == 0 || added.withdrawableLpBefore == 0
             ? added.lpMinted
-            : (global.totalLiquidityShares * added.lpMinted) / added.withdrawableLpBefore;
+            : (totals.totalLiquidityShares * added.lpMinted) / added.withdrawableLpBefore;
 
         govVotesAdded = (member.liquidityShares + liquiditySharesAdded) * promisedWaitingPhases
             - _govVotesOf(member);
 
         member.liquidityShares += liquiditySharesAdded;
         member.promisedWaitingPhases = promisedWaitingPhases;
-        global.totalLiquidityShares += liquiditySharesAdded;
-        global.lastWithdrawableLp += added.lpMinted;
-        _globalGovVotes[tokenAddress] += govVotesAdded;
+        totals.totalLiquidityShares += liquiditySharesAdded;
+        totals.lastWithdrawableLp += added.lpMinted;
+        _totalValidGovVotesAdded[tokenAddress].increase(round, govVotesAdded);
+        _validGovVotesByMember[tokenAddress][memberId].increase(round, govVotesAdded);
 
-        _updateSqrtKBaseline(global, pair, tokenAddress);
+        _updateSqrtKBaseline(totals, pair, tokenAddress);
+
+        uint256 govVotesTotal = _totalValidGovVotesAt(tokenAddress, round);
 
         // forge-lint: disable-next-item(reentrancy-events)
         emit LiquidityStaked({
@@ -566,7 +645,8 @@ contract Stake is IStake {
             govVotes: _govVotesOf(member),
             liquiditySharesAdded: liquiditySharesAdded,
             liquidityShares: member.liquidityShares,
-            totalLiquidityShares: global.totalLiquidityShares
+            totalLiquidityShares: totals.totalLiquidityShares,
+            totalValidGovVotes: govVotesTotal
         });
     }
 
@@ -577,16 +657,16 @@ contract Stake is IStake {
         uint256 parentTokenAmount,
         uint256 slippage
     ) private returns (AddedLiquidity memory added) {
-        GlobalStake storage global = _globalStake[tokenAddress];
+        TotalStake storage totals = _totalStake[tokenAddress];
         added.tokenAmountDesired = tokenAmount;
         added.parentTokenAmountDesired = parentTokenAmount;
 
         // Fee reclassification runs before the shares are priced, so the new deposit is priced against
         // the withdrawable basis that already excludes this round's fees.
         (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
-        (global.lastFeeLp, global.lastWithdrawableLp, global.lastSqrtKOfLp) =
-            _reclassify(global, reserveToken, reserveParent, pairTotalSupply);
-        added.withdrawableLpBefore = global.lastWithdrawableLp;
+        (totals.lastFeeLp, totals.lastWithdrawableLp, totals.lastSqrtKOfLp) =
+            _reclassify(totals, reserveToken, reserveParent, pairTotalSupply);
+        added.withdrawableLpBefore = totals.lastWithdrawableLp;
 
         (added.tokenAmount, added.parentTokenAmount) =
             _optimalAmounts(tokenAmount, parentTokenAmount, reserveToken, reserveParent, slippage);
@@ -618,14 +698,14 @@ contract Stake is IStake {
         }
     }
 
-    function _reclassify(GlobalStake storage global, uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply)
+    function _reclassify(TotalStake storage totals, uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply)
         private
         view
         returns (uint256 feeLp, uint256 withdrawableLp, uint256 sqrtKOfLp)
     {
-        uint256 lastFeeLp = global.lastFeeLp;
-        uint256 lastWithdrawableLp = global.lastWithdrawableLp;
-        uint256 lastSqrtKOfLp = global.lastSqrtKOfLp;
+        uint256 lastFeeLp = totals.lastFeeLp;
+        uint256 lastWithdrawableLp = totals.lastWithdrawableLp;
+        uint256 lastSqrtKOfLp = totals.lastSqrtKOfLp;
 
         // Without a baseline the ratio below would price the whole basis down to zero, so an unset baseline
         // skips reclassification instead of reclassifying everything into fees.
@@ -677,28 +757,28 @@ contract Stake is IStake {
 
     /// @dev `totalLp` is owned here and always means the accounted amount: LP transferred to this contract
     ///      from outside is claimable by nobody, so it must not shift the fee baseline.
-    function _updateSqrtKBaseline(GlobalStake storage global, address pair, address tokenAddress) private {
+    function _updateSqrtKBaseline(TotalStake storage totals, address pair, address tokenAddress) private {
         (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
-        global.totalLp = global.lastFeeLp + global.lastWithdrawableLp;
+        totals.totalLp = totals.lastFeeLp + totals.lastWithdrawableLp;
         if (pairTotalSupply == 0) {
-            global.lastSqrtKOfLp = 0;
+            totals.lastSqrtKOfLp = 0;
             return;
         }
-        global.lastSqrtKOfLp = (Math.sqrt(reserveToken * reserveParent) * global.totalLp) / pairTotalSupply;
+        totals.lastSqrtKOfLp = (Math.sqrt(reserveToken * reserveParent) * totals.totalLp) / pairTotalSupply;
     }
 
     /// @dev Fees are settled first so the shares are redeemed against the withdrawable basis that already
     ///      excludes this round's fees; a failing settlement fails the whole withdrawal.
     function _withdrawLiquidity(address tokenAddress, address pair, uint256 liquidityShares)
         private
-        returns (uint256 tokenAmount, uint256 parentTokenAmount, uint256 lpBurned, uint256 lpTransferred)
+        returns (uint256 tokenAmount, uint256 parentTokenAmount, uint256 lpBurned, uint256 lpToMember)
     {
-        GlobalStake storage global = _globalStake[tokenAddress];
+        TotalStake storage totals = _totalStake[tokenAddress];
         _settleFees(tokenAddress, pair);
 
-        uint256 lpAmount = (liquidityShares * global.lastWithdrawableLp) / global.totalLiquidityShares;
-        global.lastWithdrawableLp -= lpAmount;
-        global.totalLiquidityShares -= liquidityShares;
+        uint256 lpAmount = (liquidityShares * totals.lastWithdrawableLp) / totals.totalLiquidityShares;
+        totals.lastWithdrawableLp -= lpAmount;
+        totals.totalLiquidityShares -= liquidityShares;
 
         if (lpAmount > 0) {
             (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
@@ -707,12 +787,12 @@ contract Stake is IStake {
                 _push(pair, pair, lpAmount);
                 (tokenAmount, parentTokenAmount) = _burnLp(IUniswapV2Pair(pair), tokenAddress, msg.sender);
             } else {
-                lpTransferred = lpAmount;
+                lpToMember = lpAmount;
                 _push(pair, msg.sender, lpAmount);
             }
         }
 
-        _updateSqrtKBaseline(global, pair, tokenAddress);
+        _updateSqrtKBaseline(totals, pair, tokenAddress);
     }
 
     function _burnLp(IUniswapV2Pair pairContract, address tokenAddress, address to)
@@ -732,29 +812,32 @@ contract Stake is IStake {
     /// @dev Reclassification always runs, because every later pricing reads the withdrawable basis. The
     ///      swap-and-burn that realises the fee is limited to one settlement per community per phase.
     function _settleFees(address tokenAddress, address pair) private {
-        GlobalStake storage global = _globalStake[tokenAddress];
+        TotalStake storage totals = _totalStake[tokenAddress];
 
         (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
         (uint256 feeLp, uint256 withdrawableLp, uint256 sqrtKOfLp) =
-            _reclassify(global, reserveToken, reserveParent, pairTotalSupply);
+            _reclassify(totals, reserveToken, reserveParent, pairTotalSupply);
 
-        global.lastFeeLp = feeLp;
-        global.lastWithdrawableLp = withdrawableLp;
-        global.lastSqrtKOfLp = sqrtKOfLp;
-        global.totalLp = feeLp + withdrawableLp;
+        totals.lastFeeLp = feeLp;
+        totals.lastWithdrawableLp = withdrawableLp;
+        totals.lastSqrtKOfLp = sqrtKOfLp;
+        totals.totalLp = feeLp + withdrawableLp;
 
         uint256 settlementUnit = Math.mulDiv(withdrawableLp, FEE_SETTLEMENT_RATIO, 1e18);
         if (feeLp < settlementUnit) {
             return;
         }
-        if (_lastSettlePhase[tokenAddress] == _currentRound()) {
+        // The round is read once, after every early return, so a settlement and the phase it is recorded
+        // against cannot disagree.
+        uint256 round = _currentRound();
+        if (_lastSettlePhase[tokenAddress] == round) {
             return;
         }
         if (!_canBurn(settlementUnit, reserveToken, reserveParent, pairTotalSupply)) {
             return;
         }
 
-        _realizeFees(tokenAddress, pair, settlementUnit);
+        _realizeFees(tokenAddress, pair, settlementUnit, round);
     }
 
     /// @dev `pair.burn` reverts when either side of the proportional payout floors to zero, so a unit too
@@ -770,7 +853,7 @@ contract Stake is IStake {
 
     /// @dev Keeps the unprocessed fee as the pending basis, so the next phase settles the remainder.
     /// @dev The withdrawable basis is left as the caller reclassified it; only the fee side changes here.
-    function _realizeFees(address tokenAddress, address pair, uint256 processedFeeLp) private {
+    function _realizeFees(address tokenAddress, address pair, uint256 processedFeeLp, uint256 round) private {
         // A zero amount is reachable, not defensive padding: a pair that exists but has no liquidity has
         // `totalSupply == 0`, which makes `_canBurn` judge `0 >= 0` true and lets the settlement through
         // with a zero unit — a token launched but never staked is exactly that state. Burning zero would
@@ -779,9 +862,9 @@ contract Stake is IStake {
         if (processedFeeLp == 0) {
             return;
         }
-        GlobalStake storage global = _globalStake[tokenAddress];
+        TotalStake storage totals = _totalStake[tokenAddress];
         IUniswapV2Pair pairContract = IUniswapV2Pair(pair);
-        _lastSettlePhase[tokenAddress] = _currentRound();
+        _lastSettlePhase[tokenAddress] = round;
 
         _push(pair, pair, processedFeeLp);
         (uint256 tokenBurned, uint256 parentTokenBurned) = _burnLp(pairContract, tokenAddress, address(this));
@@ -800,16 +883,21 @@ contract Stake is IStake {
         }
         _totalBurnedToken[tokenAddress] += totalTokenBurned;
 
-        global.lastFeeLp -= processedFeeLp;
-        _updateSqrtKBaseline(global, pair, tokenAddress);
+        totals.lastFeeLp -= processedFeeLp;
+        _updateSqrtKBaseline(totals, pair, tokenAddress);
+
+        uint256 burnedTokenTotal = _totalBurnedToken[tokenAddress];
+        uint256 parentTokenBurnedTotal = _totalParentTokenBurned[tokenAddress];
 
         // forge-lint: disable-next-item(reentrancy-events)
         emit FeesSettled({
             tokenAddress: tokenAddress,
-            round: _currentRound(),
+            round: round,
             feeLp: processedFeeLp,
             tokenBurned: totalTokenBurned,
-            parentTokenBurned: parentTokenBurned
+            parentTokenBurned: parentTokenBurned,
+            totalBurnedToken: burnedTokenTotal,
+            totalParentTokenBurned: parentTokenBurnedTotal
         });
     }
 

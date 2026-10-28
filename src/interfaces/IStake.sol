@@ -8,7 +8,7 @@ struct MemberStake {
     uint256 unlockRequestPhase;
 }
 
-struct GlobalStake {
+struct TotalStake {
     uint256 totalLiquidityShares;
     uint256 totalLp;
     uint256 lastWithdrawableLp;
@@ -54,7 +54,8 @@ interface IStakeEvents {
         uint256 govVotes,
         uint256 liquiditySharesAdded,
         uint256 liquidityShares,
-        uint256 totalLiquidityShares
+        uint256 totalLiquidityShares,
+        uint256 totalValidGovVotes
     );
     event BoostStaked(
         address indexed tokenAddress,
@@ -64,9 +65,10 @@ interface IStakeEvents {
         uint256 promisedWaitingPhases,
         uint256 govVotesAdded,
         uint256 govVotes,
-        uint256 boostSharesAdded,
         uint256 boostShares,
-        uint256 totalBoostShares
+        uint256 totalBoostShares,
+        uint256 totalValidBoostShares,
+        uint256 totalValidGovVotes
     );
     event Unstaked(
         address indexed tokenAddress,
@@ -75,7 +77,9 @@ interface IStakeEvents {
         uint256 promisedWaitingPhases,
         uint256 govVotes,
         uint256 liquidityShares,
-        uint256 boostShares
+        uint256 boostShares,
+        uint256 totalValidBoostShares,
+        uint256 totalValidGovVotes
     );
     event StakeWithdrawn(
         address indexed tokenAddress,
@@ -87,7 +91,7 @@ interface IStakeEvents {
         uint256 parentTokenAmountForLiquidity,
         uint256 boostShares,
         uint256 lpBurned,
-        uint256 lpTransferred,
+        uint256 lpToMember,
         uint256 totalLiquidityShares,
         uint256 totalBoostShares
     );
@@ -96,7 +100,9 @@ interface IStakeEvents {
         uint256 indexed round,
         uint256 feeLp,
         uint256 tokenBurned,
-        uint256 parentTokenBurned
+        uint256 parentTokenBurned,
+        uint256 totalBurnedToken,
+        uint256 totalParentTokenBurned
     );
     event StakesMerged(
         address indexed tokenAddress,
@@ -108,7 +114,10 @@ interface IStakeEvents {
         uint256 targetGovVotes,
         uint256 targetLiquidityShares,
         uint256 targetBoostShares,
-        uint256 targetPromisedWaitingPhases
+        uint256 targetPromisedWaitingPhases,
+        uint256 prevSourceGovVotes,
+        uint256 prevSourcePromisedWaitingPhases,
+        uint256 totalValidGovVotes
     );
 }
 
@@ -156,7 +165,6 @@ interface IStake is IStakeErrors, IStakeEvents {
     function pairAddress(address tokenAddress) external view returns (address);
     function totalBurnedToken(address tokenAddress) external view returns (uint256);
     function totalParentTokenBurned(address tokenAddress) external view returns (uint256);
-    function globalGovVotes(address tokenAddress) external view returns (uint256);
     function stakeData(address tokenAddress, uint256 memberId)
         external view returns (
             uint256 liquidityShares,
@@ -166,8 +174,11 @@ interface IStake is IStakeErrors, IStakeEvents {
             uint256 tokenAmountForLiquidity,
             uint256 parentTokenAmountForLiquidity
         );
-    function validGovVotes(address tokenAddress, uint256 memberId) external view returns (uint256);
-    function globalStakeData(address tokenAddress)
+    function validGovVotes(address tokenAddress, uint256 round, uint256 memberId) external view returns (uint256);
+    function totalValidGovVotes(address tokenAddress, uint256 round) external view returns (uint256);
+    function totalValidGovVotesAdded(address tokenAddress, uint256 round) external view returns (uint256);
+    function totalValidGovVotesRemoved(address tokenAddress, uint256 round) external view returns (uint256);
+    function totalStakeData(address tokenAddress)
         external view returns (
             uint256 totalLiquidityShares,
             uint256 totalLp,
@@ -178,18 +189,12 @@ interface IStake is IStakeErrors, IStakeEvents {
             uint256 parentTokenAmountForLiquidity
         );
     function canWithdraw(address tokenAddress, uint256 memberId) external view returns (bool);
-    function cumulatedBoostShares(
+    function validBoostShares(
         address tokenAddress,
         uint256 round,
         uint256 memberId
     ) external view returns (uint256);
-    function globalBoostUpdatedRounds(address tokenAddress, uint256 offset, uint256 limit, bool reverse)
-        external view returns (uint256[] memory rounds, uint256 totalCount);
-    function boostUpdatedRounds(
-        address tokenAddress,
-        uint256 memberId,
-        uint256 offset,
-        uint256 limit,
-        bool reverse
-    ) external view returns (uint256[] memory rounds, uint256 totalCount);
+    function totalValidBoostShares(address tokenAddress, uint256 round) external view returns (uint256);
+    function totalValidBoostSharesAdded(address tokenAddress, uint256 round) external view returns (uint256);
+    function totalValidBoostSharesRemoved(address tokenAddress, uint256 round) external view returns (uint256);
 }

@@ -538,11 +538,11 @@ contract LaunchTest {
         bytes32 eventSelector = keccak256("TokenLaunched(address,address,uint256,address,uint8,string,string)");
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(launch) || logs[i].topics.length == 0) continue;
-            if (logs[i].topics[0] == keccak256("LaunchCountConsumed(address,uint256,uint256,uint256)")) {
+            if (logs[i].topics[0] == keccak256("LaunchCountConsumed(address,uint256,uint256)")) {
                 require(logs[i].topics[1] == bytes32(uint256(uint160(address(firstToken)))), "consumed ledger");
                 require(logs[i].topics[2] == bytes32(bobMemberId), "consumed member");
-                (uint256 count, uint256 remaining) = abi.decode(logs[i].data, (uint256, uint256));
-                require(count == 1 && remaining == 0, "consumed payload");
+                uint256 remaining = abi.decode(logs[i].data, (uint256));
+                require(remaining == 0, "consumed payload");
                 consumed = true;
                 continue;
             }
@@ -564,7 +564,7 @@ contract LaunchTest {
         // 反向断言：只发一条 TokenLaunched，且不产生其它 Launch 事件
         require(_countLogs(logs, address(launch), eventSelector) == 1, "exactly one TokenLaunched");
         require(
-            _countLogs(logs, address(launch), keccak256("LaunchCountConsumed(address,uint256,uint256,uint256)")) == 1,
+            _countLogs(logs, address(launch), keccak256("LaunchCountConsumed(address,uint256,uint256)")) == 1,
             "exactly one LaunchCountConsumed"
         );
         require(_countLogs(logs, address(launch), keccak256("LaunchCountAdded(address,uint256,uint256,uint256,uint256)")) == 0, "no added");

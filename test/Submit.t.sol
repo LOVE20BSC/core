@@ -34,11 +34,11 @@ contract MockStake {
         _globalVotes[token] = votes;
     }
 
-    function validGovVotes(address token, uint256 memberId) external view returns (uint256) {
+    function validGovVotes(address token, uint256, uint256 memberId) external view returns (uint256) {
         return _validVotes[token][memberId];
     }
 
-    function globalGovVotes(address token) external view returns (uint256) {
+    function totalValidGovVotes(address token, uint256) external view returns (uint256) {
         return _globalVotes[token];
     }
 }

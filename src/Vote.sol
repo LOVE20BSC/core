@@ -142,7 +142,7 @@ contract Vote is IVote {
     }
 
     function maxVotesNum(address tokenAddress, uint256 memberId) public view returns (uint256) {
-        return IStake(_stakeAddress).validGovVotes(tokenAddress, memberId);
+        return IStake(_stakeAddress).validGovVotes(tokenAddress, currentRound(), memberId);
     }
 
     function votesNum(address tokenAddress, uint256 round) external view returns (uint256) {
@@ -268,7 +268,7 @@ contract Vote is IVote {
         {
             uint256 currentBoost = _stakedBoostOfVotersByMemberId[tokenAddress][round][memberId];
             // forge-lint: disable-next-line(calls-loop, unused-return)
-            uint256 actualBoost = IStake(_stakeAddress).cumulatedBoostShares(tokenAddress, round, memberId);
+            uint256 actualBoost = IStake(_stakeAddress).validBoostShares(tokenAddress, round, memberId);
 
             if (currentBoost == 0) {
                 // First vote in this round: record snapshot

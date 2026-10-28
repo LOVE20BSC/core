@@ -22,7 +22,8 @@ interface IMintEvents {
         uint256 indexed round,
         uint256 indexed memberId,
         uint256 voteReward,
-        uint256 boostReward
+        uint256 boostReward,
+        uint256 burnReward
     );
     event ProposalRewardMinted(
         address indexed tokenAddress,

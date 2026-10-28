@@ -31,7 +31,7 @@ interface VoteVm {
 /// @notice Stake stand-in for the two reads Vote performs.
 /// @dev Both entry points stay `view` to match `IStake`, so the compiler emits STATICCALL and this
 ///      mock cannot count invocations. Tests observe read behaviour by mutating the returned values
-///      from inside a Target callback instead (see `MockTarget`). `cumulatedBoostShares` keeps the
+///      from inside a Target callback instead (see `MockTarget`). `validBoostShares` keeps the
 ///      real Stake round gate, so a Vote that asked for the wrong round would revert here.
 contract MockStake {
     error MockStakeReadDisabled();
@@ -66,15 +66,19 @@ contract MockStake {
         _boost[tokenAddress][round][memberId] = boostShares;
     }
 
-    function validGovVotes(address tokenAddress, uint256 memberId) external view returns (uint256) {
+    function validGovVotes(address tokenAddress, uint256, uint256 memberId)
+        external
+        view
+        returns (uint256)
+    {
         return _validVotes[tokenAddress][memberId];
     }
 
-    function globalGovVotes(address tokenAddress) external view returns (uint256) {
+    function totalValidGovVotes(address tokenAddress, uint256) external view returns (uint256) {
         return _globalVotes[tokenAddress];
     }
 
-    function cumulatedBoostShares(address tokenAddress, uint256 round, uint256 memberId)
+    function validBoostShares(address tokenAddress, uint256 round, uint256 memberId)
         external
         view
         returns (uint256)
@@ -1036,7 +1040,7 @@ contract VoteTest {
 
         require(target.votedCalls() == 1, "the callback proposal fired once");
         // The mutation must really have landed, otherwise the batch would pass for the wrong reason.
-        require(stake.validGovVotes(TOKEN, memberId) == 0, "the cap was lowered during the batch");
+        require(stake.validGovVotes(TOKEN, 1, memberId) == 0, "the cap was lowered during the batch");
         require(vote.votesNumByMemberId(TOKEN, 1, memberId) == 100, "the cap captured up front governs the batch");
     }
 
@@ -1170,7 +1174,7 @@ contract VoteTest {
         _voteWithoutData(TOKEN, memberId, ids, _filled(2, 10));
 
         require(target.votedCalls() == 1, "the callback proposal fired once");
-        require(stake.cumulatedBoostShares(TOKEN, 1, memberId) == 80, "the boost was raised during the batch");
+        require(stake.validBoostShares(TOKEN, 1, memberId) == 80, "the boost was raised during the batch");
         require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 80, "the second read saw 80");
         require(vote.stakedAmountOfVoters(TOKEN, 1) == 80, "total follows the member snapshot");
     }

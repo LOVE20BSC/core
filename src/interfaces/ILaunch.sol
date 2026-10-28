@@ -78,7 +78,6 @@ interface ILaunchEvents {
     event LaunchCountConsumed(
         address indexed tokenAddress,
         uint256 indexed memberId,
-        uint256 count,
         uint256 remaining
     );
 }
