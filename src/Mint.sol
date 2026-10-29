@@ -131,9 +131,15 @@ contract Mint is IMint {
             // forge-lint: disable-next-line(missing-events-access-control)
             _isRewardPrepared[tokenAddress][round] = true;
             // slither-disable-next-line reentrancy-events
-            emit RewardPrepared(
-                tokenAddress, round, 0, 0, 0, _rewardReserved[tokenAddress], _rewardBurned[tokenAddress]
-            );
+            emit RewardPrepared({
+                tokenAddress: tokenAddress,
+                round: round,
+                govReward: 0,
+                proposalReward: 0,
+                eligibleProposalVotes: 0,
+                rewardReserved: _rewardReserved[tokenAddress],
+                rewardBurned: _rewardBurned[tokenAddress]
+            });
             return;
         }
 
@@ -168,22 +174,27 @@ contract Mint is IMint {
         uint256 finalRewardBurned = _rewardBurned[tokenAddress];
 
         // slither-disable-next-line reentrancy-events
-        emit RewardPrepared(
-            tokenAddress,
-            round,
-            govRewardAmount,
-            proposalRewardAmount,
-            eligibleVotes,
-            finalRewardReserved,
-            finalRewardBurned
-        );
+        emit RewardPrepared({
+            tokenAddress: tokenAddress,
+            round: round,
+            govReward: govRewardAmount,
+            proposalReward: proposalRewardAmount,
+            eligibleProposalVotes: eligibleVotes,
+            rewardReserved: finalRewardReserved,
+            rewardBurned: finalRewardBurned
+        });
     }
 
     function _burnCancelledPool(address tokenAddress, uint256 round, uint256 amount, BurnReason reason) private {
         if (amount == 0) return;
         _rewardBurned[tokenAddress] += amount;
         // slither-disable-next-line reentrancy-events
-        emit RewardBurned(tokenAddress, round, amount, reason);
+        emit RewardBurned({
+            tokenAddress: tokenAddress,
+            round: round,
+            amount: amount,
+            reason: reason
+        });
     }
 
     // Target mode governs Vote callbacks, not Mint authorization.
@@ -231,7 +242,13 @@ contract Mint is IMint {
         ILOVE20Token(tokenAddress).mint(recipient, amount);
 
         // forge-lint: disable-next-line(reentrancy-events)
-        emit ProposalRewardMinted(tokenAddress, round, proposalId, recipient, amount);
+        emit ProposalRewardMinted({
+            tokenAddress: tokenAddress,
+            round: round,
+            proposalId: proposalId,
+            recipient: recipient,
+            amount: amount
+        });
 
         return amount;
     }
@@ -572,11 +589,23 @@ contract Mint is IMint {
 
         if (burnReward > 0) {
             // forge-lint: disable-next-line(reentrancy-events)
-            emit RewardBurned(tokenAddress, round, burnReward, BurnReason.BoostOverflow);
+            emit RewardBurned({
+                tokenAddress: tokenAddress,
+                round: round,
+                amount: burnReward,
+                reason: BurnReason.BoostOverflow
+            });
         }
 
         // forge-lint: disable-next-line(reentrancy-events)
-        emit GovRewardMinted(tokenAddress, round, memberId, voteReward, boostReward, burnReward);
+        emit GovRewardMinted({
+            tokenAddress: tokenAddress,
+            round: round,
+            memberId: memberId,
+            voteReward: voteReward,
+            boostReward: boostReward,
+            burnReward: burnReward
+        });
 
         return (voteReward, boostReward, burnReward);
     }

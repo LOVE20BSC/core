@@ -149,7 +149,13 @@ contract MintEventsTest {
     function addLaunchCount(address tokenAddress, uint256 memberId, uint256 count) external {
         require(msg.sender == address(mint));
         issuedCount += count;
-        emit LaunchCountAdded(tokenAddress, memberId, count, issuedCount, count);
+        emit LaunchCountAdded({
+            tokenAddress: tokenAddress,
+            memberId: memberId,
+            count: count,
+            issuedCount: issuedCount,
+            memberRemaining: count
+        });
     }
 
     function issuedLaunchCount(address) external view returns (uint256) {
@@ -171,15 +177,15 @@ contract MintEventsTest {
         uint256 proposalRewardExpected = (1000000 - 10000) * 100 / 1000;
 
         vm.expectEmit(true, true, false, true);
-        emit RewardPrepared(
-            address(token),
-            round,
-            govRewardExpected,
-            proposalRewardExpected,
-            1800,
-            govRewardExpected + proposalRewardExpected,
-            0
-        );
+        emit RewardPrepared({
+            tokenAddress: address(token),
+            round: round,
+            govReward: govRewardExpected,
+            proposalReward: proposalRewardExpected,
+            eligibleProposalVotes: 1800,
+            rewardReserved: govRewardExpected + proposalRewardExpected,
+            rewardBurned: 0
+        });
 
         mint.mintGovReward(address(token), 1, round, address(this));
     }
@@ -200,19 +206,24 @@ contract MintEventsTest {
         // If there's a burn, expect RewardBurned first
         if (burnReward > 0) {
             vm.expectEmit(true, true, false, true);
-            emit RewardBurned(address(token), round, burnReward, BurnReason.BoostOverflow);
+            emit RewardBurned({
+                tokenAddress: address(token),
+                round: round,
+                amount: burnReward,
+                reason: BurnReason.BoostOverflow
+            });
         }
 
         // Then expect GovRewardMinted
         vm.expectEmit(true, true, true, true);
-        emit GovRewardMinted(
-            address(token),
-            round,
-            memberId,
-            voteReward,
-            boostReward,
-            burnReward
-        );
+        emit GovRewardMinted({
+            tokenAddress: address(token),
+            round: round,
+            memberId: memberId,
+            voteReward: voteReward,
+            boostReward: boostReward,
+            burnReward: burnReward
+        });
 
         mint.mintGovReward(address(token), memberId, round, address(this));
     }
@@ -227,13 +238,13 @@ contract MintEventsTest {
         (uint256 amount,) = mint.proposalRewardByProposalId(address(token), round, proposalId);
 
         vm.expectEmit(true, true, true, true);
-        emit ProposalRewardMinted(
-            address(token),
-            round,
-            proposalId,
-            TARGET,
-            amount
-        );
+        emit ProposalRewardMinted({
+            tokenAddress: address(token),
+            round: round,
+            proposalId: proposalId,
+            recipient: TARGET,
+            amount: amount
+        });
 
         vm.prank(TARGET);
         mint.mintProposalReward(address(token), round, proposalId, TARGET);
@@ -264,11 +275,23 @@ contract MintEventsTest {
         // If there's a burn in first round, expect RewardBurned first
         if (burnReward1 > 0) {
             vm.expectEmit(true, true, false, true);
-            emit RewardBurned(address(token), 1, burnReward1, BurnReason.BoostOverflow);
+            emit RewardBurned({
+                tokenAddress: address(token),
+                round: 1,
+                amount: burnReward1,
+                reason: BurnReason.BoostOverflow
+            });
         }
 
         vm.expectEmit(true, true, true, true);
-        emit GovRewardMinted(address(token), 1, memberId, voteReward1, boostReward1, burnReward1);
+        emit GovRewardMinted({
+            tokenAddress: address(token),
+            round: 1,
+            memberId: memberId,
+            voteReward: voteReward1,
+            boostReward: boostReward1,
+            burnReward: burnReward1
+        });
 
         // Note: Cannot verify all 3 events in one call with current tooling
         // This demonstrates the pattern for the first event

@@ -309,9 +309,9 @@ contract Stake is IStake {
 
         emit StakesMerged({
             tokenAddress: tokenAddress,
+            round: round,
             sourceMemberId: sourceMemberId,
             targetMemberId: targetMemberId,
-            round: round,
             liquiditySharesMerged: merged.liquidityShares,
             boostSharesMerged: merged.boostShares,
             targetGovVotes: merged.targetGovVotes,

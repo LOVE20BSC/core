@@ -42,7 +42,10 @@ contract LOVE20Token is ERC20, ILOVE20Token {
         if (parentTokenAddress_.code.length == 0) revert DependencyNotContract(parentTokenAddress_);
 
         _mint(distributor, initialSupply);
-        emit TokenMinted({to: distributor, amount: initialSupply});
+        emit TokenMinted({
+            to: distributor,
+            amount: initialSupply
+        });
         maxSupply = maxSupply_;
         minter = minter_;
         parentTokenAddress = parentTokenAddress_;
@@ -60,7 +63,10 @@ contract LOVE20Token is ERC20, ILOVE20Token {
         uint256 remaining = maxSupply - totalSupply();
         if (amount > remaining) revert MaxSupplyExceeded(amount, remaining);
         _mint(to, amount);
-        emit TokenMinted({to: to, amount: amount});
+        emit TokenMinted({
+            to: to,
+            amount: amount
+        });
     }
 
     /**
@@ -68,6 +74,9 @@ contract LOVE20Token is ERC20, ILOVE20Token {
      */
     function burn(uint256 amount) external override {
         _burn(msg.sender, amount);
-        emit TokenBurned({from: msg.sender, amount: amount});
+        emit TokenBurned({
+            from: msg.sender,
+            amount: amount
+        });
     }
 }
