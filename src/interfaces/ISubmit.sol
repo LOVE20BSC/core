@@ -30,21 +30,48 @@ struct SubmitInfo {
 interface ISubmitErrors {
     error AlreadyInitialized();
     error TitleEmpty();
-    error TitleTooLong(uint256 length, uint256 maxLength);
-    error DetailsTooLong(uint256 length, uint256 maxLength);
-    error TargetDataTooMany(uint256 count, uint256 maxCount);
-    error TargetDataTooLarge(uint256 totalLength, uint256 maxLength);
+    error TitleTooLong(
+        uint256 length,
+        uint256 maxLength
+    );
+    error DetailsTooLong(
+        uint256 length,
+        uint256 maxLength
+    );
+    error TargetDataTooMany(
+        uint256 count,
+        uint256 maxCount
+    );
+    error TargetDataTooLarge(
+        uint256 totalLength,
+        uint256 maxLength
+    );
     error ZeroTargetAddress();
     error CallbackTargetNotContract(address target);
     error NotMemberOwner(uint256 memberId);
     error NoGovVotes(address tokenAddress);
     error ProposalNotFound(uint256 proposalId);
     error InsufficientSubmitPower(
-        address tokenAddress, uint256 memberId, uint256 validVotes, uint256 requiredVotes
+        address tokenAddress,
+        uint256 memberId,
+        uint256 validVotes,
+        uint256 requiredVotes
     );
-    error SubmitRoundFull(address tokenAddress, uint256 round, uint256 limit);
-    error ProposalAlreadySubmitted(address tokenAddress, uint256 round, uint256 proposalId);
-    error MemberAlreadySubmitted(address tokenAddress, uint256 round, uint256 memberId);
+    error SubmitRoundFull(
+        address tokenAddress,
+        uint256 round,
+        uint256 limit
+    );
+    error ProposalAlreadySubmitted(
+        address tokenAddress,
+        uint256 round,
+        uint256 proposalId
+    );
+    error MemberAlreadySubmitted(
+        address tokenAddress,
+        uint256 round,
+        uint256 memberId
+    );
 }
 interface ISubmitEvents {
     event ProposalCreated(

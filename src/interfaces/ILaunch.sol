@@ -26,21 +26,41 @@ interface ILaunchErrors {
     error ZeroDistributorAddress();
     error TokenNameEmpty();
     error TokenSymbolEmpty();
-    error TokenNameTooLong(uint256 length, uint256 maxLength);
-    error TokenSymbolTooLong(uint256 length, uint256 maxLength);
-    error InvalidTokenSymbolLength(uint256 length, uint256 expected);
+    error TokenNameTooLong(
+        uint256 length,
+        uint256 maxLength
+    );
+    error TokenSymbolTooLong(
+        uint256 length,
+        uint256 maxLength
+    );
+    error InvalidTokenSymbolLength(
+        uint256 length,
+        uint256 expected
+    );
     error InvalidTokenSymbolCharacters();
     error TokenSymbolAlreadyExists(bytes32 symbolHash);
     error PairCreationFailed(address parentTokenAddress);
     error ParentTokenNotRegistered(address parentTokenAddress);
     error TokenNotRegistered(address tokenAddress);
     error DistributorNotContract(address distributor);
-    error InsufficientLaunchCount(uint256 memberId, uint256 available, uint256 required);
+    error InsufficientLaunchCount(
+        uint256 memberId,
+        uint256 available,
+        uint256 required
+    );
     error ZeroCount();
-    error SourceAndTargetMemberIdsMustBeDifferent(uint256 sourceMemberId, uint256 targetMemberId);
+    error SourceAndTargetMemberIdsMustBeDifferent(
+        uint256 sourceMemberId,
+        uint256 targetMemberId
+    );
     error NotMemberOwner(uint256 memberId);
     error NotMintContract(address caller);
-    error LaunchCountLimitExceeded(address tokenAddress, uint256 requested, uint256 remaining);
+    error LaunchCountLimitExceeded(
+        address tokenAddress,
+        uint256 requested,
+        uint256 remaining
+    );
 }
 
 interface ILaunchEvents {

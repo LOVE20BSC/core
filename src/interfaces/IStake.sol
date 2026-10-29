@@ -23,21 +23,56 @@ interface IStakeErrors {
     error ZeroTokenAmount();
     error ZeroParentTokenAmount();
     error ZeroBoostAmount();
-    error InvalidPromisedWaitingPhases(uint256 value, uint256 minPhases, uint256 maxPhases);
-    error PromisedWaitingPhasesDecreased(uint256 requested, uint256 current);
-    error UnstakeAlreadyRequested(address tokenAddress, uint256 memberId);
-    error UnstakeNotRequested(address tokenAddress, uint256 memberId);
-    error NoStakedLiquidity(address tokenAddress, uint256 memberId);
-    error InsufficientWaitingPhases(uint256 currentRound, uint256 unlockRound);
+    error InvalidPromisedWaitingPhases(
+        uint256 value,
+        uint256 minPhases,
+        uint256 maxPhases
+    );
+    error PromisedWaitingPhasesDecreased(
+        uint256 requested,
+        uint256 current
+    );
+    error UnstakeAlreadyRequested(
+        address tokenAddress,
+        uint256 memberId
+    );
+    error UnstakeNotRequested(
+        address tokenAddress,
+        uint256 memberId
+    );
+    error NoStakedLiquidity(
+        address tokenAddress,
+        uint256 memberId
+    );
+    error InsufficientWaitingPhases(
+        uint256 currentRound,
+        uint256 unlockRound
+    );
     error NotMemberOwner(uint256 memberId);
-    error StakeRightsUsed(address tokenAddress, uint256 round, uint256 memberId);
-    error SlippageExceeded(uint256 actualDeviation, uint256 maxDeviation);
-    error SourceAndTargetMemberIdsMustBeDifferent(uint256 sourceMemberId, uint256 targetMemberId);
-    error TargetPromisedWaitingPhasesTooShort(uint256 targetPhases, uint256 sourcePhases);
+    error StakeRightsUsed(
+        address tokenAddress,
+        uint256 round,
+        uint256 memberId
+    );
+    error SlippageExceeded(
+        uint256 actualDeviation,
+        uint256 maxDeviation
+    );
+    error SourceAndTargetMemberIdsMustBeDifferent(
+        uint256 sourceMemberId,
+        uint256 targetMemberId
+    );
+    error TargetPromisedWaitingPhasesTooShort(
+        uint256 targetPhases,
+        uint256 sourcePhases
+    );
     error TokenNotRegistered(address tokenAddress);
     error PairMissing(address tokenAddress);
     error ZeroLiquidityMinted();
-    error RoundNotStarted(uint256 requestedRound, uint256 currentRound);
+    error RoundNotStarted(
+        uint256 requestedRound,
+        uint256 currentRound
+    );
 }
 
 interface IStakeEvents {

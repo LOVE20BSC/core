@@ -42,13 +42,32 @@ interface IMintEvents {
 
 interface IMintErrors {
     error AlreadyInitialized();
-    error NotProposalTarget(address caller, address expectedTarget);
+    error NotProposalTarget(
+        address caller,
+        address expectedTarget
+    );
     error ZeroRecipientAddress();
     error RoundNotEnded(uint256 round);
-    error ProposalRewardAlreadyMinted(address tokenAddress, uint256 round, uint256 proposalId);
-    error MemberRewardAlreadyMinted(address tokenAddress, uint256 round, uint256 memberId);
-    error ProposalRewardUnavailable(address tokenAddress, uint256 round, uint256 proposalId);
-    error MemberRewardUnavailable(address tokenAddress, uint256 round, uint256 memberId);
+    error ProposalRewardAlreadyMinted(
+        address tokenAddress,
+        uint256 round,
+        uint256 proposalId
+    );
+    error MemberRewardAlreadyMinted(
+        address tokenAddress,
+        uint256 round,
+        uint256 memberId
+    );
+    error ProposalRewardUnavailable(
+        address tokenAddress,
+        uint256 round,
+        uint256 proposalId
+    );
+    error MemberRewardUnavailable(
+        address tokenAddress,
+        uint256 round,
+        uint256 memberId
+    );
     error NotMemberOwner(uint256 memberId);
 }
 

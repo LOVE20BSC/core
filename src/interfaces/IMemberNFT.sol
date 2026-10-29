@@ -18,7 +18,10 @@ interface IMemberNFTErrors {
     error NameAlreadyExists(uint256 existingId);
     error AlreadyInitialized();
     error NameEmpty();
-    error NameTooLong(uint256 length, uint256 maxLength);
+    error NameTooLong(
+        uint256 length,
+        uint256 maxLength
+    );
     error NameInvalidCharacters();
 }
 
