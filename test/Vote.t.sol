@@ -666,7 +666,7 @@ contract VoteTest {
         require(proposals.length == 0 && votes.length == 0 && count == 0, "member votes page");
 
         uint256[] memory requested = _singleton(1);
-        require(vote.voteAmountsByMemberIdByIds(TOKEN, future, _memberIds[0], requested)[0] == 0, "by ids");
+        require(vote.voteAmountsByMemberIdByProposalIds(TOKEN, future, _memberIds[0], requested)[0] == 0, "by ids");
 
         require(!vote.isRoundEnded(future), "future round has not ended");
         require(vote.totalVoteAmount(TOKEN, future) == 0, "future round total");
@@ -1662,7 +1662,7 @@ contract VoteTest {
         require(total == 3 && list.length == 0 && amounts.length == 0, "offset at the end");
     }
 
-    function testVotesByMemberIdByIdsMirrorsTheRequest() external {
+    function testVoteAmountsByMemberIdByProposalIdsMirrorsTheRequest() external {
         uint256 memberId = _memberIds[5];
         uint256[] memory ids = _proposeBatch(TOKEN, 3);
 
@@ -1677,11 +1677,11 @@ contract VoteTest {
         requested[2] = ids[0];
         requested[3] = ids[2];
 
-        uint256[] memory answer = vote.voteAmountsByMemberIdByIds(TOKEN, 1, memberId, requested);
+        uint256[] memory answer = vote.voteAmountsByMemberIdByProposalIds(TOKEN, 1, memberId, requested);
         require(answer.length == 4, "one slot per requested id");
         require(answer[0] == 30 && answer[1] == 0 && answer[2] == 10 && answer[3] == 30, "order kept, unknown is zero");
 
-        answer = vote.voteAmountsByMemberIdByIds(TOKEN, 1, memberId, new uint256[](0));
+        answer = vote.voteAmountsByMemberIdByProposalIds(TOKEN, 1, memberId, new uint256[](0));
         require(answer.length == 0, "an empty request returns an empty answer");
     }
 

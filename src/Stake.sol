@@ -516,7 +516,7 @@ contract Stake is IStake {
         uint256 memberId
     ) private view returns (bool) {
         if (IVote(VOTE_ADDRESS).voteAmountByMemberId(tokenAddress, round, memberId) != 0) return true;
-        return ISubmit(IVote(VOTE_ADDRESS).SUBMIT_ADDRESS()).proposalIdBySubmitter(tokenAddress, round, memberId) != 0;
+        return ISubmit(IVote(VOTE_ADDRESS).SUBMIT_ADDRESS()).proposalIdBySubmitterId(tokenAddress, round, memberId) != 0;
     }
 
     function _pull(address tokenAddress, address from, uint256 amount) private {

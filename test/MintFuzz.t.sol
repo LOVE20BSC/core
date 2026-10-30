@@ -260,7 +260,7 @@ contract MintFuzzTest {
         }
 
         uint256 supplyBefore = token.totalSupply();
-        (uint256[] memory votes,,) = mint.mintGovRewards(address(token), 1, rounds, address(this));
+        (uint256[] memory votes,,) = mint.mintGovRewards(address(token), rounds, 1, address(this));
 
         assertEq(votes.length, roundCount);
 

@@ -96,7 +96,7 @@ contract CallbackDistributor {
         }
         if (address(probe) != address(0)) {
             observedRegistered = probe.isLOVE20Token(tokenAddress);
-            observedLaunchCount = probe.launchCount(parentTokenAddress, launcherMemberId);
+            observedLaunchCount = probe.remainingLaunchCount(parentTokenAddress, launcherMemberId);
             observedBalance = IERC20(tokenAddress).balanceOf(address(this));
         }
         callCount += 1;
@@ -237,7 +237,7 @@ contract LaunchTest {
         require(total == 1 && list.length == 1 && list[0] == address(firstToken), "tokens list");
         (list, total) = launch.childTokens(ROOT, 0, 10, false);
         require(total == 1 && list.length == 1 && list[0] == address(firstToken), "child tokens");
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "no launch count");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 0, "no launch count");
 
         // 首币本体
         require(keccak256(bytes(firstToken.name())) == keccak256("LOVE20"), "token name");
@@ -465,9 +465,9 @@ contract LaunchTest {
 
     function testUnregisteredQueriesReturnZeroWithoutReverting() public {
         FakeToken fake = new FakeToken(ROOT, "LOVE");
-        require(launch.launchCount(address(fake), 1) == 0, "launch count");
+        require(launch.remainingLaunchCount(address(fake), 1) == 0, "launch count");
         require(launch.issuedLaunchCount(address(fake)) == 0, "issued count");
-        require(launch.launchCount(address(firstToken), 999) == 0, "unknown member");
+        require(launch.remainingLaunchCount(address(firstToken), 999) == 0, "unknown member");
         require(launch.tokenAddressBySymbol("ZZZ") == address(0), "unknown symbol");
         require(launch.parentToken(address(0)) == address(0), "zero parent");
         (address[] memory list, uint256 total) = launch.childTokens(EOA, 0, 10, false);
@@ -508,8 +508,8 @@ contract LaunchTest {
         require(launch.isLOVE20Token(tokenAddress), "registered");
         require(launch.parentToken(tokenAddress) == address(firstToken), "parent ledger");
         require(launch.tokenAddressBySymbol("AAA") == tokenAddress, "symbol ledger");
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 1, "count consumed");
-        require(launch.launchCount(address(firstToken), bobMemberId) == 0, "other member untouched");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 1, "count consumed");
+        require(launch.remainingLaunchCount(address(firstToken), bobMemberId) == 0, "other member untouched");
         require(launch.issuedLaunchCount(address(firstToken)) == issuedBefore, "issued unchanged");
 
         (address[] memory list, uint256 total) = launch.tokens(0, 10, false);
@@ -600,14 +600,14 @@ contract LaunchTest {
             require(!ok, "invalid symbol must revert");
             _expectData(data, _invalidSymbolError(invalid[i], SYMBOL_LENGTH), "symbol selector");
         }
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 2, "no count consumed");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 2, "no count consumed");
 
         // 合法符号：首字符 A-Z 或汉字，其余 A-Z、0-9 或汉字；汉字符号的合法与边界见
         // testLaunchTokenAcceptsChineseSymbols 与 testLaunchTokenRejectsInvalidUtf8AndOutOfRangeSymbols
         address firstAddress = _launchOk(alice, "A0Z", address(firstToken), aliceMemberId);
         address secondAddress = _launchOk(alice, "ZZ9", address(firstToken), aliceMemberId);
         require(firstAddress != secondAddress, "distinct tokens");
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "both counts consumed");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 0, "both counts consumed");
     }
 
     function testLaunchTokenAcceptsChineseSymbols() public {
@@ -625,7 +625,7 @@ contract LaunchTest {
         require(launch.tokenAddressBySymbol(unicode"中") == zhong, "chinese symbol ledger");
         require(launch.tokenAddressBySymbol(unicode"一") == lowerBound, "lower bound code point accepted");
         require(launch.tokenAddressBySymbol(upperBoundSymbol) == upperBound, "upper bound code point accepted");
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "three counts consumed");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 0, "three counts consumed");
     }
 
     function testLaunchTokenRejectsInvalidUtf8AndOutOfRangeSymbols() public {
@@ -656,7 +656,7 @@ contract LaunchTest {
             require(!ok, "invalid symbol must revert");
             _expectData(data, _invalidSymbolError(invalid[i], SYMBOL_LENGTH), "symbol selector");
         }
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 1, "no count consumed");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 1, "no count consumed");
     }
 
     function testLaunchTokenAcceptsMixedChineseAndAsciiSymbols() public {
@@ -692,7 +692,7 @@ contract LaunchTest {
         _expectData(
             data, abi.encodeWithSelector(ILaunchErrors.InvalidTokenSymbolCharacters.selector), "first character selector"
         );
-        require(bootedLaunch.launchCount(address(bootedToken), memberId) == 0, "four counts consumed");
+        require(bootedLaunch.remainingLaunchCount(address(bootedToken), memberId) == 0, "four counts consumed");
     }
 
     /// 校验器的码点分界：U+4E00-U+9FFF 接受，区间之外回滚；fuzz 在分界附近扫过
@@ -777,7 +777,7 @@ contract LaunchTest {
             data, abi.encodeWithSelector(ILaunchErrors.DistributorNotContract.selector, EOA), "mode selector"
         );
 
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "count consumed");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 0, "count consumed");
     }
 
     function testLaunchTokenInvokesCallbackDistributor() public {
@@ -848,7 +848,7 @@ contract LaunchTest {
         require(distributor.observedBalance() == LAUNCH_AMOUNT, "supply delivered before callback");
         require(distributor.observedRegistered(), "registration before callback");
         require(distributor.observedLaunchCount() == 1, "count consumed before callback");
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 1, "count after launch");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 1, "count after launch");
         require(launch.isLOVE20Token(tokenAddress), "token stays registered");
     }
 
@@ -870,7 +870,7 @@ contract LaunchTest {
         require(!ok, "callback failure must revert");
         _expectData(data, abi.encodeWithSelector(DistributorCallbackFailed.selector), "callback error bubbles up");
 
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 1, "count restored");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 1, "count restored");
         require(launch.tokenAddressBySymbol("AAA") == address(0), "symbol not registered");
         (address[] memory list, uint256 total) = launch.tokens(0, 10, false);
         require(total == 1 && list.length == 1, "no token appended");
@@ -891,7 +891,7 @@ contract LaunchTest {
                 "parent selector"
             );
         }
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 1, "count untouched");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 1, "count untouched");
     }
 
     function testLaunchTokenRejectsMissingMember() public {
@@ -909,7 +909,7 @@ contract LaunchTest {
             data, abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 0), "zero member nft error"
         );
 
-        require(launch.launchCount(address(firstToken), 999) == 1, "count untouched");
+        require(launch.remainingLaunchCount(address(firstToken), 999) == 1, "count untouched");
     }
 
     function testLaunchTokenRejectsNonOwner() public {
@@ -920,7 +920,7 @@ contract LaunchTest {
         _expectData(
             data, abi.encodeWithSelector(ILaunchErrors.NotMemberOwner.selector, aliceMemberId), "owner selector"
         );
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 1, "count untouched");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 1, "count untouched");
     }
 
     function testLaunchTokenRequiresAvailableCount() public {
@@ -942,7 +942,7 @@ contract LaunchTest {
             abi.encodeWithSelector(ILaunchErrors.InsufficientLaunchCount.selector, aliceMemberId, 0, 1),
             "consumed selector"
         );
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "ledger drained");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 0, "ledger drained");
         require(launch.tokenAddressBySymbol("BBB") == address(0), "nothing created");
     }
 
@@ -993,7 +993,7 @@ contract LaunchTest {
             "parent before ledger"
         );
 
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "no state change");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 0, "no state change");
         require(launch.tokenAddressBySymbol("AAA") == address(0), "no token created");
     }
 
@@ -1009,7 +1009,7 @@ contract LaunchTest {
         );
 
         _launchOk(bob, "AAA", address(firstToken), aliceMemberId);
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "count follows the member id");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 0, "count follows the member id");
     }
 
     function testLaunchTokenRejectsDuplicateSymbol() public {
@@ -1026,7 +1026,7 @@ contract LaunchTest {
             abi.encodeWithSelector(ILaunchErrors.TokenSymbolAlreadyExists.selector, keccak256(bytes("AAA"))),
             "duplicate selector"
         );
-        require(launch.launchCount(secondParent, aliceMemberId) == 1, "count untouched");
+        require(launch.remainingLaunchCount(secondParent, aliceMemberId) == 1, "count untouched");
 
         // 首币符号占位同一账本：首币符号长度为 3 的部署下无法再发射同名子币
         (Launch booted, LOVE20Token bootedToken, , uint256 memberId) = _bootSystem("LOV", carol, "dave");
@@ -1075,8 +1075,8 @@ contract LaunchTest {
         (bool ok, ) = _merge(alice, address(firstToken), aliceMemberId, bobMemberId, 3);
         require(ok, "merge");
 
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 2, "source decreased");
-        require(launch.launchCount(address(firstToken), bobMemberId) == 4, "target increased");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 2, "source decreased");
+        require(launch.remainingLaunchCount(address(firstToken), bobMemberId) == 4, "target increased");
         require(launch.issuedLaunchCount(address(firstToken)) == 6, "issued unchanged");
 
         bool found;
@@ -1107,8 +1107,8 @@ contract LaunchTest {
         // 目标不需要由调用者持有：向 carol 的成员融合同样成立
         (ok, ) = _merge(alice, address(firstToken), aliceMemberId, carolMemberId, 2);
         require(ok, "merge to third party");
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "source drained");
-        require(launch.launchCount(address(firstToken), carolMemberId) == 2, "third party increased");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 0, "source drained");
+        require(launch.remainingLaunchCount(address(firstToken), carolMemberId) == 2, "third party increased");
     }
 
     function testMergeLaunchCountRejectsSameMemberOrZeroCount() public {
@@ -1128,7 +1128,7 @@ contract LaunchTest {
         require(!ok, "zero count must revert");
         _expectData(data, abi.encodeWithSelector(ILaunchErrors.ZeroCount.selector), "zero count selector");
 
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 5, "ledger untouched");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 5, "ledger untouched");
     }
 
     function testMergeLaunchCountRejectsUnregisteredToken() public {
@@ -1149,7 +1149,7 @@ contract LaunchTest {
             data, abi.encodeWithSelector(ILaunchErrors.TokenNotRegistered.selector, EOA), "eoa token selector"
         );
 
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 5, "ledger untouched");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 5, "ledger untouched");
     }
 
     function testMergeLaunchCountRejectsMissingMembers() public {
@@ -1190,7 +1190,7 @@ contract LaunchTest {
         _expectData(
             data, abi.encodeWithSelector(ILaunchErrors.NotMemberOwner.selector, aliceMemberId), "owner selector"
         );
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 5, "ledger untouched");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 5, "ledger untouched");
     }
 
     function testMergeLaunchCountRejectsInsufficientCount() public {
@@ -1203,8 +1203,8 @@ contract LaunchTest {
             abi.encodeWithSelector(ILaunchErrors.InsufficientLaunchCount.selector, aliceMemberId, 2, 3),
             "count selector"
         );
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 2, "source untouched");
-        require(launch.launchCount(address(firstToken), bobMemberId) == 0, "target untouched");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 2, "source untouched");
+        require(launch.remainingLaunchCount(address(firstToken), bobMemberId) == 0, "target untouched");
     }
 
     function testMergeLaunchCountChecksOwnershipThenParametersThenExistenceThenLedger() public {
@@ -1255,11 +1255,11 @@ contract LaunchTest {
         vm.recordLogs();
         mintAccount.addLaunchCount(launch, address(firstToken), aliceMemberId, 4);
 
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 4, "launch count");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 4, "launch count");
         require(launch.issuedLaunchCount(address(firstToken)) == 4, "issued count");
 
         // 首币次数 1:1 伴生到根父币维度：同一笔交易、同一 count、各发一条 LaunchCountAdded
-        require(launch.launchCount(ROOT, aliceMemberId) == 4, "root count mirrored");
+        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 4, "root count mirrored");
         require(launch.issuedLaunchCount(ROOT) == 4, "root issued mirrored");
 
         bool foundFirst;
@@ -1299,9 +1299,9 @@ contract LaunchTest {
 
         // 累加而不是覆盖
         mintAccount.addLaunchCount(launch, address(firstToken), aliceMemberId, 1);
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 5, "accumulated");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 5, "accumulated");
         require(launch.issuedLaunchCount(address(firstToken)) == 5, "issued accumulated");
-        require(launch.launchCount(ROOT, aliceMemberId) == 5, "root accumulated");
+        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 5, "root accumulated");
         require(launch.issuedLaunchCount(ROOT) == 5, "root issued accumulated");
     }
 
@@ -1345,7 +1345,7 @@ contract LaunchTest {
             data, abi.encodeWithSelector(ILaunchErrors.NotMintContract.selector, address(carol)), "caller selector"
         );
 
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 0, "ledger untouched");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 0, "ledger untouched");
         require(launch.issuedLaunchCount(address(firstToken)) == 0, "issued untouched");
     }
 
@@ -1379,10 +1379,10 @@ contract LaunchTest {
     function testAddLaunchCountEnforcesCommunityCap() public {
         mintAccount.addLaunchCount(launch, address(firstToken), aliceMemberId, MAX_LAUNCH_COUNT);
         require(launch.issuedLaunchCount(address(firstToken)) == MAX_LAUNCH_COUNT, "issued at cap");
-        require(launch.launchCount(address(firstToken), aliceMemberId) == MAX_LAUNCH_COUNT, "count at cap");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == MAX_LAUNCH_COUNT, "count at cap");
         // 根级伴生同步到达同一上限：不变式 issuedLaunchCount(root) == issuedLaunchCount(first)
         require(launch.issuedLaunchCount(ROOT) == MAX_LAUNCH_COUNT, "root issued at cap");
-        require(launch.launchCount(ROOT, aliceMemberId) == MAX_LAUNCH_COUNT, "root count at cap");
+        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == MAX_LAUNCH_COUNT, "root count at cap");
 
         // 到达上限后任何增量都回滚，极端大值也不能以算术溢出收场
         (bool ok, bytes memory data) = mintAccount.forward(
@@ -1487,13 +1487,13 @@ contract LaunchTest {
         _grantCount(address(firstToken), aliceMemberId, 1);
         address child = _launchOk(alice, "AAA", address(firstToken), aliceMemberId);
 
-        require(launch.launchCount(ROOT, aliceMemberId) == 1, "root mirrored from the first token");
+        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 1, "root mirrored from the first token");
         require(launch.issuedLaunchCount(ROOT) == 1, "root issued mirrored");
 
         // 子币产生的次数不伴生根级次数
         _grantCount(child, aliceMemberId, 3);
-        require(launch.launchCount(child, aliceMemberId) == 3, "child count");
-        require(launch.launchCount(ROOT, aliceMemberId) == 1, "root unchanged by child counts");
+        require(launch.remainingLaunchCount(child, aliceMemberId) == 3, "child count");
+        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 1, "root unchanged by child counts");
         require(launch.issuedLaunchCount(ROOT) == 1, "root issued unchanged");
         require(launch.issuedLaunchCount(child) == 3, "child issued");
     }
@@ -1506,7 +1506,7 @@ contract LaunchTest {
         _expectData(
             data, abi.encodeWithSelector(ILaunchErrors.TokenNotRegistered.selector, ROOT), "token selector"
         );
-        require(launch.launchCount(ROOT, aliceMemberId) == 0, "root ledger untouched");
+        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 0, "root ledger untouched");
     }
 
     function testMergeRootLevelCountMovesRootLedger() public {
@@ -1514,10 +1514,10 @@ contract LaunchTest {
 
         (bool ok, ) = _merge(alice, ROOT, aliceMemberId, bobMemberId, 2);
         require(ok, "merge root level");
-        require(launch.launchCount(ROOT, aliceMemberId) == 1, "root source decreased");
-        require(launch.launchCount(ROOT, bobMemberId) == 2, "root target increased");
+        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 1, "root source decreased");
+        require(launch.remainingLaunchCount(ROOT, bobMemberId) == 2, "root target increased");
         require(launch.issuedLaunchCount(ROOT) == 3, "root issued unchanged");
-        require(launch.launchCount(address(firstToken), aliceMemberId) == 3, "community untouched");
+        require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 3, "community untouched");
     }
 
     function testLaunchRootLevelTokenCreatesSiblingAndConsumesRootCount() public {
@@ -1526,7 +1526,7 @@ contract LaunchTest {
             _bootSystemAtRoot(address(rootToken), "LOVE", carol, "dave");
 
         _grantCountAt(booted, address(bootedToken), memberId, 2);
-        require(booted.launchCount(address(rootToken), memberId) == 2, "root mirrored");
+        require(booted.remainingLaunchCount(address(rootToken), memberId) == 2, "root mirrored");
         uint256 pairsBefore = pairFactory.createdPairCount();
 
         address sibling = _launchOkAt(booted, carol, "AAA", address(rootToken), memberId);
@@ -1541,8 +1541,8 @@ contract LaunchTest {
         require(booted.tokenAddressBySymbol("AAA") == sibling, "sibling symbol ledger");
 
         // 消耗根级次数，首币次数不动
-        require(booted.launchCount(address(rootToken), memberId) == 1, "root count consumed");
-        require(booted.launchCount(address(bootedToken), memberId) == 2, "community count untouched");
+        require(booted.remainingLaunchCount(address(rootToken), memberId) == 1, "root count consumed");
+        require(booted.remainingLaunchCount(address(bootedToken), memberId) == 2, "community count untouched");
         require(booted.issuedLaunchCount(address(rootToken)) == 2, "root issued unchanged");
 
         // 根父币的子币列表：首币在索引 0，同级币按创建顺序追加
@@ -1568,12 +1568,12 @@ contract LaunchTest {
 
         // 根级发射消耗根级次数，社区次数不动
         _launchOkAt(booted, carol, "AAA", address(rootToken), memberId);
-        require(booted.launchCount(address(rootToken), memberId) == 0, "root consumed");
-        require(booted.launchCount(address(bootedToken), memberId) == 1, "community remains");
+        require(booted.remainingLaunchCount(address(rootToken), memberId) == 0, "root consumed");
+        require(booted.remainingLaunchCount(address(bootedToken), memberId) == 1, "community remains");
 
         // 社区发射消耗社区次数
         _launchOkAt(booted, carol, "BBB", address(bootedToken), memberId);
-        require(booted.launchCount(address(bootedToken), memberId) == 0, "community consumed");
+        require(booted.remainingLaunchCount(address(bootedToken), memberId) == 0, "community consumed");
 
         // 两边都用尽后根级发射回滚
         (bool ok, bytes memory data) = _launchAt(booted, carol, "CCC", address(rootToken), memberId);

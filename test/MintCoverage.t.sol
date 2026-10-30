@@ -231,7 +231,7 @@ contract MintCoverageTest {
     function testPrepareRoundNotReady() public {
         setupMint(1000, 10000, 1e17, 1e17);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 0));
-        mint.mintGovReward(address(token), 1, 0, address(this));
+        mint.mintGovReward(address(token), 0, 1, address(this));
     }
 
     function testMultiProposalDustStaysInPool() public {
@@ -264,7 +264,7 @@ contract MintCoverageTest {
     function testGovRewardRoundNotReady() public {
         setupMint(1000, 10000, 1e17, 0);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 0));
-        mint.mintGovReward(address(token), 1, 0, address(this));
+        mint.mintGovReward(address(token), 0, 1, address(this));
     }
 
     // This test is no longer valid after auto-prepare feature

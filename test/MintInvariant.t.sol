@@ -243,7 +243,7 @@ contract MintInvariantTest {
 
         // Trigger preparation by attempting to mint for member 1
         // Preparation happens inside mintGovReward via _prepareRewardIfNeeded
-        try mint.mintGovReward(address(token), 1, round, address(this)) {
+        try mint.mintGovReward(address(token), round, 1, address(this)) {
             preparedRounds++;
             settledGovRewards++;
         } catch {
@@ -254,11 +254,11 @@ contract MintInvariantTest {
         }
     }
 
-    function settleGov(uint256 memberId, uint256 round) public {
+    function settleGov(uint256 round, uint256 memberId) public {
         memberId = bound(memberId, 1, 10);
         round = bound(round, 1, 10);
 
-        try mint.mintGovReward(address(token), memberId, round, address(this)) {
+        try mint.mintGovReward(address(token), round, memberId, address(this)) {
             settledGovRewards++;
         } catch {
             // Ignore expected reverts (MemberRewardAlreadyMinted, MemberRewardUnavailable, etc.)
@@ -276,7 +276,7 @@ contract MintInvariantTest {
         }
     }
 
-    function batchSettle(uint256 memberId, uint256[] memory rounds) public {
+    function batchSettle(uint256[] memory rounds, uint256 memberId) public {
         memberId = bound(memberId, 1, 10);
         if (rounds.length == 0 || rounds.length > 10) return;
 
@@ -285,7 +285,7 @@ contract MintInvariantTest {
             rounds[i] = bound(rounds[i], 1, 10);
         }
 
-        try mint.mintGovRewards(address(token), memberId, rounds, address(this)) {
+        try mint.mintGovRewards(address(token), rounds, memberId, address(this)) {
             settledGovRewards += rounds.length;
         } catch {
             // Ignore expected reverts

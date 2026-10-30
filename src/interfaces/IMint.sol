@@ -99,12 +99,12 @@ interface IMint is IMintEvents, IMintErrors {
         uint256 proposalId,
         address recipient
     ) external returns (uint256 amount);
-    function mintGovReward(address tokenAddress, uint256 memberId, uint256 round, address recipient)
+    function mintGovReward(address tokenAddress, uint256 round, uint256 memberId, address recipient)
         external returns (uint256 voteReward, uint256 boostReward, uint256 burnReward);
     function mintGovRewards(
         address tokenAddress,
-        uint256 memberId,
         uint256[] calldata rounds,
+        uint256 memberId,
         address recipient
     )
         external

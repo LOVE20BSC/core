@@ -143,7 +143,7 @@ contract Submit is ISubmit {
         external view returns (uint256[] memory proposalIdList, uint256 totalCount) {
         totalCount = _proposals[tokenAddress].length;
         // Proposal records carry bodies, so only their ids belong on a page; bodies come from
-        // proposalInfosByIds.
+        // proposalInfosByProposalIds.
         uint256[] memory indices = Pagination.paginateIndices(totalCount, offset, limit, reverse);
         proposalIdList = new uint256[](indices.length);
         for (uint256 i = 0; i < indices.length; i++) {
@@ -173,17 +173,17 @@ contract Submit is ISubmit {
         return (body.target, body.targetMode);
     }
 
-    function proposalInfosByIds(
+    function proposalInfosByProposalIds(
         address tokenAddress,
-        uint256[] calldata ids
+        uint256[] calldata requestedProposalIds
     ) external view returns (ProposalInfo[] memory) {
-        ProposalInfo[] memory infos = new ProposalInfo[](ids.length);
-        for (uint256 i = 0; i < ids.length; i++) {
-            if (ids[i] == 0 || ids[i] > _proposals[tokenAddress].length) {
+        ProposalInfo[] memory infos = new ProposalInfo[](requestedProposalIds.length);
+        for (uint256 i = 0; i < requestedProposalIds.length; i++) {
+            if (requestedProposalIds[i] == 0 || requestedProposalIds[i] > _proposals[tokenAddress].length) {
                 // forge-lint: disable-next-line(require-revert-in-loop)
-                revert ProposalNotFound(ids[i]);
+                revert ProposalNotFound(requestedProposalIds[i]);
             }
-            infos[i] = _proposals[tokenAddress][ids[i] - 1];
+            infos[i] = _proposals[tokenAddress][requestedProposalIds[i] - 1];
         }
         return infos;
     }
@@ -203,7 +203,7 @@ contract Submit is ISubmit {
         }
     }
 
-    function proposalIdBySubmitter(
+    function proposalIdBySubmitterId(
         address tokenAddress,
         uint256 round,
         uint256 submitterId

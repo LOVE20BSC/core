@@ -145,9 +145,9 @@ interface ISubmit is ISubmitErrors, ISubmitEvents {
         bool reverse
     ) external view returns (uint256[] memory proposalIdList, uint256 totalCount);
 
-    function proposalInfosByIds(
+    function proposalInfosByProposalIds(
         address tokenAddress,
-        uint256[] calldata proposalIds
+        uint256[] calldata requestedProposalIds
     ) external view returns (ProposalInfo[] memory);
 
     function proposalTarget(address tokenAddress, uint256 proposalId)
@@ -163,7 +163,7 @@ interface ISubmit is ISubmitErrors, ISubmitEvents {
         bool reverse
     ) external view returns (SubmitInfo[] memory submitInfoList, uint256 totalCount);
 
-    function proposalIdBySubmitter(
+    function proposalIdBySubmitterId(
         address tokenAddress,
         uint256 round,
         uint256 submitterId

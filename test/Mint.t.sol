@@ -113,7 +113,7 @@ contract MintTest {
         rounds[0] = 1;
         rounds[1] = 2;
         (uint256[] memory votes, uint256[] memory boosts, uint256[] memory burns) =
-            mint.mintGovRewards(address(token), 1, rounds, address(this));
+            mint.mintGovRewards(address(token), rounds, 1, address(this));
         require(votes.length == 2 && boosts.length == 2 && burns.length == 2, "array lengths");
         require(votes[0] == 450 && votes[1] == 427, "round order");
         require(boosts[0] + boosts[1] + burns[0] + burns[1] == 0, "cancelled boost");
@@ -127,7 +127,7 @@ contract MintTest {
         vm.expectRevert(
             abi.encodeWithSelector(IMintErrors.MemberRewardAlreadyMinted.selector, address(token), 1, 1)
         );
-        mint.mintGovRewards(address(token), 1, rounds, address(this));
+        mint.mintGovRewards(address(token), rounds, 1, address(this));
         (,,, bool minted) = mint.govRewardByMemberId(address(token), 1, 1);
         require(!minted && mint.rewardMinted(address(token)) == 0, "reward rollback");
         require(token.totalSupply() == 1000, "token rollback");
@@ -137,7 +137,7 @@ contract MintTest {
     function testEmptyBatchHasNoSideEffects() public {
         setupMint(1000, 10000, 1e17, 0);
         (uint256[] memory votes, uint256[] memory boosts, uint256[] memory burns) =
-            mint.mintGovRewards(address(token), 1, new uint256[](0), address(this));
+            mint.mintGovRewards(address(token), new uint256[](0), 1, address(this));
         require(votes.length + boosts.length + burns.length == 0, "empty arrays");
         require(token.totalSupply() == 1000 && mint.rewardMinted(address(token)) == 0, "empty batch mutated");
     }
@@ -146,7 +146,7 @@ contract MintTest {
         setupMint(1000, 10000, 1e17, 0);
         vm.prank(address(0xBEEF));
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.NotMemberOwner.selector, 1));
-        mint.mintGovRewards(address(token), 1, new uint256[](0), address(this));
+        mint.mintGovRewards(address(token), new uint256[](0), 1, address(this));
     }
 
     function testGovMintRejectsZeroRecipient() public {
@@ -184,7 +184,7 @@ contract MintTest {
         mint.mintGovReward(address(token), 1, 1, address(this));
         require(issuedLaunchCount[address(token)] == MAX_LAUNCH_COUNT, "cap exceeded");
         require(mint.launchCredit(address(token), 1) == 40, "capped credit lost");
-        mint.mintGovReward(address(token), 1, 2, address(this));
+        mint.mintGovReward(address(token), 2, 1, address(this));
         require(mint.launchCredit(address(token), 1) == 40, "credit grew after cap");
     }
 
@@ -249,7 +249,7 @@ contract MintTest {
         vm.expectRevert(
             abi.encodeWithSelector(IMintErrors.MemberRewardUnavailable.selector, address(token), 2, 1)
         );
-        mint.mintGovReward(address(token), 1, 2, address(this));
+        mint.mintGovReward(address(token), 2, 1, address(this));
         MintVm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 sig = keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256,uint256)");
         uint256 count;
@@ -267,7 +267,7 @@ contract MintTest {
         vm.expectRevert(
             abi.encodeWithSelector(IMintErrors.MemberRewardUnavailable.selector, address(token), 2, 1)
         );
-        mint.mintGovReward(address(token), 1, 2, address(this));
+        mint.mintGovReward(address(token), 2, 1, address(this));
         logs = vm.getRecordedLogs();
         uint256 count2;
         for (uint256 i; i < logs.length; i++) {
@@ -286,7 +286,7 @@ contract MintTest {
         vm.expectRevert(
             abi.encodeWithSelector(IMintErrors.MemberRewardUnavailable.selector, address(token), 2, 1)
         );
-        mint.mintGovReward(address(token), 1, 2, address(this));
+        mint.mintGovReward(address(token), 2, 1, address(this));
         vm.expectRevert(
             abi.encodeWithSelector(IMintErrors.ProposalRewardUnavailable.selector, address(token), 2, 1)
         );

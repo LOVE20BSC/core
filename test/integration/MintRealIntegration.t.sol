@@ -473,14 +473,14 @@ contract MintRealIntegrationTest {
         // Claim and verify token transfers
         uint256 balanceBefore1 = token.balanceOf(member1);
         vm.prank(member1);
-        mint.mintGovReward(address(token), 1, currentRound, member1);
+        mint.mintGovReward(address(token), currentRound, 1, member1);
         uint256 balanceAfter1 = token.balanceOf(member1);
         assertEq(balanceAfter1 - balanceBefore1, actualVoteReward1 + actualBoostReward1,
                  "Member1 must receive exact calculated rewards");
 
         uint256 balanceBefore2 = token.balanceOf(member2);
         vm.prank(member2);
-        mint.mintGovReward(address(token), 2, currentRound, member2);
+        mint.mintGovReward(address(token), currentRound, 2, member2);
         uint256 balanceAfter2 = token.balanceOf(member2);
         assertEq(balanceAfter2 - balanceBefore2, actualVoteReward2 + actualBoostReward2,
                  "Member2 must receive exact calculated rewards");
@@ -609,7 +609,7 @@ contract MintRealIntegrationTest {
         // Batch claim
         uint256 balanceBefore1 = token.balanceOf(member1);
         vm.prank(member1);
-        (uint256[] memory voteRewards1, uint256[] memory boostRewards1,) = mint.mintGovRewards(address(token), 1, rounds, member1);
+        (uint256[] memory voteRewards1, uint256[] memory boostRewards1,) = mint.mintGovRewards(address(token), rounds, 1, member1);
         uint256 balanceAfter1 = token.balanceOf(member1);
         uint256 actualTotal1 = balanceAfter1 - balanceBefore1;
 
@@ -622,7 +622,7 @@ contract MintRealIntegrationTest {
         // Member2
         uint256 balanceBefore2 = token.balanceOf(member2);
         vm.prank(member2);
-        (uint256[] memory voteRewards2, uint256[] memory boostRewards2,) = mint.mintGovRewards(address(token), 2, rounds, member2);
+        (uint256[] memory voteRewards2, uint256[] memory boostRewards2,) = mint.mintGovRewards(address(token), rounds, 2, member2);
         uint256 balanceAfter2 = token.balanceOf(member2);
         uint256 actualTotal2 = balanceAfter2 - balanceBefore2;
 
@@ -911,11 +911,11 @@ contract MintRealIntegrationTest {
         // Error 2: Non-owner cannot claim governance reward
         vm.prank(wrongClaimer);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.NotMemberOwner.selector, 1));
-        mint.mintGovReward(address(token), 1, round1, wrongClaimer);
+        mint.mintGovReward(address(token), round1, 1, wrongClaimer);
 
         // Correct owner can claim
         vm.prank(member1);
-        mint.mintGovReward(address(token), 1, round1, member1);
+        mint.mintGovReward(address(token), round1, 1, member1);
         assertTrue(token.balanceOf(member1) > 0, "Member1 must receive rewards");
 
         // Error 3: Double claim protection
@@ -931,7 +931,7 @@ contract MintRealIntegrationTest {
         vm.expectRevert(
             abi.encodeWithSelector(IMintErrors.MemberRewardAlreadyMinted.selector, address(token), round1, 1)
         );
-        mint.mintGovReward(address(token), 1, round1, member1);
+        mint.mintGovReward(address(token), round1, 1, member1);
     }
 
     // ==================== Test 5: Unstake and Re-vote ====================
@@ -1057,11 +1057,11 @@ contract MintRealIntegrationTest {
         uint256 balBefore = token.balanceOf(member1);
 
         vm.prank(member1);
-        (uint256 vr1, uint256 br1,) = mint.mintGovReward(address(token), 1, data.round1, member1);
+        (uint256 vr1, uint256 br1,) = mint.mintGovReward(address(token), data.round1, 1, member1);
         uint256 round1Reward = vr1 + br1;
 
         vm.prank(member1);
-        (uint256 vr2, uint256 br2,) = mint.mintGovReward(address(token), 1, data.round4, member1);
+        (uint256 vr2, uint256 br2,) = mint.mintGovReward(address(token), data.round4, 1, member1);
         uint256 round4Reward = vr2 + br2;
 
         uint256 balAfter = token.balanceOf(member1);
@@ -1305,7 +1305,7 @@ contract MintRealIntegrationTest {
         vm.prank(member1);
         mint.mintGovReward(address(token), 1, 1, member1);
 
-        uint256 launchCredits = launch.launchCount(address(token), 1);
+        uint256 launchCredits = launch.remainingLaunchCount(address(token), 1);
         assertTrue(launchCredits > 0, "Must earn launch credits from gov reward");
 
         // Launch a child token
@@ -1333,7 +1333,7 @@ contract MintRealIntegrationTest {
         assertTrue(tokenBySymbol == childTokenAddress, "Symbol lookup must return child token");
 
         // Verify launch credit was consumed
-        uint256 creditsAfter = launch.launchCount(address(token), 1);
+        uint256 creditsAfter = launch.remainingLaunchCount(address(token), 1);
         assertEq(creditsAfter, launchCredits - 1, "Launch credit must be consumed");
 
         // Verify child token has correct initial supply
@@ -1343,14 +1343,14 @@ contract MintRealIntegrationTest {
         assertEq(childToken.MAX_SUPPLY(), launch.MAX_SUPPLY(), "Child token max supply");
 
         // Governance rewards on the first token mirror 1:1 into root-level counts
-        uint256 rootCredits = launch.launchCount(address(rootToken), 1);
+        uint256 rootCredits = launch.remainingLaunchCount(address(rootToken), 1);
         assertEq(rootCredits, launchCredits, "Root-level credits must mirror the first token credits");
         assertEq(
             launch.issuedLaunchCount(address(rootToken)),
             launch.issuedLaunchCount(address(token)),
             "Root issued count must mirror the first token"
         );
-        assertEq(launch.launchCount(address(rootToken), 1), rootCredits, "Root credits untouched by community launch");
+        assertEq(launch.remainingLaunchCount(address(rootToken), 1), rootCredits, "Root credits untouched by community launch");
 
         // Root-level launch creates a sibling of the first token under the root parent
         string memory siblingSymbol = "BBBB";
@@ -1370,8 +1370,8 @@ contract MintRealIntegrationTest {
             keccak256(bytes(ILOVE20Token(siblingTokenAddress).symbol())) == keccak256(bytes(siblingSymbol)),
             "Sibling symbol"
         );
-        assertEq(uint256(launch.launchCount(address(rootToken), 1)), rootCredits - 1, "Root credit must be consumed");
-        assertEq(launch.launchCount(address(token), 1), launchCredits - 1, "Community credit untouched by root launch");
+        assertEq(uint256(launch.remainingLaunchCount(address(rootToken), 1)), rootCredits - 1, "Root credit must be consumed");
+        assertEq(launch.remainingLaunchCount(address(token), 1), launchCredits - 1, "Community credit untouched by root launch");
     }
 
     // ========================================
@@ -1563,7 +1563,7 @@ contract MintRealIntegrationTest {
         submit.submit(address(token), 1, proposalId);
 
         assertTrue(submit.isSubmitted(address(token), 2, proposalId), "Proposal must be submitted in round 2");
-        assertEq(submit.proposalIdBySubmitter(address(token), 2, 1), proposalId, "Lookup must return proposal ID");
+        assertEq(submit.proposalIdBySubmitterId(address(token), 2, 1), proposalId, "Lookup must return proposal ID");
 
         // Move to Round 3
         vm.roll(2100);  // Phase 3 starts at block 2100

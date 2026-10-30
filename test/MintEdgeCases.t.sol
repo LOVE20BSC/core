@@ -114,10 +114,10 @@ contract MintEdgeCasesTest {
         setupMint(1000, 10000);
         currentPhaseValue = 5;
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 5));
-        mint.mintGovReward(address(token), 1, 5, address(this));
+        mint.mintGovReward(address(token), 5, 1, address(this));
 
         currentPhaseValue = 6;
-        (uint256 voteReward,,) = mint.mintGovReward(address(token), 1, 5, address(this));
+        (uint256 voteReward,,) = mint.mintGovReward(address(token), 5, 1, address(this));
         require(voteReward > 0, "round settles once the derived phase advances");
     }
 

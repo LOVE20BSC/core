@@ -187,7 +187,7 @@ contract MintEventsTest {
             rewardBurned: 0
         });
 
-        mint.mintGovReward(address(token), 1, round, address(this));
+        mint.mintGovReward(address(token), round, 1, address(this));
     }
 
     /// @notice Verify GovRewardMinted event with exact amounts
@@ -225,7 +225,7 @@ contract MintEventsTest {
             burnReward: burnReward
         });
 
-        mint.mintGovReward(address(token), memberId, round, address(this));
+        mint.mintGovReward(address(token), round, memberId, address(this));
     }
 
     /// @notice Verify ProposalRewardMinted event with exact amount and target
@@ -295,7 +295,7 @@ contract MintEventsTest {
 
         // Note: Cannot verify all 3 events in one call with current tooling
         // This demonstrates the pattern for the first event
-        mint.mintGovRewards(address(token), memberId, rounds, address(this));
+        mint.mintGovRewards(address(token), rounds, memberId, address(this));
     }
 
     /// @notice Verify ProposalRewardMinted is the only settlement event for an unallocatable reward
@@ -337,7 +337,7 @@ contract MintEventsTest {
 
         for (uint256 round = 1; round <= 2; ++round) {
             vm.recordLogs();
-            mint.mintGovReward(address(token), 1, round, address(this));
+            mint.mintGovReward(address(token), round, 1, address(this));
 
             (, uint256 preparedIndex, uint256 burnedThisRound, uint256 cumulative) =
                 _scanRewardLogs(vm.getRecordedLogs());
@@ -354,7 +354,7 @@ contract MintEventsTest {
 
         for (uint256 round = 1; round <= 2; ++round) {
             vm.recordLogs();
-            mint.mintGovReward(address(token), 1, round, address(this));
+            mint.mintGovReward(address(token), round, 1, address(this));
 
             (uint256 govReward, uint256 proposalReward, uint256 reserved) =
                 _scanPreparedReserved(vm.getRecordedLogs());

@@ -329,8 +329,8 @@ contract SubmitTest {
         ProposalBody memory body = ProposalBody("first", "", address(target), TargetMode.Callback, new bytes[](0));
         require(submit.submitNewProposal(TOKEN, 1, body) == 1, "first id");
         require(target.lastCreatedProposalId() == 1 && target.lastSubmittedProposalId() == 1, "first callbacks");
-        require(submit.proposalIdBySubmitter(TOKEN, 1, 1) == 1, "submitted member");
-        require(submit.proposalIdBySubmitter(TOKEN, 1, 2) == 0, "absent member");
+        require(submit.proposalIdBySubmitterId(TOKEN, 1, 1) == 1, "submitted member");
+        require(submit.proposalIdBySubmitterId(TOKEN, 1, 2) == 0, "absent member");
         require(!submit.isSubmitted(TOKEN, 1, 0) && submit.submitterIdByProposalId(TOKEN, 1, 0) == 0, "zero sentinel");
 
         vm.roll(200);
@@ -343,7 +343,7 @@ contract SubmitTest {
         vm.roll(300);
         submit.submit(TOKEN, 1, 1);
         require(target.lastCreatedProposalId() == 2 && target.lastSubmittedProposalId() == 1, "resubmit callback");
-        require(submit.proposalIdBySubmitter(TOKEN, 3, 1) == 1, "resubmit lookup");
+        require(submit.proposalIdBySubmitterId(TOKEN, 3, 1) == 1, "resubmit lookup");
         require(submit.submitterIdByProposalId(TOKEN, 3, 1) == 1, "reverse lookup");
 
         (uint256[] memory ids, uint256 count) = submit.proposalIds(TOKEN, 0, 10, false);
@@ -352,7 +352,7 @@ contract SubmitTest {
         require(count == 1 && ids.length == 1 && ids[0] == 1, "author ids");
         (ids, count) = submit.proposalIdsByAuthor(TOKEN, 2, 0, 10, false);
         require(count == 1 && ids.length == 1 && ids[0] == 2, "author 2 ids");
-        ProposalInfo[] memory infos = submit.proposalInfosByIds(TOKEN, ids);
+        ProposalInfo[] memory infos = submit.proposalInfosByProposalIds(TOKEN, ids);
         require(infos[0].head.id == 2 && keccak256(bytes(infos[0].body.title)) == keccak256("second"), "last detail");
         (SubmitInfo[] memory records, uint256 total) = submit.submitInfos(TOKEN, 3, 0, 10, false);
         require(total == 1 && records[0].proposalId == 1, "submission ids");
@@ -361,7 +361,7 @@ contract SubmitTest {
         for (uint256 i = 0; i < 3; i++) {
             ids[0] = i == 0 ? 0 : (i == 1 ? 3 : type(uint256).max);
             bytes32 expected = keccak256(abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, ids[0]));
-            (bool ok, bytes memory data) = address(submit).call(abi.encodeCall(submit.proposalInfosByIds, (TOKEN, ids)));
+            (bool ok, bytes memory data) = address(submit).call(abi.encodeCall(submit.proposalInfosByProposalIds, (TOKEN, ids)));
             require(!ok && keccak256(data) == expected, "missing detail");
             (ok, data) = address(submit).call(abi.encodeCall(submit.submit, (TOKEN, 1, ids[0])));
             require(!ok && keccak256(data) == expected, "missing submission");
@@ -388,7 +388,7 @@ contract SubmitTest {
         uint256[] memory ids = new uint256[](2);
         ids[0] = 2;
         ids[1] = 1;
-        ProposalInfo[] memory infos = submit.proposalInfosByIds(TOKEN, ids);
+        ProposalInfo[] memory infos = submit.proposalInfosByProposalIds(TOKEN, ids);
         for (uint256 i = 0; i < ids.length; i++) {
             (address fromRecord, TargetMode modeFromRecord) = submit.proposalTarget(TOKEN, ids[i]);
             require(fromRecord == infos[i].body.target, "target agrees with the record");
@@ -436,7 +436,7 @@ contract SubmitTest {
         }
         require(found, "missing ProposalSubmitted");
         require(submit.isSubmitted(TOKEN, 2, proposalId), "not submitted in round 2");
-        require(submit.proposalIdBySubmitter(TOKEN, 2, 3) == proposalId, "wrong lookup");
+        require(submit.proposalIdBySubmitterId(TOKEN, 2, 3) == proposalId, "wrong lookup");
     }
 
     function testSubmitRejectsNonExistentProposal() external {
@@ -654,9 +654,9 @@ contract SubmitTest {
         });
         uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
 
-        require(submit.proposalIdBySubmitter(TOKEN, 1, 1) == proposalId, "wrong proposalId by submitter");
+        require(submit.proposalIdBySubmitterId(TOKEN, 1, 1) == proposalId, "wrong proposalId by submitter");
         require(submit.submitterIdByProposalId(TOKEN, 1, proposalId) == 1, "wrong submitterId by proposal");
-        require(submit.proposalIdBySubmitter(TOKEN, 1, 999) == 0, "non-existent submitter");
+        require(submit.proposalIdBySubmitterId(TOKEN, 1, 999) == 0, "non-existent submitter");
         require(submit.submitterIdByProposalId(TOKEN, 1, 999) == 0, "non-existent proposal");
     }
 
@@ -772,7 +772,7 @@ contract SubmitTest {
             vm.roll(currentBlock);
             submit.submit(TOKEN, 1, proposalId);
             require(submit.isSubmitted(TOKEN, round, proposalId), "not submitted in round");
-            require(submit.proposalIdBySubmitter(TOKEN, round, 1) == proposalId, "wrong lookup");
+            require(submit.proposalIdBySubmitterId(TOKEN, round, 1) == proposalId, "wrong lookup");
         }
     }
 
@@ -791,8 +791,8 @@ contract SubmitTest {
         memberNFT.setOwner(2, address(this));
         submit.submit(TOKEN, 2, proposalId);
 
-        require(submit.proposalIdBySubmitter(TOKEN, 1, 1) == proposalId, "member 1 submission");
-        require(submit.proposalIdBySubmitter(TOKEN, 2, 2) == proposalId, "member 2 submission");
+        require(submit.proposalIdBySubmitterId(TOKEN, 1, 1) == proposalId, "member 1 submission");
+        require(submit.proposalIdBySubmitterId(TOKEN, 2, 2) == proposalId, "member 2 submission");
     }
 
     function testProposalWithLargeData() external {
@@ -810,7 +810,7 @@ contract SubmitTest {
         uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
         require(proposalId == 1, "should create proposal with large data");
 
-        ProposalInfo[] memory infos = submit.proposalInfosByIds(TOKEN, _asSingletonArray(proposalId));
+        ProposalInfo[] memory infos = submit.proposalInfosByProposalIds(TOKEN, _asSingletonArray(proposalId));
         require(infos[0].body.targetData.length == 10, "data not preserved");
     }
 
@@ -827,7 +827,7 @@ contract SubmitTest {
         });
         uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
 
-        ProposalInfo[] memory infos = submit.proposalInfosByIds(TOKEN, _asSingletonArray(proposalId));
+        ProposalInfo[] memory infos = submit.proposalInfosByProposalIds(TOKEN, _asSingletonArray(proposalId));
         require(
             keccak256(bytes(infos[0].body.title)) == keccak256(bytes(longTitle)),
             "title not preserved"
@@ -850,7 +850,7 @@ contract SubmitTest {
         uint256 currentBlock = block.number;
         uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
 
-        ProposalInfo[] memory infos = submit.proposalInfosByIds(TOKEN, _asSingletonArray(proposalId));
+        ProposalInfo[] memory infos = submit.proposalInfosByProposalIds(TOKEN, _asSingletonArray(proposalId));
         require(infos[0].head.createAtBlock == currentBlock, "wrong block number");
     }
 
@@ -865,7 +865,7 @@ contract SubmitTest {
 
         uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
 
-        ProposalInfo[] memory infos = submit.proposalInfosByIds(TOKEN, _asSingletonArray(proposalId));
+        ProposalInfo[] memory infos = submit.proposalInfosByProposalIds(TOKEN, _asSingletonArray(proposalId));
         require(infos[0].head.author == 1, "wrong author");
     }
 
@@ -899,7 +899,7 @@ contract SubmitTest {
         require(count == 1001, "failed creation rolled back");
         (, count) = submit.proposalIdsByAuthor(TOKEN, 1001, 0, 0, false);
         require(count == 0, "failed author index rolled back");
-        require(submit.proposalIdBySubmitter(TOKEN, 2, 1001) == 0, "failed submission consumed no member slot");
+        require(submit.proposalIdBySubmitterId(TOKEN, 2, 1001) == 0, "failed submission consumed no member slot");
         require(!submit.isSubmitted(TOKEN, 2, oldProposalId), "old proposal not submitted");
 
         stake.setGlobalGovVotes(TOKEN2, 1000);
@@ -968,7 +968,7 @@ contract SubmitTest {
             vm.roll(currentBlock);
         }
 
-        ProposalInfo[] memory infos = submit.proposalInfosByIds(TOKEN, ids);
+        ProposalInfo[] memory infos = submit.proposalInfosByProposalIds(TOKEN, ids);
         require(infos.length == 5, "wrong batch size");
         for (uint256 i = 0; i < 5; i++) {
             require(infos[i].head.id == ids[i], "wrong id in batch");

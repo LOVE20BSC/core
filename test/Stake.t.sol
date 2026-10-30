@@ -56,20 +56,20 @@ contract MockLaunch {
 }
 
 contract MockSubmit {
-    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) private _proposalIdBySubmitter;
+    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) private _proposalIdBySubmitterId;
 
-    function proposalIdBySubmitter(address tokenAddress, uint256 round, uint256 submitterId)
+    function proposalIdBySubmitterId(address tokenAddress, uint256 round, uint256 submitterId)
         external
         view
         returns (uint256)
     {
-        return _proposalIdBySubmitter[tokenAddress][round][submitterId];
+        return _proposalIdBySubmitterId[tokenAddress][round][submitterId];
     }
 
     function setProposalIdBySubmitter(address tokenAddress, uint256 round, uint256 submitterId, uint256 proposalId)
         external
     {
-        _proposalIdBySubmitter[tokenAddress][round][submitterId] = proposalId;
+        _proposalIdBySubmitterId[tokenAddress][round][submitterId] = proposalId;
     }
 }
 
@@ -2164,15 +2164,8 @@ contract StakeTest {
             require(logs[i].topics[1] == bytes32(uint256(uint160(address(childToken)))), "event token");
             require(logs[i].topics[2] == bytes32(uint256(1)), "event round");
             require(logs[i].topics[3] == bytes32(memberId2), "event member");
-            (
-                ,
-                ,
-                ,
-                ,
-                uint256 promisedWaitingPhases,
-                ,
-                ,
-                ,
+            (,,,,
+                uint256 promisedWaitingPhases,,,,
                 uint256 liquidityShares,
                 uint256 totalLiquidityShares_,
                 uint256 totalValidGovVotes_
@@ -2390,9 +2383,7 @@ contract StakeTest {
             require(logs[i].topics[3] == bytes32(memberId2), "event member");
             (
                 uint256 promisedWaitingPhases,
-                uint256 liquidityShares,
-                ,
-                ,
+                uint256 liquidityShares,,,
                 uint256 boostShares,
                 uint256 lpBurned,
                 uint256 lpToMember,

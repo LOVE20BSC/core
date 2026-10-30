@@ -64,7 +64,7 @@ contract Launch is ILaunch {
     mapping(address => address[]) internal _childTokens;
 
     // tokenAddress => memberId => available integer launch count
-    mapping(address => mapping(uint256 => uint256)) internal _launchCount;
+    mapping(address => mapping(uint256 => uint256)) internal _remainingLaunchCount;
     // tokenAddress => issued launch count; consumption and merging do not decrease it
     mapping(address => uint256) internal _issuedLaunchCount;
 
@@ -155,12 +155,12 @@ contract Launch is ILaunch {
             revert ParentTokenNotRegistered(parentTokenAddress);
         }
 
-        uint256 availableCount = _launchCount[parentTokenAddress][memberId];
+        uint256 availableCount = _remainingLaunchCount[parentTokenAddress][memberId];
         if (availableCount == 0) revert InsufficientLaunchCount(memberId, availableCount, 1);
 
         {
             uint256 remainingCount = availableCount - 1;
-            _launchCount[parentTokenAddress][memberId] = remainingCount;
+            _remainingLaunchCount[parentTokenAddress][memberId] = remainingCount;
 
             emit LaunchCountConsumed({
                 tokenAddress: parentTokenAddress,
@@ -233,13 +233,13 @@ contract Launch is ILaunch {
         // Existence check only: a missing target reverts with the MemberNFT error, Launch adds no own error.
         _ownerOf(targetMemberId);
 
-        uint256 sourceCount = _launchCount[tokenAddress][sourceMemberId];
+        uint256 sourceCount = _remainingLaunchCount[tokenAddress][sourceMemberId];
         if (sourceCount < count) revert InsufficientLaunchCount(sourceMemberId, sourceCount, count);
 
         uint256 sourceRemaining = sourceCount - count;
-        uint256 targetRemaining = _launchCount[tokenAddress][targetMemberId] + count;
-        _launchCount[tokenAddress][sourceMemberId] = sourceRemaining;
-        _launchCount[tokenAddress][targetMemberId] = targetRemaining;
+        uint256 targetRemaining = _remainingLaunchCount[tokenAddress][targetMemberId] + count;
+        _remainingLaunchCount[tokenAddress][sourceMemberId] = sourceRemaining;
+        _remainingLaunchCount[tokenAddress][targetMemberId] = targetRemaining;
 
         emit LaunchCountMerged({
             tokenAddress: tokenAddress,
@@ -290,8 +290,8 @@ contract Launch is ILaunch {
      * @dev An unregistered token returns 0 without reverting, except the root parent token, which carries
      *      the root-level counts.
      */
-    function launchCount(address tokenAddress, uint256 memberId) external view returns (uint256) {
-        return _launchCount[tokenAddress][memberId];
+    function remainingLaunchCount(address tokenAddress, uint256 memberId) external view returns (uint256) {
+        return _remainingLaunchCount[tokenAddress][memberId];
     }
 
     /**
@@ -494,13 +494,13 @@ contract Launch is ILaunch {
     ) private {
         uint256 issuedCount = _issuedLaunchCount[tokenAddress] + count;
         _issuedLaunchCount[tokenAddress] = issuedCount;
-        _launchCount[tokenAddress][memberId] += count;
+        _remainingLaunchCount[tokenAddress][memberId] += count;
         emit LaunchCountAdded({
             tokenAddress: tokenAddress,
             memberId: memberId,
             count: count,
             issuedCount: issuedCount,
-            memberRemaining: _launchCount[tokenAddress][memberId]
+            memberRemaining: _remainingLaunchCount[tokenAddress][memberId]
         });
     }
 }

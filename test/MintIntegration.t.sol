@@ -103,7 +103,7 @@ contract MintIntegrationTest {
 
         uint256 balanceBefore2 = token.balanceOf(member2);
         vm.prank(member2);
-        mint.mintGovReward(address(token), 2, 1, member2);
+        mint.mintGovReward(address(token), 1, 2, member2);
         uint256 balanceAfter2 = token.balanceOf(member2);
 
         assertEq(balanceAfter2 - balanceBefore2, voteReward2 + boostReward2, "Member2 rewards match");
@@ -254,7 +254,7 @@ contract MintIntegrationTest {
 
         vm.prank(member1);
         (uint256[] memory voteRewards, uint256[] memory boostRewards,) =
-            mint.mintGovRewards(address(token), 1, rounds, member1);
+            mint.mintGovRewards(address(token), rounds, 1, member1);
 
         uint256 balanceAfter = token.balanceOf(member1);
 

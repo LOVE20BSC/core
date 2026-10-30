@@ -96,7 +96,7 @@ interface IVote is IVoteErrors, IVoteEvents {
     function votedProposalIds(address tokenAddress, uint256 round, uint256 offset, uint256 limit, bool reverse)
         external
         view
-        returns (uint256[] memory proposalIds, uint256 total);
+        returns (uint256[] memory proposalIds, uint256 totalCount);
 
     function voterIdsByProposalId(
         address tokenAddress,
@@ -105,7 +105,7 @@ interface IVote is IVoteErrors, IVoteEvents {
         uint256 offset,
         uint256 limit,
         bool reverse
-    ) external view returns (uint256[] memory voterIds, uint256 total);
+    ) external view returns (uint256[] memory voterIds, uint256 totalCount);
 
     function votedProposalIdsByMemberId(
         address tokenAddress,
@@ -114,9 +114,9 @@ interface IVote is IVoteErrors, IVoteEvents {
         uint256 offset,
         uint256 limit,
         bool reverse
-    ) external view returns (uint256[] memory proposalIds, uint256[] memory voteAmounts, uint256 total);
+    ) external view returns (uint256[] memory proposalIds, uint256[] memory voteAmounts, uint256 totalCount);
 
-    function voteAmountsByMemberIdByIds(
+    function voteAmountsByMemberIdByProposalIds(
         address tokenAddress,
         uint256 round,
         uint256 memberId,

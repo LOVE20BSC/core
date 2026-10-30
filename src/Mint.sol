@@ -263,17 +263,17 @@ contract Mint is IMint {
 
     function mintGovReward(
         address tokenAddress,
-        uint256 memberId,
         uint256 round,
+        uint256 memberId,
         address recipient
     ) public onlyMemberOwner(memberId) returns (uint256 voteReward, uint256 boostReward, uint256 burnReward) {
-        return _mintGovReward(tokenAddress, memberId, round, recipient);
+        return _mintGovReward(tokenAddress, round, memberId, recipient);
     }
 
     function mintGovRewards(
         address tokenAddress,
-        uint256 memberId,
         uint256[] calldata rounds,
+        uint256 memberId,
         address recipient
     ) external onlyMemberOwner(memberId) returns (
         uint256[] memory voteRewards,
@@ -287,7 +287,7 @@ contract Mint is IMint {
 
         for (uint256 i = 0; i < length; i++) {
             (voteRewards[i], boostRewards[i], burnRewards[i]) =
-                _mintGovReward(tokenAddress, memberId, rounds[i], recipient);
+                _mintGovReward(tokenAddress, rounds[i], memberId, recipient);
         }
 
         return (voteRewards, boostRewards, burnRewards);
@@ -548,8 +548,8 @@ contract Mint is IMint {
     // forge-lint: disable-next-item(calls-loop, require-revert-in-loop)
     function _mintGovReward(
         address tokenAddress,
-        uint256 memberId,
         uint256 round,
+        uint256 memberId,
         address recipient
     ) private returns (uint256 voteReward, uint256 boostReward, uint256 burnReward) {
         if (recipient == address(0)) {

@@ -129,7 +129,7 @@ interface ILaunch is ILaunchErrors, ILaunchEvents {
     function mergeLaunchCount(address tokenAddress, uint256 sourceMemberId, uint256 targetMemberId, uint256 count)
         external;
     function addLaunchCount(address tokenAddress, uint256 memberId, uint256 count) external;
-    function launchCount(address tokenAddress, uint256 memberId) external view returns (uint256);
+    function remainingLaunchCount(address tokenAddress, uint256 memberId) external view returns (uint256);
     function issuedLaunchCount(address tokenAddress) external view returns (uint256);
     function tokens(uint256 offset, uint256 limit, bool reverse)
         external
