@@ -23,8 +23,8 @@ contract MintCoverageTest {
     MintVm constant vm = MintVm(address(uint160(uint256(keccak256("hevm cheat code")))));
     Mint mint;
     LOVE20Token token;
-    uint256 totalVotes = 1;
-    uint256 memberVotes = 1;
+    uint256 totalVoteAmountValue = 1;
+    uint256 memberVoteAmount = 1;
     uint256 firstVotes = 1;
     uint256 proposalCount = 1;
     uint256 minVoteRatio = 5e16;
@@ -51,7 +51,7 @@ contract MintCoverageTest {
         token = new LOVE20Token("Coverage", "COV", supply, maxSupply, address(this), address(mint), address(this));
     }
 
-    function phaseAddress() external view returns (address) {
+    function PHASE_ADDRESS() external view returns (address) {
         return address(this);
     }
 
@@ -64,15 +64,15 @@ contract MintCoverageTest {
         return address(this);
     }
 
-    function votesNum(address, uint256) external view returns (uint256) {
-        return totalVotes;
+    function totalVoteAmount(address, uint256) external view returns (uint256) {
+        return totalVoteAmountValue;
     }
 
-    function votesNumByMemberId(address, uint256, uint256 id) external view returns (uint256) {
-        return id == 1 ? memberVotes : 0;
+    function voteAmountByMemberId(address, uint256, uint256 id) external view returns (uint256) {
+        return id == 1 ? memberVoteAmount : 0;
     }
 
-    function votesNumByProposalId(address, uint256, uint256 id) external view returns (uint256) {
+    function voteAmountByProposalId(address, uint256, uint256 id) external view returns (uint256) {
         return id >= 1 && id <= proposalCount ? firstVotes : 0;
     }
 
@@ -88,11 +88,11 @@ contract MintCoverageTest {
         }
     }
 
-    function stakedAmountOfVoters(address, uint256) external view returns (uint256) {
+    function totalVoterBoost(address, uint256) external view returns (uint256) {
         return totalBoost;
     }
 
-    function stakedAmountOfVotersByMemberId(address, uint256, uint256) external view returns (uint256) {
+    function voterBoost(address, uint256, uint256) external view returns (uint256) {
         return memberBoost;
     }
 
@@ -169,7 +169,7 @@ contract MintCoverageTest {
     }
 
     function testPrepareBurnsBothPoolsWhenEligibleVotesZero() public {
-        totalVotes = 100;
+        totalVoteAmountValue = 100;
         firstVotes = 1;
         proposalCount = 1;
         minVoteRatio = 5e16;
@@ -190,7 +190,7 @@ contract MintCoverageTest {
     }
 
     function testPrepareSkipsZeroAmountBurnEvents() public {
-        totalVotes = 100;
+        totalVoteAmountValue = 100;
         firstVotes = 100;
         proposalCount = 1;
         setupMint(999, 1000, 1e15, 1e15);
@@ -209,7 +209,7 @@ contract MintCoverageTest {
     }
 
     function testPrepareSkipsZeroProposalPoolBurnEvent() public {
-        totalVotes = 999;
+        totalVoteAmountValue = 999;
         firstVotes = 1;
         proposalCount = 1;
         minVoteRatio = 999e15;
@@ -235,7 +235,7 @@ contract MintCoverageTest {
     }
 
     function testMultiProposalDustStaysInPool() public {
-        totalVotes = 3;
+        totalVoteAmountValue = 3;
         firstVotes = 1;
         proposalCount = 3;
         minVoteRatio = 0;
@@ -250,8 +250,8 @@ contract MintCoverageTest {
     }
 
     function testBurnOnlyGovernanceSettlement() public {
-        totalVotes = 1_000_000;
-        memberVotes = 1;
+        totalVoteAmountValue = 1_000_000;
+        memberVoteAmount = 1;
         totalBoost = 1000;
         memberBoost = 1000;
         setupMint(1000, 10000, 1e17, 0);

@@ -36,7 +36,7 @@ interface VoteVm {
 contract MockStake {
     error MockStakeReadDisabled();
 
-    address public phaseAddress;
+    address public PHASE_ADDRESS;
 
     mapping(address => mapping(uint256 => uint256)) private _validVotes;
     mapping(address => uint256) private _globalVotes;
@@ -45,7 +45,7 @@ contract MockStake {
     bool public boostReadDisabled;
 
     function setPhase(address phaseAddress_) external {
-        phaseAddress = phaseAddress_;
+        PHASE_ADDRESS = phaseAddress_;
     }
 
     /// @dev A view function may still revert on stored state, which is how tests prove that a read
@@ -88,8 +88,8 @@ contract MockStake {
         if (boostReadDisabled) {
             revert MockStakeReadDisabled();
         }
-        if (round > IPhase(phaseAddress).currentPhase()) {
-            revert IStakeErrors.RoundNotStarted(round, IPhase(phaseAddress).currentPhase());
+        if (round > IPhase(PHASE_ADDRESS).currentPhase()) {
+            revert IStakeErrors.RoundNotStarted(round, IPhase(PHASE_ADDRESS).currentPhase());
         }
         return _boost[tokenAddress][round][memberId];
     }
@@ -100,7 +100,7 @@ contract MockStake {
 contract MockTarget is IProposalTarget {
     error MockTargetCallbackFailure(uint256 callIndex);
 
-    address public voteAddress;
+    address public VOTE_ADDRESS;
 
     uint256 public createdCalls;
     uint256 public submittedCalls;
@@ -121,15 +121,15 @@ contract MockTarget is IProposalTarget {
     uint256 public lastVotedOuterDataLength;
     uint256 public lastVotedInnerDataLength;
     bytes public lastVotedFirstData;
-    /// Value of `Vote.votesNumByMemberId` observed *inside* the callback, i.e. after Vote wrote state.
-    uint256 public votesNumObservedInCallback;
+    /// Value of `Vote.voteAmountByMemberId` observed *inside* the callback, i.e. after Vote wrote state.
+    uint256 public voteAmountObservedInCallback;
 
     uint256[] private _votedVotes;
     uint256[] private _votedProposalIds;
     uint256[] private _votedOuterDataLengths;
     uint256[] private _votedInnerDataLengths;
     bytes[] private _votedFirstDataList;
-    uint256[] private _observedVotesNumList;
+    uint256[] private _observedVoteAmounts;
 
     MockStake private _mutatedStake;
     address private _mutationTokenAddress;
@@ -139,7 +139,7 @@ contract MockTarget is IProposalTarget {
     bool private _mutateBoostOnce;
 
     constructor(address voteAddress_) {
-        voteAddress = voteAddress_;
+        VOTE_ADDRESS = voteAddress_;
     }
 
     function setRevertOnVotedCall(uint256 callIndex) external {
@@ -194,9 +194,9 @@ contract MockTarget is IProposalTarget {
         return _votedFirstDataList[index];
     }
 
-    /// @dev `Vote.votesNumByMemberId` as read from inside the callback at `index`.
-    function observedVotesNumAt(uint256 index) external view returns (uint256) {
-        return _observedVotesNumList[index];
+    /// @dev `Vote.voteAmountByMemberId` as read from inside the callback at `index`.
+    function observedVoteAmountAt(uint256 index) external view returns (uint256) {
+        return _observedVoteAmounts[index];
     }
 
     function onProposalCreated(address tokenAddress, uint256 proposalId, bytes[] calldata) external {
@@ -235,7 +235,7 @@ contract MockTarget is IProposalTarget {
         lastVotedOuterDataLength = targetData.length;
         lastVotedInnerDataLength = targetData.length == 0 ? 0 : targetData[0].length;
         lastVotedFirstData = targetData.length == 0 ? bytes("") : targetData[0];
-        votesNumObservedInCallback = IVote(voteAddress).votesNumByMemberId(tokenAddress, round, voterId);
+        voteAmountObservedInCallback = IVote(VOTE_ADDRESS).voteAmountByMemberId(tokenAddress, round, voterId);
 
         _votedVotes.push(votes);
         _votedProposalIds.push(proposalId);
@@ -243,7 +243,7 @@ contract MockTarget is IProposalTarget {
         _votedInnerDataLengths.push(targetData.length == 0 ? 0 : targetData[0].length);
         _votedFirstDataList.push();
         _votedFirstDataList[_votedFirstDataList.length - 1] = lastVotedFirstData;
-        _observedVotesNumList.push(votesNumObservedInCallback);
+        _observedVoteAmounts.push(voteAmountObservedInCallback);
 
         if (_mutateCapOnce) {
             _mutateCapOnce = false;
@@ -521,11 +521,11 @@ contract VoteTest {
     }
 
     function _assertAllVoteStateEmpty(address tokenAddress, uint256 round, uint256 memberId) private view {
-        require(vote.votesNum(tokenAddress, round) == 0, "round total must stay zero");
-        require(vote.votesNumByMemberId(tokenAddress, round, memberId) == 0, "member total must stay zero");
-        require(vote.stakedAmountOfVoters(tokenAddress, round) == 0, "round boost total must stay zero");
+        require(vote.totalVoteAmount(tokenAddress, round) == 0, "round total must stay zero");
+        require(vote.voteAmountByMemberId(tokenAddress, round, memberId) == 0, "member total must stay zero");
+        require(vote.totalVoterBoost(tokenAddress, round) == 0, "round boost total must stay zero");
         require(
-            vote.stakedAmountOfVotersByMemberId(tokenAddress, round, memberId) == 0, "member boost must stay zero"
+            vote.voterBoost(tokenAddress, round, memberId) == 0, "member boost must stay zero"
         );
         (uint256[] memory ids, uint256 total) = vote.votedProposalIds(tokenAddress, round, 0, 100, false);
         require(ids.length == 0 && total == 0, "voted proposal list must stay empty");
@@ -535,14 +535,14 @@ contract VoteTest {
 
     function testInitWiresEveryDependencyAndStartsEmpty() external view {
         require(vote.initialized(), "must be initialized");
-        require(vote.phaseAddress() == address(phase), "phase address");
-        require(vote.stakeAddress() == address(stake), "stake address");
-        require(vote.submitAddress() == address(submit), "submit address");
-        require(vote.memberNFTAddress() == address(memberNFT), "memberNFT address");
+        require(vote.PHASE_ADDRESS() == address(phase), "phase address");
+        require(vote.STAKE_ADDRESS() == address(stake), "stake address");
+        require(vote.SUBMIT_ADDRESS() == address(submit), "submit address");
+        require(vote.MEMBER_NFT_ADDRESS() == address(memberNFT), "memberNFT address");
 
         require(vote.currentRound() == phase.currentPhase(), "round must follow phase");
-        require(vote.votesNum(TOKEN, vote.currentRound()) == 0, "no votes yet");
-        require(vote.stakedAmountOfVoters(TOKEN, vote.currentRound()) == 0, "no boost yet");
+        require(vote.totalVoteAmount(TOKEN, vote.currentRound()) == 0, "no votes yet");
+        require(vote.totalVoterBoost(TOKEN, vote.currentRound()) == 0, "no boost yet");
     }
 
     function testInitRejectsSecondCall() external {
@@ -557,7 +557,7 @@ contract VoteTest {
             expected,
             "second init"
         );
-        require(fresh.memberNFTAddress() == address(memberNFT), "second init must not overwrite state");
+        require(fresh.MEMBER_NFT_ADDRESS() == address(memberNFT), "second init must not overwrite state");
     }
 
     /// @dev Initialization state is read before the arguments, so a second call on an initialized
@@ -583,7 +583,7 @@ contract VoteTest {
 
         // No deployer is remembered: nothing distinguishes this contract from one initialized by
         // another account, and there is no owner/administrator to leak.
-        require(fresh.phaseAddress() == address(phase) && fresh.memberNFTAddress() == address(memberNFT), "state as given");
+        require(fresh.PHASE_ADDRESS() == address(phase) && fresh.MEMBER_NFT_ADDRESS() == address(memberNFT), "state as given");
     }
 
     // ============ Round views ============
@@ -615,35 +615,35 @@ contract VoteTest {
 
     function testCanVoteFollowsTheStakeCapBoundaries() external {
         uint256 memberId = _memberIds[0];
-        require(vote.maxVotesNum(TOKEN, memberId) == DEFAULT_CAP, "cap passthrough");
+        require(vote.maxVoteAmount(TOKEN, memberId) == DEFAULT_CAP, "cap passthrough");
         require(vote.canVote(TOKEN, memberId), "cap of one or more can vote");
 
         stake.setValidGovVotes(TOKEN, memberId, 0);
         require(!vote.canVote(TOKEN, memberId), "zero cap cannot vote");
-        require(vote.maxVotesNum(TOKEN, memberId) == 0, "zero cap passthrough");
+        require(vote.maxVoteAmount(TOKEN, memberId) == 0, "zero cap passthrough");
 
         stake.setValidGovVotes(TOKEN, memberId, 1);
         require(vote.canVote(TOKEN, memberId), "cap of exactly one can vote");
     }
 
-    function testMaxVotesNumPassesThroughExtremes() external {
+    function testMaxVotesPassesThroughExtremes() external {
         uint256 memberId = _memberIds[0];
         stake.setValidGovVotes(TOKEN, memberId, type(uint256).max);
-        require(vote.maxVotesNum(TOKEN, memberId) == type(uint256).max, "max cap passthrough");
+        require(vote.maxVoteAmount(TOKEN, memberId) == type(uint256).max, "max cap passthrough");
         require(vote.canVote(TOKEN, memberId), "max cap can vote");
     }
 
     /// @dev Vote is a pure reader for unknown members, tokens and rounds: nothing reverts and
     ///      everything reads as zero, which is what Mint relies on after a round has closed.
     function testUnknownTokenAndMemberReadZeroWithoutReverting() external view {
-        require(vote.votesNum(TOKEN, 1) == 0, "unknown round");
-        require(vote.votesNumByProposalId(TOKEN, 1, 77) == 0, "unknown proposal");
-        require(vote.votesNumByMemberId(TOKEN, 1, 999) == 0, "unknown member");
+        require(vote.totalVoteAmount(TOKEN, 1) == 0, "unknown round");
+        require(vote.voteAmountByProposalId(TOKEN, 1, 77) == 0, "unknown proposal");
+        require(vote.voteAmountByMemberId(TOKEN, 1, 999) == 0, "unknown member");
         require(!vote.isProposalIdVoted(TOKEN, 1, 77), "unknown proposal is not voted");
         require(!vote.canVote(TOKEN, 999), "unknown member cannot vote");
-        require(vote.maxVotesNum(TOKEN, 999) == 0, "unknown member has no cap");
-        require(vote.stakedAmountOfVoters(TOKEN, 1) == 0, "unknown round boost");
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, 999) == 0, "unknown member boost");
+        require(vote.maxVoteAmount(TOKEN, 999) == 0, "unknown member has no cap");
+        require(vote.totalVoterBoost(TOKEN, 1) == 0, "unknown round boost");
+        require(vote.voterBoost(TOKEN, 1, 999) == 0, "unknown member boost");
     }
 
     /// @dev Round-keyed record sets answer with an empty result for a round that has not started,
@@ -655,22 +655,22 @@ contract VoteTest {
         (uint256[] memory ids, uint256 total) = vote.votedProposalIds(TOKEN, future, 0, 10, false);
         require(ids.length == 0 && total == 0, "voted proposals");
 
-        (ids, total) = vote.votedProposalIdsByMemberId(TOKEN, future, _memberIds[0], 0, 10, false);
+        (ids, , total) = vote.votedProposalIdsByMemberId(TOKEN, future, _memberIds[0], 0, 10, false);
         require(ids.length == 0 && total == 0, "member voted proposals");
 
         (ids, total) = vote.voterIdsByProposalId(TOKEN, future, 1, 0, 10, false);
         require(ids.length == 0 && total == 0, "voters of a proposal");
 
         (uint256[] memory proposals, uint256[] memory votes, uint256 count) =
-            vote.votesNumsByMemberId(TOKEN, future, _memberIds[0], 0, 10, false);
+            vote.votedProposalIdsByMemberId(TOKEN, future, _memberIds[0], 0, 10, false);
         require(proposals.length == 0 && votes.length == 0 && count == 0, "member votes page");
 
         uint256[] memory requested = _singleton(1);
-        require(vote.votesNumsByMemberIdByProposalIds(TOKEN, future, _memberIds[0], requested)[0] == 0, "by ids");
+        require(vote.voteAmountsByMemberIdByIds(TOKEN, future, _memberIds[0], requested)[0] == 0, "by ids");
 
         require(!vote.isRoundEnded(future), "future round has not ended");
-        require(vote.votesNum(TOKEN, future) == 0, "future round total");
-        require(vote.stakedAmountOfVoters(TOKEN, future) == 0, "future round boost total");
+        require(vote.totalVoteAmount(TOKEN, future) == 0, "future round total");
+        require(vote.totalVoterBoost(TOKEN, future) == 0, "future round boost total");
     }
     // ============ vote: authorization ============
 
@@ -769,7 +769,7 @@ contract VoteTest {
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(0), new bytes[][](0))),
-            abi.encodeWithSelector(IVoteErrors.ZeroVotes.selector, proposalId),
+            abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, proposalId),
             "amount before snapshot"
         );
     }
@@ -795,14 +795,14 @@ contract VoteTest {
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _singleton(1), new bytes[][](0))),
-            abi.encodeWithSelector(IVoteErrors.ProposalVotesLengthMismatch.selector, uint256(2), uint256(1)),
+            abi.encodeWithSelector(IVoteErrors.ProposalVoteAmountsLengthMismatch.selector, uint256(2), uint256(1)),
             "votes shorter than proposals"
         );
 
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _filled(3, 1), new bytes[][](0))),
-            abi.encodeWithSelector(IVoteErrors.ProposalVotesLengthMismatch.selector, uint256(2), uint256(3)),
+            abi.encodeWithSelector(IVoteErrors.ProposalVoteAmountsLengthMismatch.selector, uint256(2), uint256(3)),
             "votes longer than proposals"
         );
 
@@ -841,20 +841,20 @@ contract VoteTest {
 
         _voteWithoutData(TOKEN, memberId, ids, _filled(2, 30));
 
-        require(vote.votesNum(TOKEN, 1) == 60, "round total");
-        require(vote.votesNumByProposalId(TOKEN, 1, ids[0]) == 30, "first proposal total");
-        require(vote.votesNumByProposalId(TOKEN, 1, ids[1]) == 30, "second proposal total");
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == 60, "member total");
-        require(vote.votesNumByMemberIdByProposalId(TOKEN, 1, memberId, ids[0]) == 30, "member per proposal");
+        require(vote.totalVoteAmount(TOKEN, 1) == 60, "round total");
+        require(vote.voteAmountByProposalId(TOKEN, 1, ids[0]) == 30, "first proposal total");
+        require(vote.voteAmountByProposalId(TOKEN, 1, ids[1]) == 30, "second proposal total");
+        require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == 60, "member total");
+        require(vote.voteAmountByMemberIdByProposalId(TOKEN, 1, memberId, ids[0]) == 30, "member per proposal");
         require(vote.isProposalIdVoted(TOKEN, 1, ids[0]), "proposal marked voted");
         require(!vote.isProposalIdVoted(TOKEN, 1, 999), "unrelated proposal untouched");
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 50, "member snapshot");
-        require(vote.stakedAmountOfVoters(TOKEN, 1) == 50, "round snapshot total");
+        require(vote.voterBoost(TOKEN, 1, memberId) == 50, "member snapshot");
+        require(vote.totalVoterBoost(TOKEN, 1) == 50, "round snapshot total");
 
         (uint256[] memory voted, uint256 total) = vote.votedProposalIds(TOKEN, 1, 0, 10, false);
         require(total == 2 && voted.length == 2 && voted[0] == ids[0] && voted[1] == ids[1], "proposal list");
 
-        (voted, total) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 0, 10, false);
+        (voted, , total) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 0, 10, false);
         require(total == 2 && voted.length == 2 && voted[0] == ids[0] && voted[1] == ids[1], "member list");
 
         (uint256[] memory voters, uint256 voterTotal) = vote.voterIdsByProposalId(TOKEN, 1, ids[0], 0, 10, false);
@@ -883,8 +883,8 @@ contract VoteTest {
         submit.submit(TOKEN, resubmitter, proposalId);
 
         _voteWithoutData(TOKEN, memberId, _singleton(proposalId), _singleton(5));
-        require(vote.votesNumByProposalId(TOKEN, 2, proposalId) == 5, "counted in the new round");
-        require(vote.votesNumByProposalId(TOKEN, 1, proposalId) == 0, "the old round is untouched");
+        require(vote.voteAmountByProposalId(TOKEN, 2, proposalId) == 5, "counted in the new round");
+        require(vote.voteAmountByProposalId(TOKEN, 1, proposalId) == 0, "the old round is untouched");
     }
 
     function testVoteRejectsProposalIdsThatWereNeverSubmitted() external {
@@ -932,7 +932,7 @@ contract VoteTest {
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(ids[0]), _singleton(0), new bytes[][](0))),
-            abi.encodeWithSelector(IVoteErrors.ZeroVotes.selector, ids[0]),
+            abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, ids[0]),
             "zero on a single proposal"
         );
 
@@ -941,7 +941,7 @@ contract VoteTest {
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, ids, votes, new bytes[][](0))),
-            abi.encodeWithSelector(IVoteErrors.ZeroVotes.selector, ids[1]),
+            abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, ids[1]),
             "zero later in the batch localizes the proposal"
         );
         _assertAllVoteStateEmpty(TOKEN, vote.currentRound(), memberId);
@@ -954,7 +954,7 @@ contract VoteTest {
 
         _voteWithoutData(TOKEN, memberId, _singleton(ids[0]), _singleton(30));
         _voteWithoutData(TOKEN, memberId, _singleton(ids[1]), _singleton(70));
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == 100, "first two calls fit the cap");
+        require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == 100, "first two calls fit the cap");
 
         bytes memory expected =
             abi.encodeWithSelector(IVoteErrors.VoteLimitExceeded.selector, TOKEN, 1, memberId, 101, DEFAULT_CAP);
@@ -964,15 +964,15 @@ contract VoteTest {
             expected,
             "one over the cap"
         );
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == 100, "the failed call changes nothing");
-        require(vote.votesNum(TOKEN, 1) == 100, "round total untouched");
+        require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == 100, "the failed call changes nothing");
+        require(vote.totalVoteAmount(TOKEN, 1) == 100, "round total untouched");
     }
 
     function testVoteAllowsExactlyTheCap() external {
         uint256 memberId = _memberIds[0];
         uint256[] memory ids = _proposeBatch(TOKEN, 1);
         _voteWithoutData(TOKEN, memberId, ids, _singleton(DEFAULT_CAP));
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == DEFAULT_CAP, "exactly the cap is allowed");
+        require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == DEFAULT_CAP, "exactly the cap is allowed");
     }
 
     /// @dev The allowance is evaluated on the running batch total: what an earlier entry in the same
@@ -982,7 +982,7 @@ contract VoteTest {
         uint256[] memory ids = _proposeBatch(TOKEN, 3);
 
         _voteWithoutData(TOKEN, memberId, _singleton(ids[0]), _singleton(30));
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == 30, "the seeded vote fits the cap");
+        require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == 30, "the seeded vote fits the cap");
 
         uint256[] memory votes = _filled(2, 70);
         votes[1] = 1;
@@ -997,7 +997,7 @@ contract VoteTest {
             expected,
             "70 fills the cap, the next entry crosses it"
         );
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == 30, "the batch rolls back to the seed");
+        require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == 30, "the batch rolls back to the seed");
     }
 
     function testOverCapInsideABatchRollsBackTheWholeCall() external {
@@ -1041,22 +1041,22 @@ contract VoteTest {
         require(target.votedCalls() == 1, "the callback proposal fired once");
         // The mutation must really have landed, otherwise the batch would pass for the wrong reason.
         require(stake.validGovVotes(TOKEN, 1, memberId) == 0, "the cap was lowered during the batch");
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == 100, "the cap captured up front governs the batch");
+        require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == 100, "the cap captured up front governs the batch");
     }
 
     function testAllowanceAndTotalsAreScopedToTheRound() external {
         uint256 memberId = _memberIds[0];
         uint256[] memory ids = _proposeBatch(TOKEN, 1);
         _voteWithoutData(TOKEN, memberId, ids, _singleton(DEFAULT_CAP));
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == DEFAULT_CAP, "cap spent in round 1");
+        require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == DEFAULT_CAP, "cap spent in round 1");
 
         _advanceRounds(1);
         uint256[] memory nextRoundIds = _proposeBatch(TOKEN, 1);
         _voteWithoutData(TOKEN, memberId, nextRoundIds, _singleton(DEFAULT_CAP));
 
-        require(vote.votesNumByMemberId(TOKEN, 2, memberId) == DEFAULT_CAP, "round 2 has a fresh allowance");
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == DEFAULT_CAP, "round 1 stays as it was");
-        require(vote.votesNum(TOKEN, 1) == DEFAULT_CAP && vote.votesNum(TOKEN, 2) == DEFAULT_CAP, "round totals");
+        require(vote.voteAmountByMemberId(TOKEN, 2, memberId) == DEFAULT_CAP, "round 2 has a fresh allowance");
+        require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == DEFAULT_CAP, "round 1 stays as it was");
+        require(vote.totalVoteAmount(TOKEN, 1) == DEFAULT_CAP && vote.totalVoteAmount(TOKEN, 2) == DEFAULT_CAP, "round totals");
     }
 
     function testAllowanceIsScopedToTokenAndMember() external {
@@ -1068,14 +1068,14 @@ contract VoteTest {
 
         // Another member keeps their own allowance against the same proposal.
         _voteWithoutData(TOKEN, other, ids, _singleton(7));
-        require(vote.votesNumByMemberId(TOKEN, 1, other) == 7, "other member total");
-        require(vote.votesNumByProposalId(TOKEN, 1, ids[0]) == DEFAULT_CAP + 7, "proposal total sums members");
+        require(vote.voteAmountByMemberId(TOKEN, 1, other) == 7, "other member total");
+        require(vote.voteAmountByProposalId(TOKEN, 1, ids[0]) == DEFAULT_CAP + 7, "proposal total sums members");
 
         // And the same member keeps a separate allowance on another token.
         uint256[] memory otherTokenIds = _proposeBatch(TOKEN2, 1);
         _voteWithoutData(TOKEN2, memberId, otherTokenIds, _singleton(11));
-        require(vote.votesNumByMemberId(TOKEN2, 1, memberId) == 11, "token scoped total");
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == DEFAULT_CAP, "token scoped independently");
+        require(vote.voteAmountByMemberId(TOKEN2, 1, memberId) == 11, "token scoped total");
+        require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == DEFAULT_CAP, "token scoped independently");
     }
 
     // ============ vote: snapshot arithmetic ============
@@ -1087,8 +1087,8 @@ contract VoteTest {
 
         _voteWithoutData(TOKEN, memberId, ids, _singleton(10));
 
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 50, "full snapshot on the first vote");
-        require(vote.stakedAmountOfVoters(TOKEN, 1) == 50, "round total follows");
+        require(vote.voterBoost(TOKEN, 1, memberId) == 50, "full snapshot on the first vote");
+        require(vote.totalVoterBoost(TOKEN, 1) == 50, "round total follows");
     }
 
     function testSecondVoteRecordsOnlyTheDelta() external {
@@ -1100,8 +1100,8 @@ contract VoteTest {
         stake.setBoost(TOKEN, 1, memberId, 80);
         _voteWithoutData(TOKEN, memberId, _singleton(ids[1]), _singleton(10));
 
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 80, "snapshot tracks the latest boost");
-        require(vote.stakedAmountOfVoters(TOKEN, 1) == 80, "only the 30 point delta was added");
+        require(vote.voterBoost(TOKEN, 1, memberId) == 80, "snapshot tracks the latest boost");
+        require(vote.totalVoterBoost(TOKEN, 1) == 80, "only the 30 point delta was added");
     }
 
     function testSnapshotFollowsEveryIncreaseButNeverDoubleCounts() external {
@@ -1115,8 +1115,8 @@ contract VoteTest {
         stake.setBoost(TOKEN, 1, memberId, 120);
         _voteWithoutData(TOKEN, memberId, _singleton(ids[2]), _singleton(10));
 
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 120, "50 then 80 then 120");
-        require(vote.stakedAmountOfVoters(TOKEN, 1) == 120, "the round total tracks the member snapshot");
+        require(vote.voterBoost(TOKEN, 1, memberId) == 120, "50 then 80 then 120");
+        require(vote.totalVoterBoost(TOKEN, 1) == 120, "the round total tracks the member snapshot");
     }
 
     function testStakingWithoutVotingDoesNotMoveTheSnapshot() external {
@@ -1127,8 +1127,8 @@ contract VoteTest {
         _voteWithoutData(TOKEN, memberId, ids, _singleton(10));
         stake.setBoost(TOKEN, 1, memberId, 80);
 
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 50, "no vote, no update");
-        require(vote.stakedAmountOfVoters(TOKEN, 1) == 50, "round total unchanged");
+        require(vote.voterBoost(TOKEN, 1, memberId) == 50, "no vote, no update");
+        require(vote.totalVoterBoost(TOKEN, 1) == 50, "round total unchanged");
     }
 
     function testUnchangedBoostLeavesTheSnapshotAlone() external {
@@ -1138,8 +1138,8 @@ contract VoteTest {
         stake.setBoost(TOKEN, 1, memberId, 50);
         _voteWithoutData(TOKEN, memberId, ids, _filled(2, 10));
 
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 50, "no growth, no re-add");
-        require(vote.stakedAmountOfVoters(TOKEN, 1) == 50, "50 is not counted twice");
+        require(vote.voterBoost(TOKEN, 1, memberId) == 50, "no growth, no re-add");
+        require(vote.totalVoterBoost(TOKEN, 1) == 50, "50 is not counted twice");
     }
 
     /// @dev Only growth is credited: a member whose Stake boost fell cannot lower a snapshot that was
@@ -1153,8 +1153,8 @@ contract VoteTest {
         stake.setBoost(TOKEN, 1, memberId, 30);
         _voteWithoutData(TOKEN, memberId, _singleton(ids[1]), _singleton(10));
 
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 50, "a decrease is ignored");
-        require(vote.stakedAmountOfVoters(TOKEN, 1) == 50, "round total stays positive");
+        require(vote.voterBoost(TOKEN, 1, memberId) == 50, "a decrease is ignored");
+        require(vote.totalVoterBoost(TOKEN, 1) == 50, "round total stays positive");
     }
 
     /// @dev The snapshot is read per proposal, not once for the batch. The Target raises the member's
@@ -1175,8 +1175,8 @@ contract VoteTest {
 
         require(target.votedCalls() == 1, "the callback proposal fired once");
         require(stake.validBoostShares(TOKEN, 1, memberId) == 80, "the boost was raised during the batch");
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 80, "the second read saw 80");
-        require(vote.stakedAmountOfVoters(TOKEN, 1) == 80, "total follows the member snapshot");
+        require(vote.voterBoost(TOKEN, 1, memberId) == 80, "the second read saw 80");
+        require(vote.totalVoterBoost(TOKEN, 1) == 80, "total follows the member snapshot");
     }
 
     /// @dev Stake answers per round, so the snapshot is taken from the round being voted in. Seeding
@@ -1190,8 +1190,8 @@ contract VoteTest {
         uint256[] memory ids = _proposeBatch(TOKEN, 1);
         _voteWithoutData(TOKEN, memberId, ids, _singleton(10));
 
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 2, memberId) == 80, "round 2 uses the round 2 value");
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 0, "round 1 was never voted in");
+        require(vote.voterBoost(TOKEN, 2, memberId) == 80, "round 2 uses the round 2 value");
+        require(vote.voterBoost(TOKEN, 1, memberId) == 0, "round 1 was never voted in");
     }
 
     function testSnapshotIsScopedToTheRound() external {
@@ -1199,16 +1199,16 @@ contract VoteTest {
         uint256[] memory ids = _proposeBatch(TOKEN, 1);
         stake.setBoost(TOKEN, 1, memberId, 120);
         _voteWithoutData(TOKEN, memberId, ids, _singleton(10));
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 120, "round 1 snapshot");
+        require(vote.voterBoost(TOKEN, 1, memberId) == 120, "round 1 snapshot");
 
         _advanceRounds(1);
         stake.setBoost(TOKEN, 2, memberId, 30);
         uint256[] memory nextRoundIds = _proposeBatch(TOKEN, 1);
         _voteWithoutData(TOKEN, memberId, nextRoundIds, _singleton(10));
 
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 2, memberId) == 30, "round 2 snapshots from scratch");
-        require(vote.stakedAmountOfVoters(TOKEN, 2) == 30, "round 2 total");
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 120, "round 1 is frozen");
+        require(vote.voterBoost(TOKEN, 2, memberId) == 30, "round 2 snapshots from scratch");
+        require(vote.totalVoterBoost(TOKEN, 2) == 30, "round 2 total");
+        require(vote.voterBoost(TOKEN, 1, memberId) == 120, "round 1 is frozen");
     }
 
     /// @dev A member who never voted keeps a zero snapshot, and a later increase is credited in full
@@ -1219,13 +1219,13 @@ contract VoteTest {
 
         stake.setBoost(TOKEN, 1, memberId, 0);
         _voteWithoutData(TOKEN, memberId, _singleton(ids[0]), _singleton(10));
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 0, "zero snapshot");
+        require(vote.voterBoost(TOKEN, 1, memberId) == 0, "zero snapshot");
 
         stake.setBoost(TOKEN, 1, memberId, 30);
         _voteWithoutData(TOKEN, memberId, _singleton(ids[1]), _singleton(10));
 
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 30, "the full value is credited");
-        require(vote.stakedAmountOfVoters(TOKEN, 1) == 30, "round total");
+        require(vote.voterBoost(TOKEN, 1, memberId) == 30, "the full value is credited");
+        require(vote.totalVoterBoost(TOKEN, 1) == 30, "round total");
     }
 
     function testSnapshotTotalsSumAcrossMembers() external {
@@ -1238,14 +1238,14 @@ contract VoteTest {
         _voteWithoutData(TOKEN, first, _singleton(ids[0]), _singleton(10));
         _voteWithoutData(TOKEN, second, _singleton(ids[1]), _singleton(10));
 
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, first) == 50, "first member");
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, second) == 30, "second member");
-        require(vote.stakedAmountOfVoters(TOKEN, 1) == 80, "round total is the sum");
+        require(vote.voterBoost(TOKEN, 1, first) == 50, "first member");
+        require(vote.voterBoost(TOKEN, 1, second) == 30, "second member");
+        require(vote.totalVoterBoost(TOKEN, 1) == 80, "round total is the sum");
 
         // Another increase from one member adds only that member's delta.
         stake.setBoost(TOKEN, 1, first, 90);
         _voteWithoutData(TOKEN, first, _singleton(ids[1]), _singleton(10));
-        require(vote.stakedAmountOfVoters(TOKEN, 1) == 120, "first member 50 to 90 plus the other member's 30");
+        require(vote.totalVoterBoost(TOKEN, 1) == 120, "first member 50 to 90 plus the other member's 30");
     }
 
     function testSnapshotsDoNotBleedAcrossTokens() external {
@@ -1258,10 +1258,10 @@ contract VoteTest {
         _voteWithoutData(TOKEN, memberId, ids, _singleton(10));
         _voteWithoutData(TOKEN2, memberId, otherTokenIds, _singleton(10));
 
-        require(vote.stakedAmountOfVoters(TOKEN, 1) == 50, "token 1 snapshot");
-        require(vote.stakedAmountOfVoters(TOKEN2, 1) == 900, "token 2 snapshot");
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 50, "member snapshot per token");
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN2, 1, memberId) == 900, "member snapshot per token 2");
+        require(vote.totalVoterBoost(TOKEN, 1) == 50, "token 1 snapshot");
+        require(vote.totalVoterBoost(TOKEN2, 1) == 900, "token 2 snapshot");
+        require(vote.voterBoost(TOKEN, 1, memberId) == 50, "member snapshot per token");
+        require(vote.voterBoost(TOKEN2, 1, memberId) == 900, "member snapshot per token 2");
     }
     // ============ vote: record sets ============
 
@@ -1272,12 +1272,12 @@ contract VoteTest {
         _voteWithoutData(TOKEN, memberId, ids, _singleton(20));
         _voteWithoutData(TOKEN, memberId, ids, _singleton(30));
 
-        require(vote.votesNumByProposalId(TOKEN, 1, ids[0]) == 50, "votes accumulate");
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == 50, "member total");
+        require(vote.voteAmountByProposalId(TOKEN, 1, ids[0]) == 50, "votes accumulate");
+        require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == 50, "member total");
 
         (uint256[] memory voted, uint256 total) = vote.votedProposalIds(TOKEN, 1, 0, 10, false);
         require(total == 1 && voted.length == 1, "the round list holds it once");
-        (voted, total) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 0, 10, false);
+        (voted, , total) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 0, 10, false);
         require(total == 1 && voted.length == 1, "the member list holds it once");
         (uint256[] memory voters, uint256 voterTotal) = vote.voterIdsByProposalId(TOKEN, 1, ids[0], 0, 10, false);
         require(voterTotal == 1 && voters.length == 1, "the voter list holds the member once");
@@ -1306,7 +1306,7 @@ contract VoteTest {
         _voteWithoutData(TOKEN, memberId, _singleton(ids[1]), _singleton(5));
         _voteWithoutData(TOKEN, memberId, _singleton(ids[0]), _singleton(5));
 
-        (uint256[] memory voted, uint256 total) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 0, 10, false);
+        (uint256[] memory voted, , uint256 total) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 0, 10, false);
         require(total == 2 && voted[0] == ids[0] && voted[1] == ids[1], "insertion order without duplicates");
 
         (voted, total) = vote.votedProposalIds(TOKEN, 1, 0, 10, false);
@@ -1320,7 +1320,7 @@ contract VoteTest {
 
         (uint256[] memory voted, uint256 total) = vote.votedProposalIds(TOKEN, 2, 0, 10, false);
         require(total == 0 && voted.length == 0, "another round");
-        (voted, total) = vote.votedProposalIdsByMemberId(TOKEN, 2, memberId, 0, 10, false);
+        (voted, , total) = vote.votedProposalIdsByMemberId(TOKEN, 2, memberId, 0, 10, false);
         require(total == 0 && voted.length == 0, "another round, member list");
         (voted, total) = vote.votedProposalIds(TOKEN2, 1, 0, 10, false);
         require(total == 0 && voted.length == 0, "another token");
@@ -1339,13 +1339,13 @@ contract VoteTest {
         _voteWithoutData(TOKEN, second, _singleton(ids[1]), _singleton(17));
         _voteWithoutData(TOKEN, second, _singleton(ids[2]), _singleton(19));
 
-        uint256 byProposal = vote.votesNumByProposalId(TOKEN, 1, ids[0]) + vote.votesNumByProposalId(TOKEN, 1, ids[1])
-            + vote.votesNumByProposalId(TOKEN, 1, ids[2]);
-        uint256 byMember = vote.votesNumByMemberId(TOKEN, 1, first) + vote.votesNumByMemberId(TOKEN, 1, second);
+        uint256 byProposal = vote.voteAmountByProposalId(TOKEN, 1, ids[0]) + vote.voteAmountByProposalId(TOKEN, 1, ids[1])
+            + vote.voteAmountByProposalId(TOKEN, 1, ids[2]);
+        uint256 byMember = vote.voteAmountByMemberId(TOKEN, 1, first) + vote.voteAmountByMemberId(TOKEN, 1, second);
 
         require(byProposal == 60, "proposal totals close");
         require(byMember == 60, "member totals close");
-        require(vote.votesNum(TOKEN, 1) == 60, "and equal the round total");
+        require(vote.totalVoteAmount(TOKEN, 1) == 60, "and equal the round total");
     }
 
     // ============ vote: events ============
@@ -1383,7 +1383,7 @@ contract VoteTest {
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _singleton(0), new bytes[][](0))),
-            abi.encodeWithSelector(IVoteErrors.ZeroVotes.selector, ids[0]),
+            abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, ids[0]),
             "zero amount"
         );
         require(_voteCastLogs().length == 0, "a reverted call leaves no event behind");
@@ -1422,7 +1422,7 @@ contract VoteTest {
 
         require(target.createdCalls() == 0, "NoCallback skips the create hook too");
         require(target.votedCalls() == 0, "NoCallback never reaches the vote hook");
-        require(vote.votesNumByProposalId(TOKEN, 1, proposalId) == 10, "the vote is still recorded");
+        require(vote.voteAmountByProposalId(TOKEN, 1, proposalId) == 10, "the vote is still recorded");
     }
 
     function testCallbackReceivesEveryArgument() external {
@@ -1509,7 +1509,7 @@ contract VoteTest {
         _voteWithoutData(TOKEN, memberId, ids, votes);
 
         require(target.votedVotesAt(0) == 30 && target.votedVotesAt(1) == 20, "each call carries its own delta");
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == 50, "state holds the running total");
+        require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == 50, "state holds the running total");
     }
 
     /// @dev Checks-effects-interactions: the callback runs after the vote counters are written, so a
@@ -1521,8 +1521,8 @@ contract VoteTest {
 
         _voteWithoutData(TOKEN, memberId, _singleton(proposalId), _singleton(30));
 
-        require(target.observedVotesNumAt(0) == 30, "the member total was already written");
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == 30, "and it matches the final state");
+        require(target.observedVoteAmountAt(0) == 30, "the member total was already written");
+        require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == 30, "and it matches the final state");
     }
 
     function testCallbackFailureRollsBackTheWholeBatch() external {
@@ -1558,7 +1558,7 @@ contract VoteTest {
         require(!ok && keccak256(data) == keccak256(expected), "the callback failure surfaces unchanged");
 
         _assertAllVoteStateEmpty(TOKEN, 1, memberId);
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 0, "snapshot rolled back");
+        require(vote.voterBoost(TOKEN, 1, memberId) == 0, "snapshot rolled back");
     }
     // ============ paginated queries ============
 
@@ -1600,19 +1600,19 @@ contract VoteTest {
         uint256[] memory ids = _proposeBatch(TOKEN, 4);
         _voteWithoutData(TOKEN, memberId, ids, _filled(4, 10));
 
-        (uint256[] memory page, uint256 total) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 1, 2, false);
+        (uint256[] memory page, , uint256 total) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 1, 2, false);
         require(total == 4 && page.length == 2 && page[0] == ids[1] && page[1] == ids[2], "first page");
 
-        (page, total) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 3, 5, false);
+        (page, , total) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 3, 5, false);
         require(total == 4 && page.length == 1 && page[0] == ids[3], "second page");
 
-        (page, total) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 4, 5, false);
+        (page, , total) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 4, 5, false);
         require(total == 4 && page.length == 0, "offset at the end");
 
-        (page,) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 1, 2, true);
+        (page, , ) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 1, 2, true);
         require(page.length == 2 && page[0] == ids[2] && page[1] == ids[1], "reverse page");
 
-        (page, total) = vote.votedProposalIdsByMemberId(TOKEN, 1, _memberIds[6], 0, 5, false);
+        (page, , total) = vote.votedProposalIdsByMemberId(TOKEN, 1, _memberIds[6], 0, 5, false);
         require(total == 0 && page.length == 0, "a member who never voted");
     }
 
@@ -1639,7 +1639,7 @@ contract VoteTest {
         require(total == 0 && page.length == 0, "a proposal nobody voted for");
     }
 
-    function testVotesNumsByMemberIdPairsIdsWithTheirAmounts() external {
+    function testVotedProposalIdsByMemberIdPairsIdsWithTheirAmounts() external {
         uint256 memberId = _memberIds[5];
         uint256[] memory ids = _proposeBatch(TOKEN, 3);
 
@@ -1649,20 +1649,20 @@ contract VoteTest {
         _voteWithoutData(TOKEN, memberId, ids, votes);
 
         (uint256[] memory list, uint256[] memory amounts, uint256 total) =
-            vote.votesNumsByMemberId(TOKEN, 1, memberId, 0, 2, false);
+            vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 0, 2, false);
         require(total == 3 && list.length == 2 && amounts.length == 2, "page sizes");
         require(list[0] == ids[0] && amounts[0] == 10 && list[1] == ids[1] && amounts[1] == 20, "pairs align");
 
-        (list, amounts,) = vote.votesNumsByMemberId(TOKEN, 1, memberId, 0, 3, true);
+        (list, amounts,) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 0, 3, true);
         require(list[0] == ids[2] && amounts[0] == 30, "reverse keeps the pairing");
         require(list[1] == ids[1] && amounts[1] == 20, "reverse second pair");
         require(list[2] == ids[0] && amounts[2] == 10, "reverse third pair");
 
-        (list, amounts, total) = vote.votesNumsByMemberId(TOKEN, 1, memberId, 3, 3, false);
+        (list, amounts, total) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 3, 3, false);
         require(total == 3 && list.length == 0 && amounts.length == 0, "offset at the end");
     }
 
-    function testVotesNumsByMemberIdByProposalIdsMirrorsTheRequest() external {
+    function testVotesByMemberIdByIdsMirrorsTheRequest() external {
         uint256 memberId = _memberIds[5];
         uint256[] memory ids = _proposeBatch(TOKEN, 3);
 
@@ -1677,11 +1677,11 @@ contract VoteTest {
         requested[2] = ids[0];
         requested[3] = ids[2];
 
-        uint256[] memory answer = vote.votesNumsByMemberIdByProposalIds(TOKEN, 1, memberId, requested);
+        uint256[] memory answer = vote.voteAmountsByMemberIdByIds(TOKEN, 1, memberId, requested);
         require(answer.length == 4, "one slot per requested id");
         require(answer[0] == 30 && answer[1] == 0 && answer[2] == 10 && answer[3] == 30, "order kept, unknown is zero");
 
-        answer = vote.votesNumsByMemberIdByProposalIds(TOKEN, 1, memberId, new uint256[](0));
+        answer = vote.voteAmountsByMemberIdByIds(TOKEN, 1, memberId, new uint256[](0));
         require(answer.length == 0, "an empty request returns an empty answer");
     }
 
@@ -1696,14 +1696,14 @@ contract VoteTest {
         _voteWithoutData(TOKEN, memberId, first, _singleton(10));
         _voteWithoutData(TOKEN2, memberId, second, _singleton(20));
 
-        require(vote.votesNum(TOKEN, 1) == 10 && vote.votesNum(TOKEN2, 1) == 20, "round totals are separate");
+        require(vote.totalVoteAmount(TOKEN, 1) == 10 && vote.totalVoteAmount(TOKEN2, 1) == 20, "round totals are separate");
         require(
-            vote.votesNumByProposalId(TOKEN, 1, 1) == 10 && vote.votesNumByProposalId(TOKEN2, 1, 1) == 20,
+            vote.voteAmountByProposalId(TOKEN, 1, 1) == 10 && vote.voteAmountByProposalId(TOKEN2, 1, 1) == 20,
             "proposal totals are separate"
         );
         require(
-            vote.votesNumByMemberId(TOKEN, 1, memberId) == 10
-                && vote.votesNumByMemberId(TOKEN2, 1, memberId) == 20,
+            vote.voteAmountByMemberId(TOKEN, 1, memberId) == 10
+                && vote.voteAmountByMemberId(TOKEN2, 1, memberId) == 20,
             "member totals are separate"
         );
 
@@ -1731,7 +1731,7 @@ contract VoteTest {
         require(startBlock == 300 && phaseBlocks == 200, "phase 3 was calibrated");
 
         _voteWithoutData(TOKEN, memberId, _singleton(second), _singleton(10));
-        require(vote.votesNumByProposalId(TOKEN, 2, second) == 10, "counted in round 2");
+        require(vote.voteAmountByProposalId(TOKEN, 2, second) == 10, "counted in round 2");
 
         vm.roll(400);
         require(vote.currentRound() == 3, "round 3 starts at the calibrated block");
@@ -1740,8 +1740,8 @@ contract VoteTest {
         submit.submit(TOKEN, resubmitter, second);
 
         _voteWithoutData(TOKEN, memberId, _singleton(second), _singleton(10));
-        require(vote.votesNumByProposalId(TOKEN, 3, second) == 10, "counted in the calibrated round 3");
-        require(vote.votesNumByProposalId(TOKEN, 2, second) == 10, "round 2 keeps its own total");
+        require(vote.voteAmountByProposalId(TOKEN, 3, second) == 10, "counted in the calibrated round 3");
+        require(vote.voteAmountByProposalId(TOKEN, 2, second) == 10, "round 2 keeps its own total");
     }
 
     /// @dev What a later module reads: the snapshot of a finished round must not move when staking
@@ -1755,10 +1755,10 @@ contract VoteTest {
         _advanceRounds(2);
         stake.setBoost(TOKEN, 3, memberId, 999);
 
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == 10, "votes of round 1 stay frozen");
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == 50, "member snapshot stays frozen");
-        require(vote.stakedAmountOfVoters(TOKEN, 1) == 50, "round total stays frozen");
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 3, memberId) == 0, "round 3 has no snapshot yet");
+        require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == 10, "votes of round 1 stay frozen");
+        require(vote.voterBoost(TOKEN, 1, memberId) == 50, "member snapshot stays frozen");
+        require(vote.totalVoterBoost(TOKEN, 1) == 50, "round total stays frozen");
+        require(vote.voterBoost(TOKEN, 3, memberId) == 0, "round 3 has no snapshot yet");
 
         (uint256[] memory list, uint256 total) = vote.votedProposalIds(TOKEN, 1, 0, 10, false);
         require(total == 1 && list.length == 1, "the round 1 list stays readable");
@@ -1775,9 +1775,9 @@ contract VoteTest {
 
         _voteWithoutData(TOKEN, memberId, ids, _singleton(amount));
 
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == amount, "the whole amount is stored");
-        require(vote.votesNum(TOKEN, 1) == amount, "and it is the round total");
-        require(vote.votesNumByProposalId(TOKEN, 1, ids[0]) == amount, "and the proposal total");
+        require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == amount, "the whole amount is stored");
+        require(vote.totalVoteAmount(TOKEN, 1) == amount, "and it is the round total");
+        require(vote.voteAmountByProposalId(TOKEN, 1, ids[0]) == amount, "and the proposal total");
     }
 
     function testFuzzASingleVoteOverTheAllowanceReverts(uint96 capSeed, uint96 extraSeed) external {
@@ -1812,12 +1812,12 @@ contract VoteTest {
         _voteWithoutData(TOKEN, memberId, ids, votes);
 
         uint256 sum = firstAmount + secondAmount;
-        require(vote.votesNum(TOKEN, 1) == sum, "round total");
-        require(vote.votesNumByMemberId(TOKEN, 1, memberId) == sum, "member total");
-        require(vote.votesNumByProposalId(TOKEN, 1, ids[0]) == firstAmount, "first proposal");
-        require(vote.votesNumByProposalId(TOKEN, 1, ids[1]) == secondAmount, "second proposal");
-        require(vote.votesNumByMemberIdByProposalId(TOKEN, 1, memberId, ids[0]) == firstAmount, "member first");
-        require(vote.votesNumByMemberIdByProposalId(TOKEN, 1, memberId, ids[1]) == secondAmount, "member second");
+        require(vote.totalVoteAmount(TOKEN, 1) == sum, "round total");
+        require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == sum, "member total");
+        require(vote.voteAmountByProposalId(TOKEN, 1, ids[0]) == firstAmount, "first proposal");
+        require(vote.voteAmountByProposalId(TOKEN, 1, ids[1]) == secondAmount, "second proposal");
+        require(vote.voteAmountByMemberIdByProposalId(TOKEN, 1, memberId, ids[0]) == firstAmount, "member first");
+        require(vote.voteAmountByMemberIdByProposalId(TOKEN, 1, memberId, ids[1]) == secondAmount, "member second");
     }
 
     /// @dev The snapshot only ever credits growth, so after two votes around two boost readings the
@@ -1835,8 +1835,8 @@ contract VoteTest {
         _voteWithoutData(TOKEN, memberId, _singleton(ids[1]), _singleton(1));
 
         uint256 expected = firstBoost > secondBoost ? firstBoost : secondBoost;
-        require(vote.stakedAmountOfVotersByMemberId(TOKEN, 1, memberId) == expected, "member snapshot");
-        require(vote.stakedAmountOfVoters(TOKEN, 1) == expected, "round snapshot");
+        require(vote.voterBoost(TOKEN, 1, memberId) == expected, "member snapshot");
+        require(vote.totalVoterBoost(TOKEN, 1) == expected, "round snapshot");
     }
 
     /// @dev An independent implementation of the page window, checked against all three lists.
@@ -1868,7 +1868,7 @@ contract VoteTest {
         require(total == ids.length, "the round list reports the true total");
         require(keccak256(abi.encode(page)) == keccak256(abi.encode(expected)), "round list page");
 
-        (page, total) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, offset, limit, reverse);
+        (page, , total) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, offset, limit, reverse);
         require(total == ids.length, "the member list reports the true total");
         require(keccak256(abi.encode(page)) == keccak256(abi.encode(expected)), "member list page");
 
@@ -1968,7 +1968,7 @@ contract VoteStubTest {
         vm.prank(OWNER);
         vote.vote(TOKEN, _memberId, _ids(1, 1), _ones(1), new bytes[][](0));
 
-        require(vote.votesNumByProposalId(TOKEN, 1, 1) == 1, "the vote is still recorded");
+        require(vote.voteAmountByProposalId(TOKEN, 1, 1) == 1, "the vote is still recorded");
         require(target.votedCalls() == 0, "the zero address is never called");
     }
 
@@ -1979,8 +1979,8 @@ contract VoteStubTest {
         vm.prank(OWNER);
         vote.vote(TOKEN, _memberId, _ids(1, size), _ones(size), new bytes[][](0));
 
-        require(vote.votesNum(TOKEN, 1) == size, "every entry is recorded");
-        require(vote.votesNumByMemberId(TOKEN, 1, _memberId) == size, "member total");
+        require(vote.totalVoteAmount(TOKEN, 1) == size, "every entry is recorded");
+        require(vote.voteAmountByMemberId(TOKEN, 1, _memberId) == size, "member total");
 
         (uint256[] memory list, uint256 total) = vote.votedProposalIds(TOKEN, 1, 0, size, false);
         require(total == size && list.length == size, "the round list holds every proposal");

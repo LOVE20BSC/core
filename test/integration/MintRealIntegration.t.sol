@@ -262,11 +262,11 @@ contract MintRealIntegrationTest {
     /// @dev Independent calculation based on business logic, not contract code
     function _calculateExpectedVoteReward(
         uint256 govRewardAmount,
-        uint256 memberVotes,
-        uint256 totalVotes
+        uint256 memberVoteAmount,
+        uint256 totalVoteAmount
     ) internal pure returns (uint256) {
         uint256 votePoolAmount = govRewardAmount / 2;
-        return (votePoolAmount * memberVotes) / totalVotes;
+        return (votePoolAmount * memberVoteAmount) / totalVoteAmount;
     }
 
     /// @notice Mathematical model: Calculate expected boost reward
@@ -295,17 +295,17 @@ contract MintRealIntegrationTest {
     /// @notice Mathematical model: Calculate expected proposal reward
     function _calculateExpectedProposalReward(
         uint256 proposalRewardAmount,
-        uint256 proposalVotes,
-        uint256 eligibleProposalVotes
+        uint256 proposalVoteAmount,
+        uint256 eligibleProposalVoteAmount
     ) internal pure returns (uint256) {
-        if (eligibleProposalVotes == 0) return 0;
-        return (proposalRewardAmount * proposalVotes) / eligibleProposalVotes;
+        if (eligibleProposalVoteAmount == 0) return 0;
+        return (proposalRewardAmount * proposalVoteAmount) / eligibleProposalVoteAmount;
     }
 
     /// @notice Mathematical model: Calculate minimum votes for 5% threshold (ceil)
-    function _calculateMinVotes(uint256 totalVotes) internal pure returns (uint256) {
-        // ceil(totalVotes * 0.05) = ceil(totalVotes * 5e16 / 1e18)
-        return (totalVotes * PROPOSAL_REWARD_MIN_VOTE_RATIO + 1e18 - 1) / 1e18;
+    function _calculateMinVotes(uint256 totalVoteAmount) internal pure returns (uint256) {
+        // ceil(totalVoteAmount * 0.05) = ceil(totalVoteAmount * 5e16 / 1e18)
+        return (totalVoteAmount * PROPOSAL_REWARD_MIN_VOTE_RATIO + 1e18 - 1) / 1e18;
     }
 
     // Helper functions
@@ -372,7 +372,7 @@ contract MintRealIntegrationTest {
 
     /// @notice Verify governance rewards against independent mathematical model
     struct GovRewardData {
-        uint256 totalVotes;
+        uint256 totalVoteAmount;
         uint256 totalBoost;
         uint256 member1Votes;
         uint256 member2Votes;
@@ -390,12 +390,12 @@ contract MintRealIntegrationTest {
         GovRewardData memory data;
 
         // Read actual contract state
-        data.totalVotes = vote.votesNum(address(token), currentRound);
-        data.totalBoost = vote.stakedAmountOfVoters(address(token), currentRound);
-        data.member1Votes = vote.votesNumByMemberId(address(token), currentRound, 1);
-        data.member2Votes = vote.votesNumByMemberId(address(token), currentRound, 2);
-        data.member1Boost = vote.stakedAmountOfVotersByMemberId(address(token), currentRound, 1);
-        data.member2Boost = vote.stakedAmountOfVotersByMemberId(address(token), currentRound, 2);
+        data.totalVoteAmount = vote.totalVoteAmount(address(token), currentRound);
+        data.totalBoost = vote.totalVoterBoost(address(token), currentRound);
+        data.member1Votes = vote.voteAmountByMemberId(address(token), currentRound, 1);
+        data.member2Votes = vote.voteAmountByMemberId(address(token), currentRound, 2);
+        data.member1Boost = vote.voterBoost(address(token), currentRound, 1);
+        data.member2Boost = vote.voterBoost(address(token), currentRound, 2);
 
         // Read actual rewards from contract
         (data.actualVoteReward1, data.actualBoostReward1, data.actualBurnReward1,) =
@@ -426,7 +426,7 @@ contract MintRealIntegrationTest {
         // Debug: Check actual vote counts
         assertEq(data.member1Votes, VOTE_AMOUNT_MEMBER1, "Member1 should have 100 votes");
         assertEq(data.member2Votes, VOTE_AMOUNT_MEMBER2, "Member2 should have 60 votes");
-        assertEq(data.totalVotes, VOTE_AMOUNT_MEMBER1 + VOTE_AMOUNT_MEMBER2, "Total should be 160 votes");
+        assertEq(data.totalVoteAmount, VOTE_AMOUNT_MEMBER1 + VOTE_AMOUNT_MEMBER2, "Total should be 160 votes");
 
         // Verify voting ratio (100:60 = 5:3) for vote rewards only
         uint256 crossProduct1 = data.actualVoteReward1 * 3;
@@ -441,8 +441,8 @@ contract MintRealIntegrationTest {
         uint256 govRewardAmount = (available * ROUND_REWARD_GOV_RATIO) / 1e18;
 
         // Expected vote rewards
-        uint256 expectedVoteReward1 = _calculateExpectedVoteReward(govRewardAmount, data.member1Votes, data.totalVotes);
-        uint256 expectedVoteReward2 = _calculateExpectedVoteReward(govRewardAmount, data.member2Votes, data.totalVotes);
+        uint256 expectedVoteReward1 = _calculateExpectedVoteReward(govRewardAmount, data.member1Votes, data.totalVoteAmount);
+        uint256 expectedVoteReward2 = _calculateExpectedVoteReward(govRewardAmount, data.member2Votes, data.totalVoteAmount);
 
         // Expected boost rewards
         (uint256 expectedBoostReward1, uint256 expectedBurnReward1) =
@@ -776,17 +776,17 @@ contract MintRealIntegrationTest {
 
     function _verifyRound1Eligibility(ThresholdTestData memory data) internal view {
         // Verify vote counts for round 1
-        uint256 totalVotesR1 = vote.votesNum(address(token), data.testRound);
-        assertEq(totalVotesR1, 34, "Total votes round 1 must be 34 (12+12+5+5)");
+        uint256 totalVoteAmountR1 = vote.totalVoteAmount(address(token), data.testRound);
+        assertEq(totalVoteAmountR1, 34, "Total votes round 1 must be 34 (12+12+5+5)");
 
-        uint256 proposal1Votes = vote.votesNumByProposalId(address(token), data.testRound, data.proposalId1);
-        uint256 proposal2Votes = vote.votesNumByProposalId(address(token), data.testRound, data.proposalId2);
+        uint256 proposal1Votes = vote.voteAmountByProposalId(address(token), data.testRound, data.proposalId1);
+        uint256 proposal2Votes = vote.voteAmountByProposalId(address(token), data.testRound, data.proposalId2);
 
         assertEq(proposal1Votes, 24, "Proposal 1 must have 24 votes");
         assertEq(proposal2Votes, 10, "Proposal 2 must have 10 votes");
 
         // Calculate minimum votes for round 1
-        uint256 expectedMinVotesR1 = _calculateMinVotes(totalVotesR1);
+        uint256 expectedMinVotesR1 = _calculateMinVotes(totalVoteAmountR1);
         assertEq(expectedMinVotesR1, 2, "Min votes round 1 must be 2 (ceil(34 * 0.05))");
 
         // Both proposals qualify in round 1 (24 > 2, 10 > 2)
@@ -798,14 +798,14 @@ contract MintRealIntegrationTest {
 
     function _verifyRound2Eligibility(ThresholdTestData memory data) internal view {
         // Verify vote counts for round 2
-        uint256 totalVotesR2 = vote.votesNum(address(token), data.round2);
-        assertEq(totalVotesR2, 446, "Total votes round 2 must be 446 (83+363)");
+        uint256 totalVoteAmountR2 = vote.totalVoteAmount(address(token), data.round2);
+        assertEq(totalVoteAmountR2, 446, "Total votes round 2 must be 446 (83+363)");
 
-        uint256 proposal3Votes = vote.votesNumByProposalId(address(token), data.round2, data.proposalId3);
+        uint256 proposal3Votes = vote.voteAmountByProposalId(address(token), data.round2, data.proposalId3);
         assertEq(proposal3Votes, 446, "Proposal 3 must have 446 votes");
 
         // Calculate minimum votes for round 2
-        uint256 expectedMinVotesR2 = _calculateMinVotes(totalVotesR2);
+        uint256 expectedMinVotesR2 = _calculateMinVotes(totalVoteAmountR2);
         assertEq(expectedMinVotesR2, 23, "Min votes round 2 must be 23 (ceil(446 * 0.05))");
 
         // Proposal 3 qualifies in round 2 (446 > 23)
@@ -814,14 +814,14 @@ contract MintRealIntegrationTest {
     }
 
     function _verifyAndClaimRewards(ThresholdTestData memory data) internal {
-        // Trigger auto-prepare for round 1 before querying eligibleProposalVotes
+        // Trigger auto-prepare for round 1 before querying eligibleProposalVoteAmount
         vm.prank(data.proposalTarget1);
         uint256 claimed1 = mint.mintProposalReward(address(token), data.testRound, data.proposalId1, data.proposalTarget1);
 
         // Verify rewards with mathematical model for round 1
-        uint256 eligibleVotesR1 = mint.eligibleProposalVotes(address(token), data.testRound);
+        uint256 eligibleVoteAmountR1 = mint.eligibleProposalVoteAmount(address(token), data.testRound);
 
-        assertEq(eligibleVotesR1, 34, "Eligible votes round 1 must equal total votes (all eligible)");
+        assertEq(eligibleVoteAmountR1, 34, "Eligible votes round 1 must equal total votes (all eligible)");
 
         (uint256 reward1,) = mint.proposalRewardByProposalId(address(token), data.testRound, data.proposalId1);
         (uint256 reward2,) = mint.proposalRewardByProposalId(address(token), data.testRound, data.proposalId2);
@@ -1074,8 +1074,8 @@ contract MintRealIntegrationTest {
                    "Round 1 reward (5000 stake, 100 votes) must exceed Round 4 reward (3000 stake, 60 votes)");
 
         // Verify vote amounts match expected
-        uint256 r1Votes = vote.votesNumByMemberId(address(token), data.round1, 1);
-        uint256 r4Votes = vote.votesNumByMemberId(address(token), data.round4, 1);
+        uint256 r1Votes = vote.voteAmountByMemberId(address(token), data.round1, 1);
+        uint256 r4Votes = vote.voteAmountByMemberId(address(token), data.round4, 1);
         assertEq(r1Votes, VOTE_AMOUNT_MEMBER1, "Round 1 must have 100 votes");
         assertEq(r4Votes, VOTE_AMOUNT_MEMBER2, "Round 4 must have 60 votes");
     }
@@ -1192,13 +1192,13 @@ contract MintRealIntegrationTest {
         assertEq(token.totalSupply(), totalSupplyBefore + settled, "Settlement mints to the recipient");
         assertEq(mint.rewardMinted(address(token)), settled, "Minted ledger");
         assertTrue(mint.isRewardPrepared(address(token), data.round1), "Round must be prepared");
-        assertTrue(vote.stakedAmountOfVoters(address(token), data.round1) > 0, "Boost snapshot recorded");
+        assertTrue(vote.totalVoterBoost(address(token), data.round1) > 0, "Boost snapshot recorded");
 
         // Settled amount matches the independent proposal-reward model
         uint256 expected = _calculateExpectedProposalReward(
             mint.proposalReward(address(token), data.round1),
-            vote.votesNumByProposalId(address(token), data.round1, data.proposalId1),
-            mint.eligibleProposalVotes(address(token), data.round1)
+            vote.voteAmountByProposalId(address(token), data.round1, data.proposalId1),
+            mint.eligibleProposalVoteAmount(address(token), data.round1)
         );
         assertEq(settled, expected, "Settlement must match math model");
 
@@ -1233,8 +1233,8 @@ contract MintRealIntegrationTest {
     function _verifySiblingProposalUnaffected(BurnUnmintedTestData memory data, uint256 destroyedShare) internal {
         uint256 expectedSibling = _calculateExpectedProposalReward(
             mint.proposalReward(address(token), data.round1),
-            vote.votesNumByProposalId(address(token), data.round1, data.proposalId2),
-            mint.eligibleProposalVotes(address(token), data.round1)
+            vote.voteAmountByProposalId(address(token), data.round1, data.proposalId2),
+            mint.eligibleProposalVoteAmount(address(token), data.round1)
         );
 
         uint256 balanceBefore = token.balanceOf(data.proposalTarget2);
@@ -1325,7 +1325,7 @@ contract MintRealIntegrationTest {
         assertTrue(launch.isLOVE20Token(childTokenAddress), "Child must be registered LOVE20 token");
 
         // Verify parent-child relationship
-        address parentOfChild = launch.parentTokenOf(childTokenAddress);
+        address parentOfChild = launch.parentToken(childTokenAddress);
         assertTrue(parentOfChild == address(token), "Parent token must match");
 
         // Verify symbol lookup
@@ -1340,7 +1340,7 @@ contract MintRealIntegrationTest {
         ILOVE20Token childToken = ILOVE20Token(childTokenAddress);
         assertEq(childToken.balanceOf(member1), launch.LAUNCH_AMOUNT(), "Child token initial supply");
         assertEq(childToken.totalSupply(), launch.LAUNCH_AMOUNT(), "Child token total supply");
-        assertEq(childToken.maxSupply(), launch.MAX_SUPPLY(), "Child token max supply");
+        assertEq(childToken.MAX_SUPPLY(), launch.MAX_SUPPLY(), "Child token max supply");
 
         // Governance rewards on the first token mirror 1:1 into root-level counts
         uint256 rootCredits = launch.launchCount(address(rootToken), 1);
@@ -1364,7 +1364,7 @@ contract MintRealIntegrationTest {
             new bytes[](0)
         );
         assertTrue(launch.isLOVE20Token(siblingTokenAddress), "Sibling must be registered");
-        assertTrue(launch.parentTokenOf(siblingTokenAddress) == address(rootToken), "Sibling parent must be root");
+        assertTrue(launch.parentToken(siblingTokenAddress) == address(rootToken), "Sibling parent must be root");
         assertTrue(keccak256(bytes(rootToken.symbol())) == keccak256(bytes("ROOT")), "Root symbol used for naming");
         assertTrue(
             keccak256(bytes(ILOVE20Token(siblingTokenAddress).symbol())) == keccak256(bytes(siblingSymbol)),
@@ -1446,8 +1446,8 @@ contract MintRealIntegrationTest {
         vm.stopPrank();
 
         // Query initial stake amounts
-        (uint256 m1LiqBefore, uint256 m1BoostBefore,,,,) = stake.stakeData(address(token), 1);
-        (uint256 m2LiqBefore, uint256 m2BoostBefore,,,,) = stake.stakeData(address(token), 2);
+        (uint256 m1LiqBefore, uint256 m1BoostBefore,,,,) = stake.memberStake(address(token), 1);
+        (uint256 m2LiqBefore, uint256 m2BoostBefore,,,,) = stake.memberStake(address(token), 2);
 
         assertTrue(m1LiqBefore > 0, "Member 1 must have liquidity shares");
         assertTrue(m2LiqBefore > 0, "Member 2 must have liquidity shares");
@@ -1457,12 +1457,12 @@ contract MintRealIntegrationTest {
         stake.mergeStake(address(token), 1, 2);
 
         // Verify source stake was cleared
-        (uint256 m1LiqAfter, uint256 m1BoostAfter,,,,) = stake.stakeData(address(token), 1);
+        (uint256 m1LiqAfter, uint256 m1BoostAfter,,,,) = stake.memberStake(address(token), 1);
         assertEq(m1LiqAfter, 0, "Source liquidity must be zero");
         assertEq(m1BoostAfter, 0, "Source boost must be zero");
 
         // Verify target stake increased
-        (uint256 m2LiqAfter, uint256 m2BoostAfter,,,,) = stake.stakeData(address(token), 2);
+        (uint256 m2LiqAfter, uint256 m2BoostAfter,,,,) = stake.memberStake(address(token), 2);
         assertEq(m2LiqAfter, m2LiqBefore + m1LiqBefore, "Target liquidity must increase");
         assertEq(m2BoostAfter, m2BoostBefore + m1BoostBefore, "Target boost must increase");
     }

@@ -303,9 +303,9 @@ contract DeployCore is Script {
         ILOVE20Token token = ILOVE20Token(addrs.token);
         require(keccak256(bytes(token.name())) == keccak256(bytes(config.tokenName)), "Token name mismatch");
         require(keccak256(bytes(token.symbol())) == keccak256(bytes(config.tokenSymbol)), "Token symbol mismatch");
-        require(token.maxSupply() == config.maxSupply, "Token max supply mismatch");
-        require(token.minter() == addrs.mint, "Token minter mismatch");
-        require(token.parentTokenAddress() == rootParent, "Token parent mismatch");
+        require(token.MAX_SUPPLY() == config.maxSupply, "Token max supply mismatch");
+        require(token.MINTER() == addrs.mint, "Token minter mismatch");
+        require(token.PARENT_TOKEN_ADDRESS() == rootParent, "Token parent mismatch");
         require(token.totalSupply() == config.initialSupply, "Token initial supply mismatch");
         // forge-lint: disable-next-item(incorrect-strict-equality)
         require(token.balanceOf(config.distributor) == config.initialSupply, "Token distributor balance mismatch");
@@ -333,11 +333,11 @@ contract DeployCore is Script {
 
         ILaunch launch = ILaunch(addrs.launch);
         require(launch.initialized(), "Launch not initialized");
-        require(launch.mintAddress() == addrs.mint, "Launch mint mismatch");
-        require(launch.memberNFTAddress() == addrs.memberNFT, "Launch member NFT mismatch");
-        require(launch.rootParentTokenAddress() == rootParent, "Launch root parent mismatch");
-        require(launch.firstTokenAddress() == addrs.token, "Launch first token mismatch");
-        require(launch.pairFactoryAddress() == config.factory, "Launch pair factory mismatch");
+        require(launch.MINT_ADDRESS() == addrs.mint, "Launch mint mismatch");
+        require(launch.MEMBER_NFT_ADDRESS() == addrs.memberNFT, "Launch member NFT mismatch");
+        require(launch.ROOT_PARENT_TOKEN_ADDRESS() == rootParent, "Launch root parent mismatch");
+        require(launch.FIRST_TOKEN_ADDRESS() == addrs.token, "Launch first token mismatch");
+        require(launch.PAIR_FACTORY_ADDRESS() == config.factory, "Launch pair factory mismatch");
         require(launch.LAUNCH_RATIO() == config.launchRatio, "Launch ratio mismatch");
         require(launch.MAX_LAUNCH_COUNT() == config.maxLaunchCount, "Launch max count mismatch");
         require(launch.TOKEN_SYMBOL_LENGTH() == config.tokenSymbolLength, "Launch symbol length mismatch");
@@ -346,11 +346,11 @@ contract DeployCore is Script {
 
         IMint mint = IMint(addrs.mint);
         require(mint.initialized(), "Mint not initialized");
-        require(mint.voteAddress() == addrs.vote, "Mint vote mismatch");
-        require(mint.submitAddress() == addrs.submit, "Mint submit mismatch");
-        require(mint.launchAddress() == addrs.launch, "Mint launch mismatch");
-        require(mint.memberNFTAddress() == addrs.memberNFT, "Mint member NFT mismatch");
-        require(mint.phaseAddress() == addrs.phase, "Mint phase mismatch");
+        require(mint.VOTE_ADDRESS() == addrs.vote, "Mint vote mismatch");
+        require(mint.SUBMIT_ADDRESS() == addrs.submit, "Mint submit mismatch");
+        require(mint.LAUNCH_ADDRESS() == addrs.launch, "Mint launch mismatch");
+        require(mint.MEMBER_NFT_ADDRESS() == addrs.memberNFT, "Mint member NFT mismatch");
+        require(mint.PHASE_ADDRESS() == addrs.phase, "Mint phase mismatch");
         require(
             mint.PROPOSAL_REWARD_MIN_VOTE_RATIO() == config.proposalRewardMinVoteRatio,
             "Mint proposal threshold mismatch"
@@ -367,12 +367,12 @@ contract DeployCore is Script {
 
         IStake stake = IStake(addrs.stake);
         require(stake.initialized(), "Stake not initialized");
-        require(stake.phaseAddress() == addrs.phase, "Stake phase mismatch");
-        require(stake.memberNFTAddress() == addrs.memberNFT, "Stake member NFT mismatch");
-        require(stake.voteAddress() == addrs.vote, "Stake vote mismatch");
-        require(stake.launchAddress() == addrs.launch, "Stake launch mismatch");
-        require(stake.routerAddress() == config.router, "Stake router mismatch");
-        require(stake.pairFactoryAddress() == config.factory, "Stake pair factory mismatch");
+        require(stake.PHASE_ADDRESS() == addrs.phase, "Stake phase mismatch");
+        require(stake.MEMBER_NFT_ADDRESS() == addrs.memberNFT, "Stake member NFT mismatch");
+        require(stake.VOTE_ADDRESS() == addrs.vote, "Stake vote mismatch");
+        require(stake.LAUNCH_ADDRESS() == addrs.launch, "Stake launch mismatch");
+        require(stake.ROUTER_ADDRESS() == config.router, "Stake router mismatch");
+        require(stake.PAIR_FACTORY_ADDRESS() == config.factory, "Stake pair factory mismatch");
         require(
             stake.PROMISED_WAITING_PHASES_MIN() == config.promisedWaitingPhasesMin,
             "Stake waiting phases min mismatch"
@@ -387,17 +387,17 @@ contract DeployCore is Script {
 
         ISubmit submit = ISubmit(addrs.submit);
         require(submit.initialized(), "Submit not initialized");
-        require(submit.phaseAddress() == addrs.phase, "Submit phase mismatch");
-        require(submit.stakeAddress() == addrs.stake, "Submit stake mismatch");
-        require(submit.memberNFTAddress() == addrs.memberNFT, "Submit member NFT mismatch");
+        require(submit.PHASE_ADDRESS() == addrs.phase, "Submit phase mismatch");
+        require(submit.STAKE_ADDRESS() == addrs.stake, "Submit stake mismatch");
+        require(submit.MEMBER_NFT_ADDRESS() == addrs.memberNFT, "Submit member NFT mismatch");
         require(submit.SUBMIT_MIN_RATIO() == config.submitMinRatio, "Submit min ratio mismatch");
 
         IVote vote = IVote(addrs.vote);
         require(vote.initialized(), "Vote not initialized");
-        require(vote.phaseAddress() == addrs.phase, "Vote phase mismatch");
-        require(vote.stakeAddress() == addrs.stake, "Vote stake mismatch");
-        require(vote.submitAddress() == addrs.submit, "Vote submit mismatch");
-        require(vote.memberNFTAddress() == addrs.memberNFT, "Vote member NFT mismatch");
+        require(vote.PHASE_ADDRESS() == addrs.phase, "Vote phase mismatch");
+        require(vote.STAKE_ADDRESS() == addrs.stake, "Vote stake mismatch");
+        require(vote.SUBMIT_ADDRESS() == addrs.submit, "Vote submit mismatch");
+        require(vote.MEMBER_NFT_ADDRESS() == addrs.memberNFT, "Vote member NFT mismatch");
     }
 
     function _logDeploymentSummary(DeploymentAddresses memory addrs) private pure {

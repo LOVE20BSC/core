@@ -13,7 +13,7 @@ interface IMintEvents {
         uint256 indexed round,
         uint256 govReward,
         uint256 proposalReward,
-        uint256 eligibleProposalVotes,
+        uint256 eligibleProposalVoteAmount,
         uint256 rewardReserved,
         uint256 rewardBurned
     );
@@ -72,11 +72,11 @@ interface IMintErrors {
 }
 
 interface IMint is IMintEvents, IMintErrors {
-    function voteAddress() external view returns (address);
-    function submitAddress() external view returns (address);
-    function launchAddress() external view returns (address);
-    function memberNFTAddress() external view returns (address);
-    function phaseAddress() external view returns (address);
+    function VOTE_ADDRESS() external view returns (address);
+    function SUBMIT_ADDRESS() external view returns (address);
+    function LAUNCH_ADDRESS() external view returns (address);
+    function MEMBER_NFT_ADDRESS() external view returns (address);
+    function PHASE_ADDRESS() external view returns (address);
 
     function PROPOSAL_REWARD_MIN_VOTE_RATIO() external view returns (uint256);
     function ROUND_REWARD_GOV_RATIO() external view returns (uint256);
@@ -118,7 +118,7 @@ interface IMint is IMintEvents, IMintErrors {
     function rewardBurned(address tokenAddress) external view returns (uint256);
     function govReward(address tokenAddress, uint256 round) external view returns (uint256);
     function proposalReward(address tokenAddress, uint256 round) external view returns (uint256);
-    function eligibleProposalVotes(address tokenAddress, uint256 round)
+    function eligibleProposalVoteAmount(address tokenAddress, uint256 round)
         external view returns (uint256);
     function isRewardPrepared(address tokenAddress, uint256 round) external view returns (bool);
     function proposalRewardByProposalId(address tokenAddress, uint256 round, uint256 proposalId)

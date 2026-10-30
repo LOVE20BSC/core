@@ -47,23 +47,23 @@ interface IMemberNFT is
 
     function mint(
         string calldata name
-    ) external returns (uint256 id, uint256 mintCost);
+    ) external returns (uint256 tokenId, uint256 mintCost);
 
     function calculateMintCost(
         string calldata name
     ) external view returns (uint256);
 
-    function nameOf(uint256 id) external view returns (string memory);
+    function memberName(uint256 tokenId) external view returns (string memory);
 
     function isNameUsed(
         string calldata name
     ) external view returns (bool);
 
-    function idOf(
+    function memberId(
         string calldata name
     ) external view returns (uint256);
 
-    function normalizedNameOf(
+    function normalizeName(
         string calldata name
     ) external pure returns (string memory);
 

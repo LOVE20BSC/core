@@ -136,29 +136,29 @@ def main():
                 calls[env[contract + "_ADDRESS"].lower() + "/" + signature] = env.get(value, value)
 
         getters("LOVE20_TOKEN", {"name()(string)": "TOKEN_NAME", "symbol()(string)": "TOKEN_SYMBOL",
-                "maxSupply()(uint256)": "MAX_SUPPLY", "minter()(address)": "MINT_ADDRESS", "parentTokenAddress()(address)": "WETH_ADDRESS",
-                "totalSupply()(uint256)": "INITIAL_SUPPLY"})
+                "MAX_SUPPLY()(uint256)": "MAX_SUPPLY", "MINTER()(address)": "MINT_ADDRESS",
+                "PARENT_TOKEN_ADDRESS()(address)": "WETH_ADDRESS", "totalSupply()(uint256)": "INITIAL_SUPPLY"})
         calls[env["LOVE20_TOKEN_ADDRESS"].lower() + "/balanceOf(address)(uint256)"] = env["INITIAL_SUPPLY"]
         getters("MEMBER_NFT", {key + "()(uint256)": "MEMBER_" + key for key in ("BASE_DIVISOR", "BYTES_THRESHOLD", "MULTIPLIER", "MAX_NAME_LENGTH")})
         getters("MEMBER_NFT", {"LOVE20_TOKEN_ADDRESS()(address)": "LOVE20_TOKEN_ADDRESS"})
         getters("PHASE", {key + "()(uint256)": "PHASE_" + key for key in ("ORIGIN_BLOCKS", "ORIGIN_PHASE_BLOCKS", "TARGET_SECONDS", "ADJUST_THRESHOLD", "SYNC_OBSERVATION_LIMIT")})
         getters("LAUNCH", {key + "()(uint256)": key for key in ("LAUNCH_RATIO", "MAX_LAUNCH_COUNT", "TOKEN_SYMBOL_LENGTH", "MAX_SUPPLY")})
-        getters("LAUNCH", {"LAUNCH_AMOUNT()(uint256)": "INITIAL_SUPPLY", "rootParentTokenAddress()(address)": "WETH_ADDRESS",
-                "firstTokenAddress()(address)": "LOVE20_TOKEN_ADDRESS", "pairFactoryAddress()(address)": "FACTORY_ADDRESS",
+        getters("LAUNCH", {"LAUNCH_AMOUNT()(uint256)": "INITIAL_SUPPLY", "ROOT_PARENT_TOKEN_ADDRESS()(address)": "WETH_ADDRESS",
+                "FIRST_TOKEN_ADDRESS()(address)": "LOVE20_TOKEN_ADDRESS", "PAIR_FACTORY_ADDRESS()(address)": "FACTORY_ADDRESS",
                 "isLOVE20Token(address)(bool)": "true"})
         getters("MINT", {key + "()(uint256)": value for key, value in {
             "PROPOSAL_REWARD_MIN_VOTE_RATIO": "PROPOSAL_REWARD_MIN_VOTE_RATIO", "ROUND_REWARD_GOV_RATIO": "GOV_REWARD_RATIO",
             "ROUND_REWARD_PROPOSAL_RATIO": "PROPOSAL_REWARD_RATIO", "MAX_GOV_BOOST_REWARD_MULTIPLIER": "MAX_BOOST_MULTIPLIER"}.items()})
-        getters("MINT", {"phaseAddress()(address)": "PHASE_ADDRESS"})
+        getters("MINT", {"PHASE_ADDRESS()(address)": "PHASE_ADDRESS"})
         getters("STAKE", {key + "()(uint256)": key for key in ("PROMISED_WAITING_PHASES_MIN", "PROMISED_WAITING_PHASES_MAX", "FEE_SETTLEMENT_RATIO")})
-        getters("STAKE", {"routerAddress()(address)": "ROUTER_ADDRESS", "pairFactoryAddress()(address)": "FACTORY_ADDRESS"})
+        getters("STAKE", {"ROUTER_ADDRESS()(address)": "ROUTER_ADDRESS", "PAIR_FACTORY_ADDRESS()(address)": "FACTORY_ADDRESS"})
         getters("SUBMIT", {"SUBMIT_MIN_RATIO()(uint256)": "SUBMIT_MIN_RATIO"})
-        dep_keys = {"memberNFT": "MEMBER_NFT"}
+        dep_keys = {"mint": "MINT", "memberNFT": "MEMBER_NFT", "phase": "PHASE", "stake": "STAKE", "vote": "VOTE", "submit": "SUBMIT", "launch": "LAUNCH"}
         for name, dependencies in {"MEMBER_NFT": [], "LAUNCH": ["mint", "memberNFT"], "MINT": ["vote", "submit", "launch", "memberNFT"],
                 "STAKE": ["phase", "memberNFT", "vote", "launch"], "SUBMIT": ["phase", "stake", "memberNFT"],
                 "VOTE": ["phase", "stake", "submit", "memberNFT"]}.items():
             getters(name, {"initialized()(bool)": "true"})
-            getters(name, {dep + "Address()(address)": dep_keys.get(dep, dep.upper()) + "_ADDRESS" for dep in dependencies})
+            getters(name, {dep_keys.get(dep, dep.upper()) + "_ADDRESS()(address)": dep_keys.get(dep, dep.upper()) + "_ADDRESS" for dep in dependencies})
         getters("ROUTER", {"factory()(address)": "FACTORY_ADDRESS", "WETH()(address)": "WETH_ADDRESS"})
         # cast 对 uint 返回值会带科学计数法标注，且供应量超过 64 位；21_check 必须先归一再按十进制串比较。
         calls[env["LAUNCH_ADDRESS"].lower() + "/LAUNCH_AMOUNT()(uint256)"] = env["INITIAL_SUPPLY"] + " [1e27]"
@@ -215,8 +215,8 @@ def main():
         result, _ = run("21_check.sh", False, ("test",))
         assert "key set mismatch" in result.stdout + result.stderr, result.stdout + result.stderr
         saved.write_text("\n".join(name + "_ADDRESS=" + env[name + "_ADDRESS"] for name in names) + "\n")
-        for contract, signature in [("LAUNCH", "rootParentTokenAddress()(address)"), ("LAUNCH", "firstTokenAddress()(address)"),
-                ("LAUNCH", "pairFactoryAddress()(address)"),
+        for contract, signature in [("LAUNCH", "ROOT_PARENT_TOKEN_ADDRESS()(address)"),
+                ("LAUNCH", "FIRST_TOKEN_ADDRESS()(address)"), ("LAUNCH", "PAIR_FACTORY_ADDRESS()(address)"),
                 ("LAUNCH", "TOKEN_SYMBOL_LENGTH()(uint256)"), ("LAUNCH", "LAUNCH_AMOUNT()(uint256)"), ("LAUNCH", "MAX_SUPPLY()(uint256)"),
                 ("MEMBER_NFT", "MAX_NAME_LENGTH()(uint256)"), ("PHASE", "ORIGIN_BLOCKS()(uint256)"),
                 ("PHASE", "ORIGIN_PHASE_BLOCKS()(uint256)"), ("PHASE", "SYNC_OBSERVATION_LIMIT()(uint256)"), ("ROUTER", "WETH()(address)")]:
@@ -234,7 +234,7 @@ def main():
         saved.write_text("# previous deployment\n")
         for extra in ({"RPC_CHAIN": "56"}, {"DEPLOY_FAIL": "1"}, {"OMIT_ADDRESS": "VOTE_ADDRESS"},
                       {"STALE_BROADCAST": "1"},
-                      {"BAD_CALL": env["LAUNCH_ADDRESS"] + "/pairFactoryAddress()(address)"}):
+                      {"BAD_CALL": env["LAUNCH_ADDRESS"] + "/PAIR_FACTORY_ADDRESS()(address)"}):
             result, _ = run("one_click_deploy.sh", False, ("test",), **extra)
             assert saved.read_text() == "# previous deployment\n"
             output = result.stdout + result.stderr

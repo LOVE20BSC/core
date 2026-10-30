@@ -14,7 +14,7 @@ MAX_GOV_BOOST_REWARD_MULTIPLIER = 2           // Boost 倍数上限: 2x
 
 ### 1.2 Token 供应参数
 ```
-maxSupply = token.maxSupply()
+MAX_SUPPLY = token.MAX_SUPPLY()
 currentSupply = token.totalSupply()
 rewardReserved = 已预留的奖励总额
 rewardMinted = 已铸造的奖励总额
@@ -30,7 +30,7 @@ reservedAvailable = rewardReserved - rewardMinted - rewardBurned
 
 ### 2.2 总可用奖励
 ```
-rewardAvailable = (maxSupply - currentSupply) - reservedAvailable
+rewardAvailable = (MAX_SUPPLY - currentSupply) - reservedAvailable
 ```
 
 ## 3. 轮次奖励池准备
@@ -134,18 +134,18 @@ isEligible = (proposalVotes >= minVotes) AND (proposalVotes > 0)
 
 ### 5.2 合格提案总票数
 ```
-eligibleProposalVotes = sum(proposalVotes for all eligible proposals)
+eligibleProposalVoteAmount = sum(proposalVotes for all eligible proposals)
 ```
 
 ### 5.3 单个提案奖励（比例分配）
 ```
-proposalReward = (proposalRewardAmount × proposalVotes) / eligibleProposalVotes
+proposalReward = (proposalRewardAmount × proposalVotes) / eligibleProposalVoteAmount
 ```
 
 **注意**: 整数除法向下取整，精度损失归入池中（dust）
 
 **池取消规则**:
-- 如果 `eligibleProposalVotes == 0`，则 `proposalRewardAmount` 全部销毁：
+- 如果 `eligibleProposalVoteAmount == 0`，则 `proposalRewardAmount` 全部销毁：
   ```
   rewardBurned += proposalRewardAmount
   ```
@@ -174,7 +174,7 @@ memberBoost = stakedBoostOfVotersByMemberId[tokenAddress][round][memberId]
 
 **初始状态**:
 ```
-maxSupply = 1,000,000
+MAX_SUPPLY = 1,000,000
 currentSupply = 50,000
 rewardReserved = 0
 rewardMinted = 0
@@ -249,7 +249,7 @@ proposal3: 470 >= 24 → 合格 ✓
 
 **合格票数**:
 ```
-eligibleProposalVotes = 24 + 470 = 494
+eligibleProposalVoteAmount = 24 + 470 = 494
 ```
 
 **奖励分配** (假设 proposalRewardAmount = 95,000):
@@ -311,7 +311,7 @@ rewardBurned += boostPoolAmount
 ```
 
 #### 4.2 提案池取消
-当 `eligibleProposalVotes == 0` 时（无合格提案）：
+当 `eligibleProposalVoteAmount == 0` 时（无合格提案）：
 ```
 proposalPoolCancelled = proposalRewardAmount
 rewardBurned += proposalRewardAmount
@@ -386,7 +386,7 @@ _proposalMinted[tokenAddress][round][proposalId] = true
 - 所有奖励分配计算使用整数除法
 - 投票奖励池: `votePoolAmount = govRewardAmount / 2`
 - 成员投票奖励: `voteReward = (votePoolAmount × memberVotes) / totalVotes`
-- 提案奖励: `proposalReward = (proposalRewardAmount × proposalVotes) / eligibleProposalVotes`
+- 提案奖励: `proposalReward = (proposalRewardAmount × proposalVotes) / eligibleProposalVoteAmount`
 - Boost 理论值: `theoreticalBoost = (boostPoolAmount × memberBoost) / totalBoost`
 
 ### 8.3 精度损失（Dust）

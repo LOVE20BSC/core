@@ -60,9 +60,9 @@ contract LOVE20TokenTest {
         require(keccak256(bytes(token.symbol())) == keccak256("LOVE"), "symbol");
         require(token.totalSupply() == 100 ether, "supply");
         require(token.balanceOf(address(this)) == 100 ether, "distributor");
-        require(token.maxSupply() == 150 ether, "max supply");
-        require(token.minter() == address(minter), "minter");
-        require(token.parentTokenAddress() == PARENT, "parent");
+        require(token.MAX_SUPPLY() == 150 ether, "max supply");
+        require(token.MINTER() == address(minter), "minter");
+        require(token.PARENT_TOKEN_ADDRESS() == PARENT, "parent");
     }
 
     function testTokenMintedAndTokenBurnedEvents() public {

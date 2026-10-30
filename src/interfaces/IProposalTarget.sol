@@ -20,7 +20,7 @@ interface IProposalTarget {
         uint256 round,
         uint256 proposalId,
         uint256 voterId,
-        uint256 votes,
+        uint256 voteAmount,
         bytes[] calldata targetData
     ) external;
 }

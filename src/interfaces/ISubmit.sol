@@ -94,9 +94,9 @@ interface ISubmitEvents {
 }
 
 interface ISubmit is ISubmitErrors, ISubmitEvents {
-    function stakeAddress() external view returns (address);
-    function phaseAddress() external view returns (address);
-    function memberNFTAddress() external view returns (address);
+    function STAKE_ADDRESS() external view returns (address);
+    function PHASE_ADDRESS() external view returns (address);
+    function MEMBER_NFT_ADDRESS() external view returns (address);
 
     function SUBMIT_MIN_RATIO() external view returns (uint256);
     function MAX_TITLE_LENGTH() external view returns (uint256);

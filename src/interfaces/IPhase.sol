@@ -26,9 +26,9 @@ interface IPhase is IPhaseErrors, IPhaseEvents {
     function currentPhaseBlocks() external view returns (uint256);
     function currentPhase() external view returns (uint256);
     function phaseInfo(uint256 phaseNumber)
-        external view returns (uint256 startBlock, uint256 phaseBlocks_);
+        external view returns (uint256 startBlock, uint256 phaseBlocks);
     function phaseAtBlock(uint256 blockNumber) external view returns (uint256);
-    function syncObservations(uint256 offset, uint256 limit, bool reverse)
+    function observations(uint256 offset, uint256 limit, bool reverse)
         external view returns (uint256[] memory blockNumbers, uint256[] memory blockTimestamps, uint256 totalCount);
     function sync() external returns (bool adjusted, uint256 newPhaseBlocks);
 }

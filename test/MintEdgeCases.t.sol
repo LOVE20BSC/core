@@ -35,7 +35,7 @@ contract MintEdgeCasesTest {
 
     uint256 public currentPhaseValue = type(uint256).max;
 
-    function phaseAddress() external view returns (address) {
+    function PHASE_ADDRESS() external view returns (address) {
         return address(this);
     }
 
@@ -48,15 +48,15 @@ contract MintEdgeCasesTest {
         return address(this);
     }
 
-    function votesNum(address, uint256) external pure returns (uint256) {
+    function totalVoteAmount(address, uint256) external pure returns (uint256) {
         return 100;
     }
 
-    function votesNumByMemberId(address, uint256, uint256 id) external pure returns (uint256) {
+    function voteAmountByMemberId(address, uint256, uint256 id) external pure returns (uint256) {
         return id == 1 ? 50 : 0;
     }
 
-    function votesNumByProposalId(address, uint256, uint256 id) external pure returns (uint256) {
+    function voteAmountByProposalId(address, uint256, uint256 id) external pure returns (uint256) {
         return id == 1 ? 100 : 0;
     }
 
@@ -70,11 +70,11 @@ contract MintEdgeCasesTest {
         if (ids.length > 0) ids[0] = 1;
     }
 
-    function stakedAmountOfVoters(address, uint256) external pure returns (uint256) {
+    function totalVoterBoost(address, uint256) external pure returns (uint256) {
         return 1000;
     }
 
-    function stakedAmountOfVotersByMemberId(address, uint256, uint256) external pure returns (uint256) {
+    function voterBoost(address, uint256, uint256) external pure returns (uint256) {
         return 1000;
     }
 
@@ -107,7 +107,7 @@ contract MintEdgeCasesTest {
 
     function testInitDerivesPhaseFromVote() public {
         setupMint(1000, 10000);
-        require(mint.phaseAddress() == address(this), "phase derived and exposed");
+        require(mint.PHASE_ADDRESS() == address(this), "phase derived and exposed");
     }
 
     function testRoundEndedReadsDerivedPhaseDirectly() public {
@@ -185,7 +185,7 @@ contract MintEdgeCasesTest {
 }
 
 contract ZeroPhaseVote {
-    function phaseAddress() external pure returns (address) {
+    function PHASE_ADDRESS() external pure returns (address) {
         return address(0);
     }
 }

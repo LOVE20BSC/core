@@ -19,7 +19,7 @@ contract Mint is IMint {
     // ------ 轮次池与准备状态 ------
     mapping(address => mapping(uint256 => uint256)) internal _govReward;
     mapping(address => mapping(uint256 => uint256)) internal _proposalReward;
-    mapping(address => mapping(uint256 => uint256)) internal _eligibleProposalVotes;
+    mapping(address => mapping(uint256 => uint256)) internal _eligibleProposalVoteAmountByRound;
     mapping(address => mapping(uint256 => bool)) internal _isRewardPrepared;
 
     // ------ 铸造状态位 ------
@@ -31,11 +31,11 @@ contract Mint is IMint {
 
     // ------ 初始化与依赖 ------
     bool public initialized;
-    address public voteAddress;
-    address public submitAddress;
-    address public launchAddress;
-    address public memberNFTAddress;
-    address public phaseAddress;
+    address public VOTE_ADDRESS;
+    address public SUBMIT_ADDRESS;
+    address public LAUNCH_ADDRESS;
+    address public MEMBER_NFT_ADDRESS;
+    address public PHASE_ADDRESS;
     uint256 public PROPOSAL_REWARD_MIN_VOTE_RATIO;
     uint256 public ROUND_REWARD_GOV_RATIO;
     uint256 public ROUND_REWARD_PROPOSAL_RATIO;
@@ -62,8 +62,8 @@ contract Mint is IMint {
         return _proposalReward[tokenAddress][round];
     }
 
-    function eligibleProposalVotes(address tokenAddress, uint256 round) external view returns (uint256) {
-        return _eligibleProposalVotes[tokenAddress][round];
+    function eligibleProposalVoteAmount(address tokenAddress, uint256 round) external view returns (uint256) {
+        return _eligibleProposalVoteAmountByRound[tokenAddress][round];
     }
 
     function isRewardPrepared(address tokenAddress, uint256 round) external view returns (bool) {
@@ -76,35 +76,35 @@ contract Mint is IMint {
 
     // forge-lint: disable-next-item(missing-zero-check)
     function init(
-        address voteAddress_,
-        address submitAddress_,
-        address launchAddress_,
-        address memberNFTAddress_,
-        uint256 proposalRewardMinVoteRatio_,
-        uint256 roundRewardGovRatio_,
-        uint256 roundRewardProposalRatio_,
-        uint256 maxGovBoostRewardMultiplier_
+        address voteAddress,
+        address submitAddress,
+        address launchAddress,
+        address memberNFTAddress,
+        uint256 proposalRewardMinVoteRatio,
+        uint256 roundRewardGovRatio,
+        uint256 roundRewardProposalRatio,
+        uint256 maxGovBoostRewardMultiplier
     ) external {
         if (initialized) {
             revert AlreadyInitialized();
         }
         initialized = true;
 
-        address phaseAddress_ = IVote(voteAddress_).phaseAddress();
+        address phaseAddress = IVote(voteAddress).PHASE_ADDRESS();
 
-        voteAddress = voteAddress_;
-        submitAddress = submitAddress_;
-        launchAddress = launchAddress_;
-        memberNFTAddress = memberNFTAddress_;
-        phaseAddress = phaseAddress_;
-        PROPOSAL_REWARD_MIN_VOTE_RATIO = proposalRewardMinVoteRatio_;
-        ROUND_REWARD_GOV_RATIO = roundRewardGovRatio_;
-        ROUND_REWARD_PROPOSAL_RATIO = roundRewardProposalRatio_;
-        MAX_GOV_BOOST_REWARD_MULTIPLIER = maxGovBoostRewardMultiplier_;
+        VOTE_ADDRESS = voteAddress;
+        SUBMIT_ADDRESS = submitAddress;
+        LAUNCH_ADDRESS = launchAddress;
+        MEMBER_NFT_ADDRESS = memberNFTAddress;
+        PHASE_ADDRESS = phaseAddress;
+        PROPOSAL_REWARD_MIN_VOTE_RATIO = proposalRewardMinVoteRatio;
+        ROUND_REWARD_GOV_RATIO = roundRewardGovRatio;
+        ROUND_REWARD_PROPOSAL_RATIO = roundRewardProposalRatio;
+        MAX_GOV_BOOST_REWARD_MULTIPLIER = maxGovBoostRewardMultiplier;
     }
 
     function _isRoundEnded(uint256 round) private view returns (bool) {
-        return round != 0 && IPhase(phaseAddress).currentPhase() > round;
+        return round != 0 && IPhase(PHASE_ADDRESS).currentPhase() > round;
     }
 
     function _prepareRewardIfNeeded(address tokenAddress, uint256 round) internal {
@@ -122,12 +122,12 @@ contract Mint is IMint {
 
         // Vote data changes per round; cannot be cached across batch iterations.
         // forge-lint: disable-next-line(calls-loop)
-        uint256 totalVotes = IVote(voteAddress).votesNum(tokenAddress, round);
+        uint256 totalVoteAmount = IVote(VOTE_ADDRESS).totalVoteAmount(tokenAddress, round);
 
-        if (totalVotes == 0) {
+        if (totalVoteAmount == 0) {
             _govReward[tokenAddress][round] = 0;
             _proposalReward[tokenAddress][round] = 0;
-            _eligibleProposalVotes[tokenAddress][round] = 0;
+            _eligibleProposalVoteAmountByRound[tokenAddress][round] = 0;
             // forge-lint: disable-next-line(missing-events-access-control)
             _isRewardPrepared[tokenAddress][round] = true;
             // slither-disable-next-line reentrancy-events
@@ -136,15 +136,15 @@ contract Mint is IMint {
                 round: round,
                 govReward: 0,
                 proposalReward: 0,
-                eligibleProposalVotes: 0,
+                eligibleProposalVoteAmount: 0,
                 rewardReserved: _rewardReserved[tokenAddress],
                 rewardBurned: _rewardBurned[tokenAddress]
             });
             return;
         }
 
-        uint256 minVotes = _minProposalVotes(totalVotes);
-        uint256 eligibleVotes = _calculateEligibleProposalVotes(tokenAddress, round, minVotes);
+        uint256 minVoteAmount = _minProposalVoteAmount(totalVoteAmount);
+        uint256 eligibleVoteAmount = _calculateEligibleProposalVoteAmount(tokenAddress, round, minVoteAmount);
 
         uint256 available = rewardAvailable(tokenAddress);
         uint256 govRewardAmount = Math.mulDiv(available, ROUND_REWARD_GOV_RATIO, 1e18);
@@ -153,20 +153,20 @@ contract Mint is IMint {
         _rewardReserved[tokenAddress] += govRewardAmount + proposalRewardAmount;
         _govReward[tokenAddress][round] = govRewardAmount;
         _proposalReward[tokenAddress][round] = proposalRewardAmount;
-        _eligibleProposalVotes[tokenAddress][round] = eligibleVotes;
+        _eligibleProposalVoteAmountByRound[tokenAddress][round] = eligibleVoteAmount;
         // forge-lint: disable-next-line(missing-events-access-control)
         _isRewardPrepared[tokenAddress][round] = true;
 
         // Boost data changes per round; cannot be cached across batch iterations.
         // forge-lint: disable-next-line(calls-loop)
-        uint256 totalBoost = IVote(voteAddress).stakedAmountOfVoters(tokenAddress, round);
+        uint256 totalVoterBoost = IVote(VOTE_ADDRESS).totalVoterBoost(tokenAddress, round);
 
-        if (totalBoost == 0) {
+        if (totalVoterBoost == 0) {
             uint256 boostPoolAmount = govRewardAmount - (govRewardAmount / 2);
             _burnCancelledPool(tokenAddress, round, boostPoolAmount, BurnReason.BoostPoolCancelled);
         }
 
-        if (eligibleVotes == 0) {
+        if (eligibleVoteAmount == 0) {
             _burnCancelledPool(tokenAddress, round, proposalRewardAmount, BurnReason.ProposalPoolCancelled);
         }
 
@@ -179,7 +179,7 @@ contract Mint is IMint {
             round: round,
             govReward: govRewardAmount,
             proposalReward: proposalRewardAmount,
-            eligibleProposalVotes: eligibleVotes,
+            eligibleProposalVoteAmount: eligibleVoteAmount,
             rewardReserved: finalRewardReserved,
             rewardBurned: finalRewardBurned
         });
@@ -202,7 +202,7 @@ contract Mint is IMint {
         address tokenAddress,
         uint256 proposalId
     ) {
-        (address target, ) = ISubmit(submitAddress).proposalTarget(tokenAddress, proposalId);
+        (address target, ) = ISubmit(SUBMIT_ADDRESS).proposalTarget(tokenAddress, proposalId);
         if (msg.sender != target) {
             revert NotProposalTarget(msg.sender, target);
         }
@@ -255,7 +255,7 @@ contract Mint is IMint {
 
     // forge-lint: disable-next-item(require-revert-in-loop)
     modifier onlyMemberOwner(uint256 memberId) {
-        if (IMemberNFT(memberNFTAddress).ownerOf(memberId) != msg.sender) {
+        if (IMemberNFT(MEMBER_NFT_ADDRESS).ownerOf(memberId) != msg.sender) {
             revert NotMemberOwner(memberId);
         }
         _;
@@ -293,14 +293,14 @@ contract Mint is IMint {
         return (voteRewards, boostRewards, burnRewards);
     }
 
-    function _calculateEligibleProposalVotes(
+    function _calculateEligibleProposalVoteAmount(
         address tokenAddress,
         uint256 round,
-        uint256 minVotes
-    ) internal view returns (uint256 eligibleVotes) {
+        uint256 minVoteAmount
+    ) internal view returns (uint256 eligibleVoteAmount) {
         // Proposal scanning happens once per round during prepare; cannot be hoisted.
         // slither-disable-next-line calls-loop
-        (uint256[] memory proposalIds, uint256 totalProposalCount) = IVote(voteAddress).votedProposalIds(
+        (uint256[] memory proposalIds, uint256 totalProposalCount) = IVote(VOTE_ADDRESS).votedProposalIds(
             tokenAddress,
             round,
             0,
@@ -310,7 +310,7 @@ contract Mint is IMint {
 
         if (totalProposalCount > 0) {
             // slither-disable-next-line unused-return
-            (proposalIds, ) = IVote(voteAddress).votedProposalIds(
+            (proposalIds, ) = IVote(VOTE_ADDRESS).votedProposalIds(
                 tokenAddress,
                 round,
                 0,
@@ -320,18 +320,18 @@ contract Mint is IMint {
 
             for (uint256 i = 0; i < proposalIds.length; i++) {
                 // forge-lint: disable-next-line(calls-loop)
-                uint256 votes = IVote(voteAddress).votesNumByProposalId(
+                uint256 voteAmount = IVote(VOTE_ADDRESS).voteAmountByProposalId(
                     tokenAddress,
                     round,
                     proposalIds[i]
                 );
-                if (votes > 0 && votes >= minVotes) {
-                    eligibleVotes += votes;
+                if (voteAmount > 0 && voteAmount >= minVoteAmount) {
+                    eligibleVoteAmount += voteAmount;
                 }
             }
         }
 
-        return eligibleVotes;
+        return eligibleVoteAmount;
     }
 
     function _proposalRewardCalculation(
@@ -341,40 +341,40 @@ contract Mint is IMint {
     ) internal view returns (uint256 amount, bool minted) {
         minted = _proposalMinted[tokenAddress][round][proposalId];
 
-        uint256 proposalVotes = IVote(voteAddress).votesNumByProposalId(tokenAddress, round, proposalId);
-        uint256 totalVotes = IVote(voteAddress).votesNum(tokenAddress, round);
+        uint256 proposalVoteAmount = IVote(VOTE_ADDRESS).voteAmountByProposalId(tokenAddress, round, proposalId);
+        uint256 totalVoteAmount = IVote(VOTE_ADDRESS).totalVoteAmount(tokenAddress, round);
 
-        if (totalVotes == 0 || proposalVotes == 0) {
+        if (totalVoteAmount == 0 || proposalVoteAmount == 0) {
             return (0, minted);
         }
 
-        uint256 minVotes = _minProposalVotes(totalVotes);
-        if (proposalVotes < minVotes) {
+        uint256 minVoteAmount = _minProposalVoteAmount(totalVoteAmount);
+        if (proposalVoteAmount < minVoteAmount) {
             return (0, minted);
         }
 
         // Calculate or read proposal pool
         uint256 proposalRewardAmount;
-        uint256 eligibleVotes;
+        uint256 eligibleVoteAmount;
 
         if (_isRewardPrepared[tokenAddress][round]) {
             // Read cached values
             proposalRewardAmount = _proposalReward[tokenAddress][round];
-            eligibleVotes = _eligibleProposalVotes[tokenAddress][round];
+            eligibleVoteAmount = _eligibleProposalVoteAmountByRound[tokenAddress][round];
         } else {
             // Real-time calculation: scan all proposals
             uint256 available = rewardAvailable(tokenAddress);
             proposalRewardAmount = Math.mulDiv(available, ROUND_REWARD_PROPOSAL_RATIO, 1e18);
-            eligibleVotes = _calculateEligibleProposalVotes(tokenAddress, round, minVotes);
+            eligibleVoteAmount = _calculateEligibleProposalVoteAmount(tokenAddress, round, minVoteAmount);
         }
 
-        if (eligibleVotes == 0) {
+        if (eligibleVoteAmount == 0) {
             return (0, minted);
         }
 
         // Proportional distribution rounds down; dust stays in the pool.
         // forge-lint: disable-next-line(divide-before-multiply)
-        amount = (proposalRewardAmount * proposalVotes) / eligibleVotes;
+        amount = (proposalRewardAmount * proposalVoteAmount) / eligibleVoteAmount;
 
         return (amount, minted);
     }
@@ -386,12 +386,12 @@ contract Mint is IMint {
     ) external view returns (uint256 amount, bool minted) {
         // This read is only an existence check; Submit reverts for an invalid proposal ID.
         // forge-lint: disable-next-line(unused-return)
-        ISubmit(submitAddress).proposalTarget(tokenAddress, proposalId);
+        ISubmit(SUBMIT_ADDRESS).proposalTarget(tokenAddress, proposalId);
 
         return _proposalRewardCalculation(tokenAddress, round, proposalId);
     }
 
-    // Each batch round has its own frozen votes and boost weights; these reads cannot be hoisted.
+    // Each batch round has its own frozen vote amounts and boost weights; these reads cannot be hoisted.
     // forge-lint: disable-next-item(calls-loop)
     function _govRewardCalculation(
         address tokenAddress,
@@ -405,13 +405,13 @@ contract Mint is IMint {
     ) {
         minted = _govMinted[tokenAddress][round][memberId];
 
-        uint256 memberVotes = IVote(voteAddress).votesNumByMemberId(tokenAddress, round, memberId);
-        if (memberVotes == 0) {
+        uint256 memberVoteAmount = IVote(VOTE_ADDRESS).voteAmountByMemberId(tokenAddress, round, memberId);
+        if (memberVoteAmount == 0) {
             return (0, 0, 0, minted);
         }
 
-        uint256 totalVotes = IVote(voteAddress).votesNum(tokenAddress, round);
-        if (totalVotes == 0) {
+        uint256 totalVoteAmount = IVote(VOTE_ADDRESS).totalVoteAmount(tokenAddress, round);
+        if (totalVoteAmount == 0) {
             return (0, 0, 0, minted);
         }
 
@@ -429,19 +429,19 @@ contract Mint is IMint {
 
         // The spec floors the vote half before distributing it; odd units belong to boost.
         // forge-lint: disable-next-line(divide-before-multiply)
-        voteReward = (votePoolAmount * memberVotes) / totalVotes;
+        voteReward = (votePoolAmount * memberVoteAmount) / totalVoteAmount;
 
-        uint256 totalBoost = IVote(voteAddress).stakedAmountOfVoters(tokenAddress, round);
-        if (totalBoost == 0) {
+        uint256 totalVoterBoost = IVote(VOTE_ADDRESS).totalVoterBoost(tokenAddress, round);
+        if (totalVoterBoost == 0) {
             boostReward = 0;
             burnReward = 0;
         } else {
-            uint256 memberBoost = IVote(voteAddress).stakedAmountOfVotersByMemberId(
+            uint256 voterBoost = IVote(VOTE_ADDRESS).voterBoost(
                 tokenAddress,
                 round,
                 memberId
             );
-            uint256 theoreticalBoost = (boostPoolAmount * memberBoost) / totalBoost;
+            uint256 theoreticalBoost = (boostPoolAmount * voterBoost) / totalVoterBoost;
             // The cap is based on the already-rounded vote reward, not its fractional value.
             // forge-lint: disable-next-line(divide-before-multiply)
             uint256 maxBoostReward = voteReward * MAX_GOV_BOOST_REWARD_MULTIPLIER;
@@ -464,7 +464,7 @@ contract Mint is IMint {
     ) {
         // Only existence is needed here; ownerOf reverts for a nonexistent member.
         // forge-lint: disable-next-line(unused-return)
-        IMemberNFT(memberNFTAddress).ownerOf(memberId);
+        IMemberNFT(MEMBER_NFT_ADDRESS).ownerOf(memberId);
 
         return _govRewardCalculation(tokenAddress, round, memberId);
     }
@@ -474,31 +474,31 @@ contract Mint is IMint {
         uint256 round,
         uint256 proposalId
     ) external view returns (bool) {
-        // Prepared: use cached eligibleVotes for fast rejection (whole-round optimization).
+        // Prepared: use cached eligibleVoteAmount for fast rejection (whole-round optimization).
         if (_isRewardPrepared[tokenAddress][round]) {
-            uint256 eligibleVotes = _eligibleProposalVotes[tokenAddress][round];
-            if (eligibleVotes == 0) {
+            uint256 eligibleVoteAmount = _eligibleProposalVoteAmountByRound[tokenAddress][round];
+            if (eligibleVoteAmount == 0) {
                 return false;
             }
         }
 
         // Prepared or unprepared: read real-time Vote data to determine eligibility.
-        uint256 proposalVotes = IVote(voteAddress).votesNumByProposalId(tokenAddress, round, proposalId);
-        uint256 totalVotes = IVote(voteAddress).votesNum(tokenAddress, round);
-        uint256 minVotes = _minProposalVotes(totalVotes);
+        uint256 proposalVoteAmount = IVote(VOTE_ADDRESS).voteAmountByProposalId(tokenAddress, round, proposalId);
+        uint256 totalVoteAmount = IVote(VOTE_ADDRESS).totalVoteAmount(tokenAddress, round);
+        uint256 minVoteAmount = _minProposalVoteAmount(totalVoteAmount);
 
-        return proposalVotes > 0 && proposalVotes >= minVotes;
+        return proposalVoteAmount > 0 && proposalVoteAmount >= minVoteAmount;
     }
 
-    function _minProposalVotes(uint256 totalVotes) internal view returns (uint256) {
-        return Math.mulDiv(totalVotes, PROPOSAL_REWARD_MIN_VOTE_RATIO, 1e18, Math.Rounding.Ceil);
+    function _minProposalVoteAmount(uint256 totalVoteAmount) internal view returns (uint256) {
+        return Math.mulDiv(totalVoteAmount, PROPOSAL_REWARD_MIN_VOTE_RATIO, 1e18, Math.Rounding.Ceil);
     }
 
     function rewardAvailable(address tokenAddress) public view returns (uint256) {
         ILOVE20Token token = ILOVE20Token(tokenAddress);
         // Each batch round calls this; supply changes cannot be hoisted.
         // forge-lint: disable-next-line(calls-loop)
-        return (token.maxSupply() - token.totalSupply()) - reservedAvailable(tokenAddress);
+        return (token.MAX_SUPPLY() - token.totalSupply()) - reservedAvailable(tokenAddress);
     }
 
     function reservedAvailable(address tokenAddress) public view returns (uint256) {
@@ -512,7 +512,7 @@ contract Mint is IMint {
         uint256 memberId,
         uint256 mintedAmount
     ) internal {
-        ILaunch launch = ILaunch(launchAddress);
+        ILaunch launch = ILaunch(LAUNCH_ADDRESS);
         uint256 issuedCount = launch.issuedLaunchCount(tokenAddress);
         uint256 maxCount = launch.MAX_LAUNCH_COUNT();
         if (issuedCount >= maxCount) {
@@ -522,7 +522,7 @@ contract Mint is IMint {
         ILOVE20Token token = ILOVE20Token(tokenAddress);
         uint256 totalSupplyBeforeMint = token.totalSupply() - mintedAmount;
         uint256 threshold = Math.mulDiv(
-            token.maxSupply() - totalSupplyBeforeMint, launch.LAUNCH_RATIO(), 1e18, Math.Rounding.Ceil
+            token.MAX_SUPPLY() - totalSupplyBeforeMint, launch.LAUNCH_RATIO(), 1e18, Math.Rounding.Ceil
         );
         if (threshold == 0) {
             return;

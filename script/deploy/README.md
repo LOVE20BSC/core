@@ -108,7 +108,7 @@ FEE_SETTLEMENT_RATIO=3e15  # 0.3%；每次处理 floor(withdrawableLp * 该值 /
 
 **重要参数说明：**
 - `DISTRIBUTOR_ADDRESS`: 设置为部署钱包地址，接收初始代币
-- 首币 `minter` 自动绑定本次部署的 Mint 地址，无需配置 `MINTER`。
+- 首币的 minter 自动绑定本次部署的 Mint 地址，部署参数中没有 minter 项。
 - 根父币（WETH）无需配置：`DeployCore` 从 `Router.WETH()` 读取，BSC 主网/测试网即官方 WBNB，Anvil 本地即 dex 部署的 WETH9。
 - `PHASE_ORIGIN_PHASE_BLOCKS`: 以目标链实测出块间隔估算；不要将固定的“3 秒一块”当作发布依据。
 
@@ -199,7 +199,7 @@ VOTE_ADDRESS=0x...
 
 - 根父币无需配置：`DeployCore` 从 `Router.WETH()` 读取。首个代币必须使用 WETH 作为父币（协议树外根父币，BSC 上即官方 WBNB）
 - 发射的父币可以使用任意已部署的 LOVE20Token 地址，或根父币（WETH）：父币为根父币的根级发射创建与首币平级的同级币，消耗首币次数 1:1 伴生出的根级次数
-- 部署后 `firstTokenAddress()` 必须等于 `tokens(0)` 的首币地址（`21_check.sh` 已校验）
+- 部署后 `FIRST_TOKEN_ADDRESS()` 必须等于 `tokens(0)` 的首币地址（`21_check.sh` 已校验）
 
 ### 3. 区块数量配置
 

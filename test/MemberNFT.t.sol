@@ -21,7 +21,7 @@ interface Vm {
 /// 只实现 `MemberNFT` 铸造路径会用到的那部分成员；`transferFrom` 返回 `false` 而不回滚，
 /// 用于隔离费用扣款失败的回滚分支。
 contract FalseReturningToken {
-    function maxSupply() external pure returns (uint256) {
+    function MAX_SUPPLY() external pure returns (uint256) {
         return 1 ether;
     }
 
@@ -211,7 +211,7 @@ contract MemberNFTTest {
         require(nft.totalBurnedForMint() == cost, "accumulator");
         require(nft.ownerOf(id) == address(alice), "owner");
         require(nft.balanceOf(address(alice)) == 1, "balance");
-        require(keccak256(bytes(nft.nameOf(id))) == keccak256("abc"), "stored name");
+        require(keccak256(bytes(nft.memberName(id))) == keccak256("abc"), "stored name");
         (address[] memory holderList, uint256 totalCount) = nft.holders(0, 100, false);
         require(totalCount == 1, "holders count");
         require(holderList.length == 1, "holder list length");
@@ -283,7 +283,7 @@ contract MemberNFTTest {
         require(atLimit.length == MAX_NAME_LENGTH, "fixture at limit");
 
         (uint256 id, ) = alice.mint(nft, string(atLimit));
-        require(keccak256(bytes(nft.nameOf(id))) == keccak256(atLimit), "name at limit");
+        require(keccak256(bytes(nft.memberName(id))) == keccak256(atLimit), "name at limit");
 
         bytes memory data = _revertData(address(nft), _mintCall(string(overLimit)), "too long expected");
         require(
@@ -361,8 +361,8 @@ contract MemberNFTTest {
         for (uint256 i; i < valid.length; ++i) {
             (uint256 id, ) = alice.mint(nft, string(valid[i]));
             require(id == i + 1, "sequential id");
-            require(keccak256(bytes(nft.nameOf(id))) == keccak256(valid[i]), "stored name");
-            require(nft.idOf(string(valid[i])) == id, "idOf");
+            require(keccak256(bytes(nft.memberName(id))) == keccak256(valid[i]), "stored name");
+            require(nft.memberId(string(valid[i])) == id, "memberId(name)");
             require(nft.isNameUsed(string(valid[i])), "isNameUsed");
         }
         require(nft.totalSupply() == valid.length, "total supply");
@@ -374,17 +374,17 @@ contract MemberNFTTest {
     function testNameQueriesAreCaseInsensitiveAndPreserveOriginal() public {
         (uint256 id, ) = alice.mint(nft, "MiXeD");
 
-        require(keccak256(bytes(nft.nameOf(id))) == keccak256("MiXeD"), "original case stored");
-        require(nft.idOf("MiXeD") == id, "exact case");
-        require(nft.idOf("mixed") == id, "lowercase");
-        require(nft.idOf("MIXED") == id, "uppercase");
-        require(nft.idOf("other") == 0, "unknown name");
+        require(keccak256(bytes(nft.memberName(id))) == keccak256("MiXeD"), "original case stored");
+        require(nft.memberId("MiXeD") == id, "exact case");
+        require(nft.memberId("mixed") == id, "lowercase");
+        require(nft.memberId("MIXED") == id, "uppercase");
+        require(nft.memberId("other") == 0, "unknown name");
         require(nft.isNameUsed("mixed"), "used");
         require(!nft.isNameUsed("other"), "unused");
-        require(bytes(nft.nameOf(id + 1)).length == 0, "unknown id has no name");
-        require(keccak256(bytes(nft.normalizedNameOf("MiXeD"))) == keccak256("mixed"), "normalize ascii");
+        require(bytes(nft.memberName(id + 1)).length == 0, "unknown id has no name");
+        require(keccak256(bytes(nft.normalizeName("MiXeD"))) == keccak256("mixed"), "normalize ascii");
         require(
-            keccak256(bytes(nft.normalizedNameOf(unicode"中A文"))) == keccak256(bytes(unicode"中a文")),
+            keccak256(bytes(nft.normalizeName(unicode"中A文"))) == keccak256(bytes(unicode"中a文")),
             "normalize unicode"
         );
 
@@ -407,19 +407,19 @@ contract MemberNFTTest {
         require(shortQuote > prefixedQuote, "shorter name costs more");
 
         (uint256 id, uint256 cost) = alice.mint(testNft, "abc");
-        require(keccak256(bytes(testNft.nameOf(id))) == keccak256("Testabc"), "prefixed name");
+        require(keccak256(bytes(testNft.memberName(id))) == keccak256("Testabc"), "prefixed name");
         require(cost == prefixedQuote, "cost uses prefixed length");
-        require(testNft.idOf("testabc") == id, "normalized lookup");
+        require(testNft.memberId("testabc") == id, "normalized lookup");
         require(testNft.isNameUsed("TESTABC"), "case-insensitive lookup");
 
         (uint256 alreadyPrefixed, ) = alice.mint(testNft, "Testxyz");
-        require(keccak256(bytes(testNft.nameOf(alreadyPrefixed))) == keccak256("Testxyz"), "no double prefix");
+        require(keccak256(bytes(testNft.memberName(alreadyPrefixed))) == keccak256("Testxyz"), "no double prefix");
 
         (uint256 shortName, ) = alice.mint(testNft, "Tes");
-        require(keccak256(bytes(testNft.nameOf(shortName))) == keccak256("TestTes"), "short name prefixed");
+        require(keccak256(bytes(testNft.memberName(shortName))) == keccak256("TestTes"), "short name prefixed");
 
         (uint256 plain, ) = alice.mint(nft, "abc");
-        require(keccak256(bytes(nft.nameOf(plain))) == keccak256("abc"), "no prefix for other symbols");
+        require(keccak256(bytes(nft.memberName(plain))) == keccak256("abc"), "no prefix for other symbols");
     }
 
     function testEnumerableViewsTrackTokensAndOwners() public {
@@ -631,10 +631,10 @@ contract MemberNFTTest {
         require(outerId == 1, "outer id");
         require(innerId == 2, "inner id");
 
-        require(keccak256(bytes(nft.nameOf(outerId))) == keccak256("outer"), "outer name");
-        require(keccak256(bytes(nft.nameOf(innerId))) == keccak256("inner"), "inner name");
-        require(nft.idOf("inner") == innerId, "inner normalized lookup");
-        require(nft.idOf("outer") == outerId, "outer normalized lookup");
+        require(keccak256(bytes(nft.memberName(outerId))) == keccak256("outer"), "outer name");
+        require(keccak256(bytes(nft.memberName(innerId))) == keccak256("inner"), "inner name");
+        require(nft.memberId("inner") == innerId, "inner normalized lookup");
+        require(nft.memberId("outer") == outerId, "outer normalized lookup");
         require(nft.ownerOf(outerId) == address(minter), "outer owner");
         require(nft.ownerOf(innerId) == address(minter), "inner owner");
 
@@ -739,11 +739,11 @@ contract MemberNFTTest {
     }
 
     function _baseCost() private view returns (uint256) {
-        return (token.maxSupply() - token.totalSupply()) / BASE_DIVISOR;
+        return (token.MAX_SUPPLY() - token.totalSupply()) / BASE_DIVISOR;
     }
 
     function _quoteFor(LOVE20Token token_, string memory name) private view returns (uint256) {
-        uint256 base = (token_.maxSupply() - token_.totalSupply()) / BASE_DIVISOR;
+        uint256 base = (token_.MAX_SUPPLY() - token_.totalSupply()) / BASE_DIVISOR;
         uint256 length = bytes(name).length;
         if (length >= BYTES_THRESHOLD) return base;
         return base * (MULTIPLIER ** (BYTES_THRESHOLD - length));

@@ -39,7 +39,7 @@ contract MintEventsTest {
         uint256 indexed round,
         uint256 govReward,
         uint256 proposalReward,
-        uint256 eligibleProposalVotes,
+        uint256 eligibleProposalVoteAmount,
         uint256 rewardReserved,
         uint256 rewardBurned
     );
@@ -92,7 +92,7 @@ contract MintEventsTest {
     }
 
     // Mock interfaces
-    function phaseAddress() external view returns (address) {
+    function PHASE_ADDRESS() external view returns (address) {
         return address(this);
     }
 
@@ -105,16 +105,16 @@ contract MintEventsTest {
         return address(this);
     }
 
-    function votesNum(address, uint256) external pure returns (uint256) {
+    function totalVoteAmount(address, uint256) external pure returns (uint256) {
         return 1000;
     }
 
-    function votesNumByMemberId(address, uint256, uint256 id) external pure returns (uint256) {
+    function voteAmountByMemberId(address, uint256, uint256 id) external pure returns (uint256) {
         if (id == 0) return 0;
         return 200;
     }
 
-    function votesNumByProposalId(address, uint256, uint256 id) external pure returns (uint256) {
+    function voteAmountByProposalId(address, uint256, uint256 id) external pure returns (uint256) {
         if (id == 0 || id > 3) return 0;
         return 600;
     }
@@ -131,12 +131,12 @@ contract MintEventsTest {
         }
     }
 
-    function stakedAmountOfVoters(address, uint256) external view returns (uint256) {
+    function totalVoterBoost(address, uint256) external view returns (uint256) {
         return zeroBoost ? 0 : 5000;
     }
 
     // 30% of the boost pool against 20% of the vote pool, so `voteReward` and `boostReward` differ.
-    function stakedAmountOfVotersByMemberId(address, uint256, uint256 id) external pure returns (uint256) {
+    function voterBoost(address, uint256, uint256 id) external pure returns (uint256) {
         if (id == 0) return 0;
         return 1500;
     }
@@ -182,7 +182,7 @@ contract MintEventsTest {
             round: round,
             govReward: govRewardExpected,
             proposalReward: proposalRewardExpected,
-            eligibleProposalVotes: 1800,
+            eligibleProposalVoteAmount: 1800,
             rewardReserved: govRewardExpected + proposalRewardExpected,
             rewardBurned: 0
         });
@@ -389,7 +389,7 @@ contract MintEventsTest {
         require(launchIndex < govIndex, "launch count precedes gov reward");
     }
 
-    /// @dev 折叠 `RewardPrepared`：(govReward, proposalReward, eligibleVotes, rewardReserved, rewardBurned)
+    /// @dev 折叠 `RewardPrepared`：(govReward, proposalReward, eligibleVoteAmount, rewardReserved, rewardBurned)
     function _scanPreparedReserved(MintVm.Log[] memory logs)
         private
         view
@@ -437,9 +437,9 @@ contract MintEventsTest {
 /// @notice Mock Vote with no eligible proposals
 contract MockVoteWithNoEligibleProposals {
     function isRoundEnded(uint256) external pure returns (bool) { return true; }
-    function votesNum(address, uint256) external pure returns (uint256) { return 1000; }
-    function votesNumByMemberId(address, uint256, uint256) external pure returns (uint256) { return 200; }
-    function votesNumByProposalId(address, uint256, uint256 id) external pure returns (uint256) {
+    function totalVoteAmount(address, uint256) external pure returns (uint256) { return 1000; }
+    function voteAmountByMemberId(address, uint256, uint256) external pure returns (uint256) { return 200; }
+    function voteAmountByProposalId(address, uint256, uint256 id) external pure returns (uint256) {
         if (id == 0 || id > 3) return 0;
         return 40; // Below 5% threshold
     }
@@ -449,6 +449,6 @@ contract MockVoteWithNoEligibleProposals {
         ids = new uint256[](limit > 3 ? 3 : limit);
         for (uint256 i = 0; i < ids.length; i++) { ids[i] = i + 1; }
     }
-    function stakedAmountOfVoters(address, uint256) external pure returns (uint256) { return 0; }
-    function stakedAmountOfVotersByMemberId(address, uint256, uint256) external pure returns (uint256) { return 0; }
+    function totalVoterBoost(address, uint256) external pure returns (uint256) { return 0; }
+    function voterBoost(address, uint256, uint256) external pure returns (uint256) { return 0; }
 }

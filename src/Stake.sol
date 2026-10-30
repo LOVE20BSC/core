@@ -50,17 +50,17 @@ contract Stake is IStake {
     uint256 private constant SLIPPAGE_PRECISION = 1e18;
 
     bool public initialized;
-    address public phaseAddress;
-    address public memberNFTAddress;
-    address public voteAddress;
-    address public launchAddress;
-    address public routerAddress;
-    address public pairFactoryAddress;
+    address public PHASE_ADDRESS;
+    address public MEMBER_NFT_ADDRESS;
+    address public VOTE_ADDRESS;
+    address public LAUNCH_ADDRESS;
+    address public ROUTER_ADDRESS;
+    address public PAIR_FACTORY_ADDRESS;
     uint256 public PROMISED_WAITING_PHASES_MIN;
     uint256 public PROMISED_WAITING_PHASES_MAX;
     uint256 public FEE_SETTLEMENT_RATIO;
 
-    mapping(address => address) internal _pairAddress;
+    mapping(address => address) internal _pairAddressByTokenAddress;
     mapping(address => TotalStake) internal _totalStake;
     mapping(address => mapping(uint256 => MemberStake)) internal _memberStake;
     mapping(address => uint256) internal _totalBurnedToken;
@@ -78,24 +78,24 @@ contract Stake is IStake {
 
     // forge-lint: disable-next-item(missing-zero-check)
     function init(
-        address phaseAddress_,
-        address memberNFTAddress_,
-        address voteAddress_,
-        address launchAddress_,
-        address routerAddress_,
-        address pairFactoryAddress_,
+        address phaseAddress,
+        address memberNFTAddress,
+        address voteAddress,
+        address launchAddress,
+        address routerAddress,
+        address pairFactoryAddress,
         uint256 promisedWaitingPhasesMin,
         uint256 promisedWaitingPhasesMax,
         uint256 feeSettlementRatio
     ) external {
         if (initialized) revert AlreadyInitialized();
         initialized = true;
-        phaseAddress = phaseAddress_;
-        memberNFTAddress = memberNFTAddress_;
-        voteAddress = voteAddress_;
-        launchAddress = launchAddress_;
-        routerAddress = routerAddress_;
-        pairFactoryAddress = pairFactoryAddress_;
+        PHASE_ADDRESS = phaseAddress;
+        MEMBER_NFT_ADDRESS = memberNFTAddress;
+        VOTE_ADDRESS = voteAddress;
+        LAUNCH_ADDRESS = launchAddress;
+        ROUTER_ADDRESS = routerAddress;
+        PAIR_FACTORY_ADDRESS = pairFactoryAddress;
         PROMISED_WAITING_PHASES_MIN = promisedWaitingPhasesMin;
         PROMISED_WAITING_PHASES_MAX = promisedWaitingPhasesMax;
         FEE_SETTLEMENT_RATIO = feeSettlementRatio;
@@ -107,7 +107,7 @@ contract Stake is IStake {
     }
 
     modifier onlyMemberOwner(uint256 memberId) {
-        if (IMemberNFT(memberNFTAddress).ownerOf(memberId) != msg.sender) revert NotMemberOwner(memberId);
+        if (IMemberNFT(MEMBER_NFT_ADDRESS).ownerOf(memberId) != msg.sender) revert NotMemberOwner(memberId);
         _;
     }
 
@@ -288,7 +288,7 @@ contract Stake is IStake {
             revert SourceAndTargetMemberIdsMustBeDifferent(sourceMemberId, targetMemberId);
         }
         _requireToken(tokenAddress);
-        IMemberNFT(memberNFTAddress).ownerOf(targetMemberId);
+        IMemberNFT(MEMBER_NFT_ADDRESS).ownerOf(targetMemberId);
 
         MemberStake storage source = _memberStake[tokenAddress][sourceMemberId];
         MemberStake storage target = _memberStake[tokenAddress][targetMemberId];
@@ -325,7 +325,7 @@ contract Stake is IStake {
     }
 
     function pairAddress(address tokenAddress) external view returns (address) {
-        return _pairAddress[tokenAddress];
+        return _pairAddressByTokenAddress[tokenAddress];
     }
 
     function totalBurnedToken(address tokenAddress) external view returns (uint256) {
@@ -360,7 +360,7 @@ contract Stake is IStake {
         return _totalValidGovVotesRemoved[tokenAddress].value(round);
     }
 
-    function stakeData(address tokenAddress, uint256 memberId)
+    function memberStake(address tokenAddress, uint256 memberId)
         external
         view
         returns (
@@ -379,7 +379,7 @@ contract Stake is IStake {
         unlockRequestPhase = member.unlockRequestPhase;
 
         TotalStake storage totals = _totalStake[tokenAddress];
-        address pair = _pairAddress[tokenAddress];
+        address pair = _pairAddressByTokenAddress[tokenAddress];
         if (pair != address(0) && totals.totalLiquidityShares != 0) {
             (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
             (, uint256 withdrawableLp, ) = _reclassify(totals, reserveToken, reserveParent, pairTotalSupply);
@@ -395,7 +395,7 @@ contract Stake is IStake {
         }
     }
 
-    function totalStakeData(address tokenAddress)
+    function totalStake(address tokenAddress)
         external
         view
         returns (
@@ -413,7 +413,7 @@ contract Stake is IStake {
         totalLp = totals.totalLp;
         totalBoostShares = totals.totalBoostShares;
 
-        address pair = _pairAddress[tokenAddress];
+        address pair = _pairAddressByTokenAddress[tokenAddress];
         if (pair == address(0)) return (totalLiquidityShares, totalLp, 0, 0, totalBoostShares, 0, 0);
 
         (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
@@ -424,7 +424,7 @@ contract Stake is IStake {
         }
     }
 
-    /// @dev Returns a boolean for any token address, like `stakeData`: an unregistered community simply has
+    /// @dev Returns a boolean for any token address, like `memberStake`: an unregistered community simply has
     ///      no withdrawal to report, so callers get `false` instead of a revert.
     function canWithdraw(address tokenAddress, uint256 memberId) external view returns (bool) {
         MemberStake storage member = _memberStake[tokenAddress][memberId];
@@ -457,7 +457,7 @@ contract Stake is IStake {
     }
 
     function _currentRound() private view returns (uint256) {
-        return IPhase(phaseAddress).currentPhase();
+        return IPhase(PHASE_ADDRESS).currentPhase();
     }
 
     /// @dev A round that has not started has no record yet: reverting keeps the old behaviour instead
@@ -491,7 +491,7 @@ contract Stake is IStake {
     }
 
     function _requireToken(address tokenAddress) private view {
-        if (!ILaunch(launchAddress).isLOVE20Token(tokenAddress)) revert TokenNotRegistered(tokenAddress);
+        if (!ILaunch(LAUNCH_ADDRESS).isLOVE20Token(tokenAddress)) revert TokenNotRegistered(tokenAddress);
     }
 
     function _requireNoUnstakeRequest(
@@ -515,31 +515,33 @@ contract Stake is IStake {
         uint256 round,
         uint256 memberId
     ) private view returns (bool) {
-        if (IVote(voteAddress).votesNumByMemberId(tokenAddress, round, memberId) != 0) return true;
-        return ISubmit(IVote(voteAddress).submitAddress()).proposalIdBySubmitter(tokenAddress, round, memberId) != 0;
+        if (IVote(VOTE_ADDRESS).voteAmountByMemberId(tokenAddress, round, memberId) != 0) return true;
+        return ISubmit(IVote(VOTE_ADDRESS).SUBMIT_ADDRESS()).proposalIdBySubmitter(tokenAddress, round, memberId) != 0;
     }
 
-    function _pull(address token, address from, uint256 amount) private {
-        IERC20(token).safeTransferFrom(from, address(this), amount);
+    function _pull(address tokenAddress, address from, uint256 amount) private {
+        IERC20(tokenAddress).safeTransferFrom(from, address(this), amount);
     }
 
-    function _push(address token, address to, uint256 amount) private {
+    function _push(address tokenAddress, address to, uint256 amount) private {
         // No reentrancy guard: the caller validated and priced the position before this payout, and the
         // LP accounting is written from the amounts the pair returns, never from a state a reentered
         // call could observe half applied.
         // forge-lint: disable-next-line(reentrancy-no-eth)
-        IERC20(token).safeTransfer(to, amount);
+        IERC20(tokenAddress).safeTransfer(to, amount);
     }
 
     /// @dev Launch creates the pair of every token when it is launched, so the first stake only has to read
     ///      it from the factory and remember it. A community without a pair is not stakeable and is rejected
     ///      here instead of being created on the side.
     function _pairFor(address tokenAddress) private returns (address pair) {
-        pair = _pairAddress[tokenAddress];
+        pair = _pairAddressByTokenAddress[tokenAddress];
         if (pair == address(0)) {
-            pair = IUniswapV2Factory(pairFactoryAddress).getPair(tokenAddress, ILOVE20Token(tokenAddress).parentTokenAddress());
+            pair = IUniswapV2Factory(PAIR_FACTORY_ADDRESS).getPair(
+                tokenAddress, ILOVE20Token(tokenAddress).PARENT_TOKEN_ADDRESS()
+            );
             if (pair == address(0)) revert PairMissing(tokenAddress);
-            _pairAddress[tokenAddress] = pair;
+            _pairAddressByTokenAddress[tokenAddress] = pair;
         }
     }
 
@@ -671,7 +673,7 @@ contract Stake is IStake {
         (added.tokenAmount, added.parentTokenAmount) =
             _optimalAmounts(tokenAmount, parentTokenAmount, reserveToken, reserveParent, slippage);
 
-        address parentTokenAddress = ILOVE20Token(tokenAddress).parentTokenAddress();
+        address parentTokenAddress = ILOVE20Token(tokenAddress).PARENT_TOKEN_ADDRESS();
         _pull(tokenAddress, msg.sender, added.tokenAmount);
         _pull(parentTokenAddress, msg.sender, added.parentTokenAmount);
         _push(tokenAddress, pair, added.tokenAmount);
@@ -905,21 +907,21 @@ contract Stake is IStake {
         private
         returns (uint256 tokenAmountOut)
     {
-        address parentTokenAddress = ILOVE20Token(tokenAddress).parentTokenAddress();
+        address parentTokenAddress = ILOVE20Token(tokenAddress).PARENT_TOKEN_ADDRESS();
         address[] memory path = new address[](2);
         path[0] = parentTokenAddress;
         path[1] = tokenAddress;
 
         // the accepted minimum is derived from the reserves in this same transaction, never from the caller
-        uint256[] memory amounts = IUniswapV2Router02(routerAddress).getAmountsOut(parentTokenAmount, path);
+        uint256[] memory amounts = IUniswapV2Router02(ROUTER_ADDRESS).getAmountsOut(parentTokenAmount, path);
         uint256 amountOutMin = amounts[amounts.length - 1];
 
         // No reentrancy guard: the fee was already taken out of the ledger and the swap only converts the
         // parent token that is burned afterwards in the same transaction.
         // forge-lint: disable-next-line(reentrancy-no-eth)
-        IERC20(parentTokenAddress).forceApprove(routerAddress, parentTokenAmount);
+        IERC20(parentTokenAddress).forceApprove(ROUTER_ADDRESS, parentTokenAmount);
         // forge-lint: disable-next-item(reentrancy-no-eth)
-        amounts = IUniswapV2Router02(routerAddress).swapExactTokensForTokens(
+        amounts = IUniswapV2Router02(ROUTER_ADDRESS).swapExactTokensForTokens(
             parentTokenAmount, amountOutMin, path, address(this), block.timestamp
         );
         tokenAmountOut = amounts[amounts.length - 1];

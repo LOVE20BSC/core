@@ -38,11 +38,11 @@ interface ILOVE20Token is
     ILOVE20TokenEvents,
     ILOVE20TokenErrors
 {
-    function maxSupply() external view returns (uint256);
+    function MAX_SUPPLY() external view returns (uint256);
 
-    function minter() external view returns (address);
+    function MINTER() external view returns (address);
 
-    function parentTokenAddress() external view returns (address);
+    function PARENT_TOKEN_ADDRESS() external view returns (address);
 
     function mint(address to, uint256 amount) external;
 

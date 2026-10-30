@@ -158,12 +158,12 @@ interface IStakeEvents {
 
 interface IStake is IStakeErrors, IStakeEvents {
     function initialized() external view returns (bool);
-    function phaseAddress() external view returns (address);
-    function memberNFTAddress() external view returns (address);
-    function voteAddress() external view returns (address);
-    function launchAddress() external view returns (address);
-    function routerAddress() external view returns (address);
-    function pairFactoryAddress() external view returns (address);
+    function PHASE_ADDRESS() external view returns (address);
+    function MEMBER_NFT_ADDRESS() external view returns (address);
+    function VOTE_ADDRESS() external view returns (address);
+    function LAUNCH_ADDRESS() external view returns (address);
+    function ROUTER_ADDRESS() external view returns (address);
+    function PAIR_FACTORY_ADDRESS() external view returns (address);
     function init(
         address phaseAddress,
         address memberNFTAddress,
@@ -200,7 +200,7 @@ interface IStake is IStakeErrors, IStakeEvents {
     function pairAddress(address tokenAddress) external view returns (address);
     function totalBurnedToken(address tokenAddress) external view returns (uint256);
     function totalParentTokenBurned(address tokenAddress) external view returns (uint256);
-    function stakeData(address tokenAddress, uint256 memberId)
+    function memberStake(address tokenAddress, uint256 memberId)
         external view returns (
             uint256 liquidityShares,
             uint256 boostShares,
@@ -213,7 +213,7 @@ interface IStake is IStakeErrors, IStakeEvents {
     function totalValidGovVotes(address tokenAddress, uint256 round) external view returns (uint256);
     function totalValidGovVotesAdded(address tokenAddress, uint256 round) external view returns (uint256);
     function totalValidGovVotesRemoved(address tokenAddress, uint256 round) external view returns (uint256);
-    function totalStakeData(address tokenAddress)
+    function totalStake(address tokenAddress)
         external view returns (
             uint256 totalLiquidityShares,
             uint256 totalLp,

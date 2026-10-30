@@ -16,9 +16,9 @@ contract MintUnpreparedTest {
     MintVm constant vm = MintVm(address(uint160(uint256(keccak256("hevm cheat code")))));
     Mint mint;
     LOVE20Token token;
-    uint256 totalVotes = 100;
-    uint256 memberVotes = 10;
-    uint256 proposalVotes = 20;
+    uint256 totalVoteAmountValue = 100;
+    uint256 memberVoteAmount = 10;
+    uint256 proposalVoteAmount = 20;
     uint256 totalBoost = 50;
     uint256 memberBoost = 5;
     uint256 public LAUNCH_RATIO = 1e16;
@@ -40,7 +40,7 @@ contract MintUnpreparedTest {
         token = new LOVE20Token("Test", "TST", supply, maxSupply, address(this), address(mint), address(this));
     }
 
-    function phaseAddress() external view returns (address) {
+    function PHASE_ADDRESS() external view returns (address) {
         return address(this);
     }
 
@@ -53,16 +53,16 @@ contract MintUnpreparedTest {
         return address(this);
     }
 
-    function votesNum(address, uint256) external view returns (uint256) {
-        return totalVotes;
+    function totalVoteAmount(address, uint256) external view returns (uint256) {
+        return totalVoteAmountValue;
     }
 
-    function votesNumByMemberId(address, uint256, uint256 id) external view returns (uint256) {
-        return id == 1 ? memberVotes : 0;
+    function voteAmountByMemberId(address, uint256, uint256 id) external view returns (uint256) {
+        return id == 1 ? memberVoteAmount : 0;
     }
 
-    function votesNumByProposalId(address, uint256, uint256 id) external view returns (uint256) {
-        return id == 1 ? proposalVotes : 0;
+    function voteAmountByProposalId(address, uint256, uint256 id) external view returns (uint256) {
+        return id == 1 ? proposalVoteAmount : 0;
     }
 
     function votedProposalIds(address, uint256, uint256, uint256 limit, bool)
@@ -77,11 +77,11 @@ contract MintUnpreparedTest {
         }
     }
 
-    function stakedAmountOfVoters(address, uint256) external view returns (uint256) {
+    function totalVoterBoost(address, uint256) external view returns (uint256) {
         return totalBoost;
     }
 
-    function stakedAmountOfVotersByMemberId(address, uint256, uint256) external view returns (uint256) {
+    function voterBoost(address, uint256, uint256) external view returns (uint256) {
         return memberBoost;
     }
 
@@ -117,7 +117,7 @@ contract MintUnpreparedTest {
     }
 
     function testUnpreparedBelowThresholdReturnsFalse() public {
-        proposalVotes = 4;
+        proposalVoteAmount = 4;
         setupMint(1000, 10000, 0, 1e17);
         require(!mint.isProposalIdWithReward(address(token), 1, 1), "4/100 < 5% threshold");
         (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
@@ -137,10 +137,10 @@ contract MintUnpreparedTest {
         require(unprepProp == prepProp, "proposal reward must match");
     }
 
-    function testUnpreparedWithZeroVotesReturnsZero() public {
-        totalVotes = 0;
-        memberVotes = 0;
-        proposalVotes = 0;
+    function testUnpreparedWithZeroVoteAmountReturnsZero() public {
+        totalVoteAmountValue = 0;
+        memberVoteAmount = 0;
+        proposalVoteAmount = 0;
         setupMint(1000, 10000, 1e17, 1e17);
 
         (uint256 voteReward, uint256 boostReward, uint256 burnReward, bool minted) =

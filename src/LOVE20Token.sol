@@ -11,48 +11,48 @@ import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
  */
 contract LOVE20Token is ERC20, ILOVE20Token {
     // State variables
-    uint256 public immutable maxSupply;
-    address public minter;
-    address public parentTokenAddress;
+    uint256 public immutable MAX_SUPPLY;
+    address public MINTER;
+    address public PARENT_TOKEN_ADDRESS;
     /**
      * @notice Contract constructor
-     * @dev `initialSupply` must be greater than zero and at most `maxSupply_`, so a deployed token
+     * @dev `initialSupply` must be greater than zero and at most `maxSupply`, so a deployed token
      *      never starts with a zero total supply.
      * @param name Token name
      * @param symbol Token symbol
      * @param initialSupply Initial token supply
-     * @param maxSupply_ Maximum token supply
+     * @param maxSupply Maximum token supply
      * @param distributor Initial token recipient
-     * @param minter_ Address allowed to mint
-     * @param parentTokenAddress_ Parent token address
+     * @param minter Address allowed to mint
+     * @param parentTokenAddress Parent token address
      */
     constructor(
         string memory name,
         string memory symbol,
         uint256 initialSupply,
-        uint256 maxSupply_,
+        uint256 maxSupply,
         address distributor,
-        address minter_,
-        address parentTokenAddress_
+        address minter,
+        address parentTokenAddress
     ) ERC20(name, symbol) {
         if (initialSupply == 0) revert ZeroInitialSupply();
-        if (maxSupply_ < initialSupply) revert InvalidInitialSupply(initialSupply, maxSupply_);
+        if (maxSupply < initialSupply) revert InvalidInitialSupply(initialSupply, maxSupply);
         if (distributor == address(0)) revert ZeroDistributorAddress();
-        if (minter_.code.length == 0) revert DependencyNotContract(minter_);
-        if (parentTokenAddress_.code.length == 0) revert DependencyNotContract(parentTokenAddress_);
+        if (minter.code.length == 0) revert DependencyNotContract(minter);
+        if (parentTokenAddress.code.length == 0) revert DependencyNotContract(parentTokenAddress);
 
         _mint(distributor, initialSupply);
         emit TokenMinted({
             to: distributor,
             amount: initialSupply
         });
-        maxSupply = maxSupply_;
-        minter = minter_;
-        parentTokenAddress = parentTokenAddress_;
+        MAX_SUPPLY = maxSupply;
+        MINTER = minter;
+        PARENT_TOKEN_ADDRESS = parentTokenAddress;
     }
 
     modifier onlyMinter() {
-        if (msg.sender != minter) revert NotMinter(msg.sender);
+        if (msg.sender != MINTER) revert NotMinter(msg.sender);
         _;
     }
 
@@ -60,7 +60,7 @@ contract LOVE20Token is ERC20, ILOVE20Token {
      * @inheritdoc ILOVE20Token
      */
     function mint(address to, uint256 amount) external override onlyMinter {
-        uint256 remaining = maxSupply - totalSupply();
+        uint256 remaining = MAX_SUPPLY - totalSupply();
         if (amount > remaining) revert MaxSupplyExceeded(amount, remaining);
         _mint(to, amount);
         emit TokenMinted({

@@ -47,7 +47,7 @@ contract MintFuzzTest {
         token = new LOVE20Token("Fuzz", "FUZ", supply, maxSup, address(this), address(mint), address(this));
     }
 
-    function phaseAddress() external view returns (address) {
+    function PHASE_ADDRESS() external view returns (address) {
         return address(this);
     }
 
@@ -60,15 +60,15 @@ contract MintFuzzTest {
         return address(this);
     }
 
-    function votesNum(address, uint256) external view returns (uint256) {
+    function totalVoteAmount(address, uint256) external view returns (uint256) {
         return mockTotalVotes;
     }
 
-    function votesNumByMemberId(address, uint256, uint256 id) external view returns (uint256) {
+    function voteAmountByMemberId(address, uint256, uint256 id) external view returns (uint256) {
         return id == 1 ? mockMemberVotes : 0;
     }
 
-    function votesNumByProposalId(address, uint256, uint256 id) external view returns (uint256) {
+    function voteAmountByProposalId(address, uint256, uint256 id) external view returns (uint256) {
         return id == 1 ? mockProposalVotes : 0;
     }
 
@@ -84,11 +84,11 @@ contract MintFuzzTest {
         }
     }
 
-    function stakedAmountOfVoters(address, uint256) external view returns (uint256) {
+    function totalVoterBoost(address, uint256) external view returns (uint256) {
         return mockTotalBoost;
     }
 
-    function stakedAmountOfVotersByMemberId(address, uint256, uint256) external view returns (uint256) {
+    function voterBoost(address, uint256, uint256) external view returns (uint256) {
         return mockMemberBoost;
     }
 
@@ -155,18 +155,18 @@ contract MintFuzzTest {
 
     /// @notice Fuzz test: governance reward calculation with random votes
     function testFuzz_GovRewardWithRandomVotes(
-        uint256 totalVotes_,
-        uint256 memberVotes_,
+        uint256 totalVoteAmount_,
+        uint256 memberVoteAmount_,
         uint256 totalBoost_,
         uint256 memberBoost_
     ) public {
-        totalVotes_ = bound(totalVotes_, 1, 1e9);
-        memberVotes_ = bound(memberVotes_, 1, totalVotes_);
+        totalVoteAmount_ = bound(totalVoteAmount_, 1, 1e9);
+        memberVoteAmount_ = bound(memberVoteAmount_, 1, totalVoteAmount_);
         totalBoost_ = bound(totalBoost_, 0, 1e18);
         memberBoost_ = bound(memberBoost_, 0, totalBoost_);
 
-        mockTotalVotes = totalVotes_;
-        mockMemberVotes = memberVotes_;
+        mockTotalVotes = totalVoteAmount_;
+        mockMemberVotes = memberVoteAmount_;
         mockTotalBoost = totalBoost_;
         mockMemberBoost = memberBoost_;
         mockProposalVotes = 10;
@@ -189,7 +189,7 @@ contract MintFuzzTest {
         mint.mintGovReward(address(token), 1, 1, address(this));
 
         uint256 votePool = govTotal / 2;
-        uint256 calculatedVote = (votePool * memberVotes_) / totalVotes_;
+        uint256 calculatedVote = (votePool * memberVoteAmount_) / totalVoteAmount_;
 
         assertEq(expectedVote, calculatedVote);
         assertEq(mint.rewardMinted(address(token)), expectedVote + expectedBoost);
@@ -210,16 +210,16 @@ contract MintFuzzTest {
 
     /// @notice Fuzz test: proposal reward distribution
     function testFuzz_ProposalRewardDistribution(
-        uint256 totalVotes_,
-        uint256 proposalVotes_,
+        uint256 totalVoteAmount_,
+        uint256 proposalVoteAmount_,
         uint256 supply
     ) public {
-        totalVotes_ = bound(totalVotes_, 20, 1e9);
-        proposalVotes_ = bound(proposalVotes_, 1, totalVotes_);
+        totalVoteAmount_ = bound(totalVoteAmount_, 20, 1e9);
+        proposalVoteAmount_ = bound(proposalVoteAmount_, 1, totalVoteAmount_);
         supply = bound(supply, 100, 1e6);
 
-        mockTotalVotes = totalVotes_;
-        mockProposalVotes = proposalVotes_;
+        mockTotalVotes = totalVoteAmount_;
+        mockProposalVotes = proposalVoteAmount_;
 
         setupFuzz(supply, supply * 10, 0, 5e17);
 
@@ -227,20 +227,20 @@ contract MintFuzzTest {
         vm.prank(TARGET);
         try mint.mintProposalReward(address(token), 1, 1, TARGET) {} catch {}
 
-        uint256 minVotes = (totalVotes_ * 50 + 999) / 1000; // Ceiling of 5%
-        bool shouldQualify = proposalVotes_ >= minVotes;
+        uint256 minVoteAmount = (totalVoteAmount_ * 50 + 999) / 1000; // Ceiling of 5%
+        bool shouldQualify = proposalVoteAmount_ >= minVoteAmount;
 
         assertEq(mint.isProposalIdWithReward(address(token), 1, 1), shouldQualify);
 
         if (shouldQualify) {
             (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
             uint256 proposalPool = mint.proposalReward(address(token), 1);
-            uint256 eligibleVotes = mint.eligibleProposalVotes(address(token), 1);
+            uint256 eligibleVoteAmount = mint.eligibleProposalVoteAmount(address(token), 1);
 
             // Skip if no eligible votes (division by zero)
-            if (eligibleVotes == 0) return;
+            if (eligibleVoteAmount == 0) return;
 
-            uint256 expectedAmount = (proposalPool * proposalVotes_) / eligibleVotes;
+            uint256 expectedAmount = (proposalPool * proposalVoteAmount_) / eligibleVoteAmount;
             assertEq(amount, expectedAmount);
         }
     }

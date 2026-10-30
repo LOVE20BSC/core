@@ -13,7 +13,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 contract Submit is ISubmit {
     using Pagination for uint256[];
 
-    uint256 private constant _SUBMIT_ROUND_LIMIT = 1000;
+    uint256 private constant SUBMIT_ROUND_LIMIT = 1000;
 
     uint256 public constant MAX_TITLE_LENGTH = 1024;
     uint256 public constant MAX_DETAILS_LENGTH = 1024;
@@ -21,9 +21,9 @@ contract Submit is ISubmit {
     uint256 public constant MAX_TARGET_DATA_COUNT = 16;
 
     bool public initialized;
-    address public phaseAddress;
-    address public stakeAddress;
-    address public memberNFTAddress;
+    address public PHASE_ADDRESS;
+    address public STAKE_ADDRESS;
+    address public MEMBER_NFT_ADDRESS;
     uint256 public SUBMIT_MIN_RATIO;
 
     // tokenAddress => ProposalInfo[]
@@ -42,23 +42,23 @@ contract Submit is ISubmit {
         internal _submitInfoBySubmitterId;
 
     function currentRound() public view returns (uint256) {
-        return IPhase(phaseAddress).currentPhase();
+        return IPhase(PHASE_ADDRESS).currentPhase();
     }
 
     // forge-lint: disable-next-item(missing-zero-check)
     function init(
-        address phaseAddress_,
-        address stakeAddress_,
-        address memberNFTAddress_,
+        address phaseAddress,
+        address stakeAddress,
+        address memberNFTAddress,
         uint256 submitMinRatio
     ) external {
         if (initialized) {
             revert AlreadyInitialized();
         }
         initialized = true;
-        phaseAddress = phaseAddress_;
-        stakeAddress = stakeAddress_;
-        memberNFTAddress = memberNFTAddress_;
+        PHASE_ADDRESS = phaseAddress;
+        STAKE_ADDRESS = stakeAddress;
+        MEMBER_NFT_ADDRESS = memberNFTAddress;
         SUBMIT_MIN_RATIO = submitMinRatio;
     }
 
@@ -74,7 +74,7 @@ contract Submit is ISubmit {
         address tokenAddress,
         uint256 memberId
     ) private view returns (uint256 validVotes, uint256 requiredVotes, uint256 totalVotes) {
-        IStake stake = IStake(stakeAddress);
+        IStake stake = IStake(STAKE_ADDRESS);
         uint256 round = currentRound();
         validVotes = stake.validGovVotes(tokenAddress, round, memberId);
         totalVotes = stake.totalValidGovVotes(tokenAddress, round);
@@ -96,7 +96,7 @@ contract Submit is ISubmit {
     }
 
     modifier onlyMemberOwner(uint256 memberId) {
-        if (IMemberNFT(memberNFTAddress).ownerOf(memberId) != msg.sender) {
+        if (IMemberNFT(MEMBER_NFT_ADDRESS).ownerOf(memberId) != msg.sender) {
             revert NotMemberOwner(memberId);
         }
         _;
@@ -296,8 +296,8 @@ contract Submit is ISubmit {
             _submitInfoBySubmitterId[tokenAddress][round][memberId]
                 .submitterId != 0
         ) revert MemberAlreadySubmitted(tokenAddress, round, memberId);
-        if (_submits[tokenAddress][round].length >= _SUBMIT_ROUND_LIMIT) {
-            revert SubmitRoundFull(tokenAddress, round, _SUBMIT_ROUND_LIMIT);
+        if (_submits[tokenAddress][round].length >= SUBMIT_ROUND_LIMIT) {
+            revert SubmitRoundFull(tokenAddress, round, SUBMIT_ROUND_LIMIT);
         }
 
         // Effects
@@ -327,7 +327,7 @@ contract Submit is ISubmit {
         // Interactions
         if (isFirstSubmit) {
             // forge-lint: disable-next-line(unused-return)
-            IPhase(phaseAddress).sync();
+            IPhase(PHASE_ADDRESS).sync();
         }
 
     }

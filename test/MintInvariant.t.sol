@@ -49,7 +49,7 @@ contract MintInvariantTest {
     }
 
     // Mock interfaces
-    function phaseAddress() external view returns (address) {
+    function PHASE_ADDRESS() external view returns (address) {
         return address(this);
     }
 
@@ -62,16 +62,16 @@ contract MintInvariantTest {
         return address(this);
     }
 
-    function votesNum(address, uint256) external pure returns (uint256) {
+    function totalVoteAmount(address, uint256) external pure returns (uint256) {
         return 1000;
     }
 
-    function votesNumByMemberId(address, uint256, uint256 id) external pure returns (uint256) {
+    function voteAmountByMemberId(address, uint256, uint256 id) external pure returns (uint256) {
         if (id == 0) return 0;
         return 100;
     }
 
-    function votesNumByProposalId(address, uint256, uint256 id) external pure returns (uint256) {
+    function voteAmountByProposalId(address, uint256, uint256 id) external pure returns (uint256) {
         if (id == 0 || id > 5) return 0;
         return 300;
     }
@@ -88,11 +88,11 @@ contract MintInvariantTest {
         }
     }
 
-    function stakedAmountOfVoters(address, uint256) external pure returns (uint256) {
+    function totalVoterBoost(address, uint256) external pure returns (uint256) {
         return 5000;
     }
 
-    function stakedAmountOfVotersByMemberId(address, uint256, uint256 id) external pure returns (uint256) {
+    function voterBoost(address, uint256, uint256 id) external pure returns (uint256) {
         if (id == 0) return 0;
         return 500;
     }
@@ -134,7 +134,7 @@ contract MintInvariantTest {
         uint256 minted = mint.rewardMinted(address(token));
         uint256 burned = mint.rewardBurned(address(token));
         uint256 supply = token.totalSupply();
-        uint256 maxSupply = token.maxSupply();
+        uint256 maxSupply = token.MAX_SUPPLY();
 
         // available = maxSupply - totalSupply - reservedAvailable
         // reservedAvailable = reserved - minted - burned
@@ -174,9 +174,9 @@ contract MintInvariantTest {
     function invariant_EligibleVotesNeverExceedTotal() public view {
         for (uint256 i = 1; i <= 10; i++) {
             if (mint.isRewardPrepared(address(token), i)) {
-                uint256 eligibleVotes = mint.eligibleProposalVotes(address(token), i);
+                uint256 eligibleVoteAmount = mint.eligibleProposalVoteAmount(address(token), i);
                 // Total votes in our mock is 1000
-                assert(eligibleVotes <= 1500); // 5 proposals × 300 votes
+                assert(eligibleVoteAmount <= 1500); // 5 proposals × 300 votes
             }
         }
     }

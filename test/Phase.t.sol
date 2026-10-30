@@ -208,7 +208,7 @@ contract PhaseTest {
 
         // Empty history: empty page with the true count.
         (uint256[] memory blockNumbers, uint256[] memory blockTimestamps, uint256 totalCount) =
-            phase.syncObservations(0, OBSERVATION_LIMIT, false);
+            phase.observations(0, OBSERVATION_LIMIT, false);
         require(blockNumbers.length == 0 && blockTimestamps.length == 0 && totalCount == 0);
 
         vm.roll(origin);
@@ -216,15 +216,15 @@ contract PhaseTest {
         phase.sync();
 
         // Out-of-range offset: empty page, no revert, true count.
-        (blockNumbers, blockTimestamps, totalCount) = phase.syncObservations(1, OBSERVATION_LIMIT, false);
+        (blockNumbers, blockTimestamps, totalCount) = phase.observations(1, OBSERVATION_LIMIT, false);
         require(blockNumbers.length == 0 && blockTimestamps.length == 0 && totalCount == 1);
 
         // Limit larger than the remaining entries is clamped to the remaining entries.
-        (blockNumbers,, totalCount) = phase.syncObservations(0, OBSERVATION_LIMIT, false);
+        (blockNumbers,, totalCount) = phase.observations(0, OBSERVATION_LIMIT, false);
         require(blockNumbers.length == 1 && blockNumbers[0] == origin && totalCount == 1);
 
         // Reverse returns the newest observation first.
-        (blockNumbers,, ) = phase.syncObservations(0, 1, true);
+        (blockNumbers,, ) = phase.observations(0, 1, true);
         require(blockNumbers.length == 1 && blockNumbers[0] == origin);
 
         (bool ok, bytes memory data) = address(phase).call(abi.encodeWithSelector(IPhase.phaseInfo.selector, 0));
@@ -232,7 +232,7 @@ contract PhaseTest {
     }
 
     function _observationsCount(Phase phase) private view returns (uint256) {
-        (,, uint256 totalCount) = phase.syncObservations(0, 0, false);
+        (,, uint256 totalCount) = phase.observations(0, 0, false);
         return totalCount;
     }
 

@@ -23,8 +23,8 @@ contract MintTest {
     MintVm constant vm = MintVm(address(uint160(uint256(keccak256("hevm cheat code")))));
     Mint mint;
     LOVE20Token token;
-    uint256 totalVotes = 1;
-    uint256 memberVotes = 1;
+    uint256 totalVoteAmountValue = 1;
+    uint256 memberVoteAmount = 1;
     uint256 firstVotes = 1;
     uint256 secondVotes;
     uint256 proposalCount = 1;
@@ -51,7 +51,7 @@ contract MintTest {
         token = new LOVE20Token("Review", "REV", supply, maxSupply, address(this), address(mint), address(this));
     }
 
-    function phaseAddress() external view returns (address) {
+    function PHASE_ADDRESS() external view returns (address) {
         return address(this);
     }
 
@@ -64,15 +64,15 @@ contract MintTest {
         return address(this);
     }
 
-    function votesNum(address, uint256) external view returns (uint256) {
-        return totalVotes;
+    function totalVoteAmount(address, uint256) external view returns (uint256) {
+        return totalVoteAmountValue;
     }
 
-    function votesNumByMemberId(address, uint256, uint256 id) external view returns (uint256) {
-        return id == 1 ? memberVotes : 0;
+    function voteAmountByMemberId(address, uint256, uint256 id) external view returns (uint256) {
+        return id == 1 ? memberVoteAmount : 0;
     }
 
-    function votesNumByProposalId(address, uint256, uint256 id) external view returns (uint256) {
+    function voteAmountByProposalId(address, uint256, uint256 id) external view returns (uint256) {
         return id == 1 ? firstVotes : id > 1 && id <= proposalCount ? secondVotes : 0;
     }
 
@@ -89,11 +89,11 @@ contract MintTest {
         }
     }
 
-    function stakedAmountOfVoters(address, uint256) external view returns (uint256) {
+    function totalVoterBoost(address, uint256) external view returns (uint256) {
         return totalBoost;
     }
 
-    function stakedAmountOfVotersByMemberId(address, uint256, uint256) external view returns (uint256) {
+    function voterBoost(address, uint256, uint256) external view returns (uint256) {
         return memberBoost;
     }
 
@@ -189,7 +189,7 @@ contract MintTest {
     }
 
     function testProposalBelowFivePercentMustNotQualify() public {
-        totalVotes = 21;
+        totalVoteAmountValue = 21;
         firstVotes = 1;
         secondVotes = 20;
         proposalCount = 2;
@@ -197,7 +197,7 @@ contract MintTest {
         // Trigger auto-prepare by minting
         mint.mintProposalReward(address(token), 1, 2, address(this));
         require(!mint.isProposalIdWithReward(address(token), 1, 1), "1/21 is less than 5 percent");
-        require(mint.eligibleProposalVotes(address(token), 1) == 20, "ineligible votes entered denominator");
+        require(mint.eligibleProposalVoteAmount(address(token), 1) == 20, "ineligible votes entered denominator");
         (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
         require(amount == 0, "ineligible query");
         vm.expectRevert(
@@ -210,7 +210,7 @@ contract MintTest {
     }
 
     function testProposalExactlyAtThresholdQualifies() public {
-        totalVotes = 20;
+        totalVoteAmountValue = 20;
         secondVotes = 19;
         proposalCount = 2;
         setupMint(1000, 10000, 0, 1e17);
@@ -241,9 +241,9 @@ contract MintTest {
 
     function testZeroVotePreparationMustEmitEvent() public {
         setupMint(1000, 10000, 1e17, 0);
-        totalVotes = 0;
+        totalVoteAmountValue = 0;
         firstVotes = 0;
-        memberVotes = 0;
+        memberVoteAmount = 0;
         vm.recordLogs();
         // Trigger auto-prepare by attempting to mint
         vm.expectRevert(
@@ -280,8 +280,8 @@ contract MintTest {
 
     function testZeroVoteRoundSettlementMustReject() public {
         setupMint(1000, 10000, 1e17, 1e17);
-        totalVotes = 0;
-        memberVotes = 0;
+        totalVoteAmountValue = 0;
+        memberVoteAmount = 0;
         firstVotes = 0;
         vm.expectRevert(
             abi.encodeWithSelector(IMintErrors.MemberRewardUnavailable.selector, address(token), 2, 1)
@@ -312,16 +312,16 @@ contract MintTest {
         (uint256 voteReward, uint256 boostReward, uint256 burnReward, bool minted) =
             mint.govRewardByMemberId(address(token), 2, 1);
         require(voteReward == 450 && boostReward == 0 && burnReward == 0 && !minted, "unprepared calculates real-time");
-        // Trigger prepare for round 1 by minting (memberVotes = 1 for this round)
+        // Trigger prepare for round 1 by minting (memberVoteAmount = 1 for this round)
         mint.mintGovReward(address(token), 1, 1, address(this));
-        // Now set memberVotes to 0 and query round 1 - should return cached zero for nonvoter
-        memberVotes = 0;
+        // Now set memberVoteAmount to 0 and query round 1 - should return cached zero for nonvoter
+        memberVoteAmount = 0;
         (voteReward, boostReward, burnReward, minted) = mint.govRewardByMemberId(address(token), 1, 1);
         require(voteReward + boostReward + burnReward == 0 && minted, "nonvoter member reward");
     }
 
     function testGovernanceQueryMatchesMintAndBoostBurn() public {
-        totalVotes = firstVotes = 10;
+        totalVoteAmountValue = firstVotes = 10;
         totalBoost = 2;
         memberBoost = 1;
         setupMint(1000, 11000, 1e17, 0);
@@ -340,20 +340,20 @@ contract MintTest {
     }
 
     function testPrepareScansProposalsOnceAndCachesResult() public {
-        totalVotes = memberVotes = proposalCount = 300;
+        totalVoteAmountValue = memberVoteAmount = proposalCount = 300;
         secondVotes = 1;
         minVoteRatio = 0;
         setupMint(1000, 10000, 0, 1e17);
         // First mint triggers prepare and scans proposals
         mint.mintProposalReward(address(token), 1, 1, address(this));
-        require(mint.eligibleProposalVotes(address(token), 1) == 300, "cached votes");
+        require(mint.eligibleProposalVoteAmount(address(token), 1) == 300, "cached votes");
         rejectProposalScan = true;
         // Second mint uses cached data - no scan
         require(mint.mintProposalReward(address(token), 1, 300, address(this)) == 3, "cached settlement");
     }
 
     function testSettlementReleasesReservationAndBurnReturnsAvailability() public {
-        totalVotes = 20;
+        totalVoteAmountValue = 20;
         secondVotes = 19;
         proposalCount = 2;
         setupMint(1000, 10000, 0, 1e17);
@@ -367,7 +367,7 @@ contract MintTest {
         require(mint.reservedAvailable(address(token)) == reservedBefore - amount, "reserved share consumed");
         require(mint.rewardAvailable(address(token)) == availableBefore, "settling is budget neutral");
         require(mint.proposalReward(address(token), 1) == proposalPoolBefore, "round pool unchanged");
-        require(mint.eligibleProposalVotes(address(token), 1) == 20, "eligible votes unchanged");
+        require(mint.eligibleProposalVoteAmount(address(token), 1) == 20, "eligible votes unchanged");
         require(token.totalSupply() == 1855 + amount, "reward minted to the recipient");
 
         // No protocol path burns an unallocatable reward (ADR-004): the Executor never receives
@@ -384,7 +384,7 @@ contract MintTest {
     }
 
     function testProposalRewardRejectsRepeatSettlement() public {
-        totalVotes = 20;
+        totalVoteAmountValue = 20;
         secondVotes = 19;
         proposalCount = 2;
         setupMint(1000, 10000, 0, 1e17);
@@ -401,7 +401,7 @@ contract MintTest {
     }
 
     function testProposalRewardRejectsIneligibleProposal() public {
-        totalVotes = 21;
+        totalVoteAmountValue = 21;
         firstVotes = 1;
         secondVotes = 20;
         proposalCount = 2;

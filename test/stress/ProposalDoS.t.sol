@@ -111,10 +111,10 @@ contract ProposalDoSTest is Test {
         vm.resumeGasMetering();
         (, uint256 actualCount) = vote.votedProposalIds(address(token), 1, 0, 0, false);
         assertEq(actualCount, count);
-        assertEq(vote.votesNum(address(token), 1), (2 * count - 1) * 1e18);
+        assertEq(vote.totalVoteAmount(address(token), 1), (2 * count - 1) * 1e18);
 
         uint256 available = mint.rewardAvailable(address(token));
-        address launchAddress = mint.launchAddress();
+        address launchAddress = mint.LAUNCH_ADDRESS();
         // A fresh external call models cold reads instead of reusing warmed setup slots.
         vm.cool(address(mint));
         vm.cool(address(vote));
@@ -131,15 +131,15 @@ contract ProposalDoSTest is Test {
         emit log_named_uint("first mint gas", preparationGas);
         assertLt(preparationGas, 8_000_000, "local preparation gas budget exceeded");
         assertTrue(mint.isRewardPrepared(address(token), 1));
-        uint256 eligibleVotes = count <= 10 ? (2 * count - 1) * 1e18 : count * 1e18;
-        assertEq(mint.eligibleProposalVotes(address(token), 1), eligibleVotes);
+        uint256 eligibleVoteAmount = count <= 10 ? (2 * count - 1) * 1e18 : count * 1e18;
+        assertEq(mint.eligibleProposalVoteAmount(address(token), 1), eligibleVoteAmount);
         assertEq(mint.govReward(address(token), 1), available / 10);
         assertGt(govReward, 0);
 
         uint256 reserved = mint.rewardReserved(address(token));
         vm.prank(actor);
         uint256 reward = mint.mintProposalReward(address(token), 1, 1, actor);
-        assertEq(reward, (available / 10) * count * 1e18 / eligibleVotes);
+        assertEq(reward, (available / 10) * count * 1e18 / eligibleVoteAmount);
         assertEq(mint.rewardReserved(address(token)), reserved, "prepared twice");
     }
 }

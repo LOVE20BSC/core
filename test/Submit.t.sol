@@ -106,9 +106,9 @@ contract SubmitTest {
 
     function testInitSuccess() external view {
         require(submit.initialized(), "not initialized");
-        require(submit.phaseAddress() == address(phase), "wrong phase");
-        require(submit.stakeAddress() == address(stake), "wrong stake");
-        require(submit.memberNFTAddress() == address(memberNFT), "wrong memberNFT");
+        require(submit.PHASE_ADDRESS() == address(phase), "wrong phase");
+        require(submit.STAKE_ADDRESS() == address(stake), "wrong stake");
+        require(submit.MEMBER_NFT_ADDRESS() == address(memberNFT), "wrong memberNFT");
         require(submit.SUBMIT_MIN_RATIO() == 1e16, "wrong threshold");
     }
 

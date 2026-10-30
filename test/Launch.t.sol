@@ -105,11 +105,11 @@ contract CallbackDistributor {
 
 /// 带同名 getter 的无关合约：登记判定不得读取代币合约
 contract FakeToken {
-    address public parentTokenAddress;
+    address public PARENT_TOKEN_ADDRESS;
     string public symbol;
 
     constructor(address parentTokenAddress_, string memory symbol_) {
-        parentTokenAddress = parentTokenAddress_;
+        PARENT_TOKEN_ADDRESS = parentTokenAddress_;
         symbol = symbol_;
     }
 }
@@ -215,10 +215,10 @@ contract LaunchTest {
 
     function testInitCreatesFirstTokenAndWiresDependencies() public view {
         require(launch.initialized(), "initialized");
-        require(launch.mintAddress() == address(mintAccount), "mint");
-        require(launch.memberNFTAddress() == address(member), "member");
-        require(launch.rootParentTokenAddress() == ROOT, "root parent");
-        require(launch.firstTokenAddress() == address(firstToken), "first token getter");
+        require(launch.MINT_ADDRESS() == address(mintAccount), "mint");
+        require(launch.MEMBER_NFT_ADDRESS() == address(member), "member");
+        require(launch.ROOT_PARENT_TOKEN_ADDRESS() == ROOT, "root parent");
+        require(launch.FIRST_TOKEN_ADDRESS() == address(firstToken), "first token getter");
         require(launch.TOKEN_SYMBOL_LENGTH() == SYMBOL_LENGTH, "symbol length");
         require(launch.LAUNCH_RATIO() == LAUNCH_RATIO, "launch ratio");
         require(launch.MAX_LAUNCH_COUNT() == MAX_LAUNCH_COUNT, "max launch count");
@@ -231,7 +231,7 @@ contract LaunchTest {
 
         // 登记账本：首币已登记且父币为根父币
         require(launch.isLOVE20Token(address(firstToken)), "first token registered");
-        require(launch.parentTokenOf(address(firstToken)) == ROOT, "first token parent");
+        require(launch.parentToken(address(firstToken)) == ROOT, "first token parent");
         require(launch.tokenAddressBySymbol("LOVE") == address(firstToken), "first token symbol ledger");
         (address[] memory list, uint256 total) = launch.tokens(0, 10, false);
         require(total == 1 && list.length == 1 && list[0] == address(firstToken), "tokens list");
@@ -244,12 +244,12 @@ contract LaunchTest {
         require(keccak256(bytes(firstToken.symbol())) == keccak256("LOVE"), "token symbol");
         require(firstToken.balanceOf(address(this)) == LAUNCH_AMOUNT - 3 * CALLER_FUNDING, "distributor balance");
         require(firstToken.totalSupply() == LAUNCH_AMOUNT - member.totalBurnedForMint(), "supply conservation");
-        require(firstToken.maxSupply() == MAX_SUPPLY, "token max supply");
-        require(firstToken.minter() == address(mintAccount), "token minter");
-        require(firstToken.parentTokenAddress() == ROOT, "token parent");
+        require(firstToken.MAX_SUPPLY() == MAX_SUPPLY, "token max supply");
+        require(firstToken.MINTER() == address(mintAccount), "token minter");
+        require(firstToken.PARENT_TOKEN_ADDRESS() == ROOT, "token parent");
 
         // 首币的 Pair 在同一个 init 交易内创建
-        require(launch.pairFactoryAddress() == address(pairFactory), "pair factory");
+        require(launch.PAIR_FACTORY_ADDRESS() == address(pairFactory), "pair factory");
         require(pairFactory.createdPairCount() == 1, "first token pair created");
         require(pairFactory.getPair(address(firstToken), ROOT) == pairFactory.createdPairs(0), "first token pair wired");
     }
@@ -266,7 +266,7 @@ contract LaunchTest {
         );
         require(ok, "permissionless init");
         require(freshLaunch.initialized(), "initialized");
-        require(freshLaunch.mintAddress() == address(mintAccount), "mint");
+        require(freshLaunch.MINT_ADDRESS() == address(mintAccount), "mint");
         require(freshMember.initialized(), "member wired");
         require(freshLaunch.isLOVE20Token(freshMember.LOVE20_TOKEN_ADDRESS()), "first token registered");
     }
@@ -391,7 +391,7 @@ contract LaunchTest {
         equalLaunch.init(_params(address(equalMember), MAX_SUPPLY, MAX_SUPPLY, "LOVE"));
         LOVE20Token equalToken = LOVE20Token(equalMember.LOVE20_TOKEN_ADDRESS());
         require(equalToken.totalSupply() == MAX_SUPPLY, "equal supply");
-        require(equalToken.maxSupply() == MAX_SUPPLY, "equal max supply");
+        require(equalToken.MAX_SUPPLY() == MAX_SUPPLY, "equal max supply");
     }
 
     function testInitRejectsEmptyFirstTokenNameOrSymbol() public {
@@ -439,9 +439,9 @@ contract LaunchTest {
             data, abi.encodeWithSelector(IMemberNFTErrors.AlreadyInitialized.selector), "member error bubbles up"
         );
         require(!freshLaunch.initialized(), "initialized rolled back");
-        require(freshLaunch.mintAddress() == address(0), "mint rolled back");
-        require(freshLaunch.rootParentTokenAddress() == address(0), "root rolled back");
-        require(freshLaunch.firstTokenAddress() == address(0), "first token rolled back");
+        require(freshLaunch.MINT_ADDRESS() == address(0), "mint rolled back");
+        require(freshLaunch.ROOT_PARENT_TOKEN_ADDRESS() == address(0), "root rolled back");
+        require(freshLaunch.FIRST_TOKEN_ADDRESS() == address(0), "first token rolled back");
         require(rejecting.LOVE20_TOKEN_ADDRESS() == address(firstToken), "member untouched");
     }
 
@@ -456,7 +456,7 @@ contract LaunchTest {
         // 有同名 getter 的无关合约同样返回 false，且不发起外部调用
         FakeToken fake = new FakeToken(ROOT, "LOVE");
         require(!launch.isLOVE20Token(address(fake)), "fake token");
-        require(launch.parentTokenOf(address(fake)) == address(0), "fake parent ledger");
+        require(launch.parentToken(address(fake)) == address(0), "fake parent ledger");
         require(!launch.isLOVE20Token(EOA), "eoa");
         require(!launch.isLOVE20Token(address(0)), "zero address");
         require(!launch.isLOVE20Token(address(member)), "unrelated contract");
@@ -469,7 +469,7 @@ contract LaunchTest {
         require(launch.issuedLaunchCount(address(fake)) == 0, "issued count");
         require(launch.launchCount(address(firstToken), 999) == 0, "unknown member");
         require(launch.tokenAddressBySymbol("ZZZ") == address(0), "unknown symbol");
-        require(launch.parentTokenOf(address(0)) == address(0), "zero parent");
+        require(launch.parentToken(address(0)) == address(0), "zero parent");
         (address[] memory list, uint256 total) = launch.childTokens(EOA, 0, 10, false);
         require(total == 0 && list.length == 0, "unknown parent children");
     }
@@ -501,12 +501,12 @@ contract LaunchTest {
         require(keccak256(bytes(subToken.symbol())) == keccak256("AAA"), "symbol");
         require(subToken.totalSupply() == LAUNCH_AMOUNT, "supply");
         require(subToken.balanceOf(SUB_DISTRIBUTOR) == LAUNCH_AMOUNT, "distributed to distributor");
-        require(subToken.maxSupply() == MAX_SUPPLY, "max supply");
-        require(subToken.minter() == address(mintAccount), "minter");
-        require(subToken.parentTokenAddress() == address(firstToken), "token parent");
+        require(subToken.MAX_SUPPLY() == MAX_SUPPLY, "max supply");
+        require(subToken.MINTER() == address(mintAccount), "minter");
+        require(subToken.PARENT_TOKEN_ADDRESS() == address(firstToken), "token parent");
 
         require(launch.isLOVE20Token(tokenAddress), "registered");
-        require(launch.parentTokenOf(tokenAddress) == address(firstToken), "parent ledger");
+        require(launch.parentToken(tokenAddress) == address(firstToken), "parent ledger");
         require(launch.tokenAddressBySymbol("AAA") == tokenAddress, "symbol ledger");
         require(launch.launchCount(address(firstToken), aliceMemberId) == 1, "count consumed");
         require(launch.launchCount(address(firstToken), bobMemberId) == 0, "other member untouched");
@@ -1535,9 +1535,9 @@ contract LaunchTest {
         // 名称按现有规则拼接：子币符号 + "@" + 根父币实际符号
         require(keccak256(bytes(siblingToken.name())) == keccak256("AAA@WETH"), "sibling name");
         require(keccak256(bytes(siblingToken.symbol())) == keccak256("AAA"), "sibling symbol");
-        require(siblingToken.parentTokenAddress() == address(rootToken), "sibling token parent");
+        require(siblingToken.PARENT_TOKEN_ADDRESS() == address(rootToken), "sibling token parent");
         require(booted.isLOVE20Token(sibling), "sibling registered");
-        require(booted.parentTokenOf(sibling) == address(rootToken), "sibling parent ledger");
+        require(booted.parentToken(sibling) == address(rootToken), "sibling parent ledger");
         require(booted.tokenAddressBySymbol("AAA") == sibling, "sibling symbol ledger");
 
         // 消耗根级次数，首币次数不动
@@ -1674,7 +1674,7 @@ contract LaunchTest {
         _grantCount(child, aliceMemberId, 1);
         address grandChild = _launchOk(alice, "BBB", child, aliceMemberId);
 
-        require(launch.parentTokenOf(grandChild) == child, "grand child parent ledger");
+        require(launch.parentToken(grandChild) == child, "grand child parent ledger");
         require(launch.isLOVE20Token(grandChild), "grand child registered");
 
         (address[] memory list, uint256 total) = launch.childTokens(child, 0, 10, false);

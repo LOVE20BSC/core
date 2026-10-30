@@ -35,10 +35,10 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     uint256 public totalBurnedForMint;
 
     // id => name
-    mapping(uint256 => string) internal _names;
+    mapping(uint256 => string) internal _memberNameByTokenId;
 
     // normalizedName => id
-    mapping(string => uint256) internal _normalizedNameToTokenId;
+    mapping(string => uint256) internal _tokenIdByNormalizedName;
 
     // all holder addresses
     address[] internal _allHolders;
@@ -49,21 +49,21 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     // ============ Constructor ============
 
     /**
-     * @param baseDivisor_ Base divisor for cost calculation (e.g., 1e8)
-     * @param bytesThreshold_ Byte length threshold for cost multiplier (e.g., 7)
-     * @param multiplier_ Multiplier for short names (e.g., 10)
-     * @param maxNameLength_ Maximum name length in bytes (e.g., 32)
+     * @param baseDivisor Base divisor for cost calculation (e.g., 1e8)
+     * @param bytesThreshold Byte length threshold for cost multiplier (e.g., 7)
+     * @param multiplier Multiplier for short names (e.g., 10)
+     * @param maxNameLength Maximum name length in bytes (e.g., 32)
      */
     constructor(
-        uint256 baseDivisor_,
-        uint256 bytesThreshold_,
-        uint256 multiplier_,
-        uint256 maxNameLength_
+        uint256 baseDivisor,
+        uint256 bytesThreshold,
+        uint256 multiplier,
+        uint256 maxNameLength
     ) ERC721("LOVE20 Member NFT", "Member") {
-        BASE_DIVISOR = baseDivisor_;
-        BYTES_THRESHOLD = bytesThreshold_;
-        MULTIPLIER = multiplier_;
-        MAX_NAME_LENGTH = maxNameLength_;
+        BASE_DIVISOR = baseDivisor;
+        BYTES_THRESHOLD = bytesThreshold;
+        MULTIPLIER = multiplier;
+        MAX_NAME_LENGTH = maxNameLength;
     }
 
     // forge-lint: disable-next-item(missing-zero-check)
@@ -80,18 +80,18 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
      * @dev Requires payment in LOVE20 tokens based on name length.
      *      Uses safeMint to ensure recipient can receive ERC721.
      * @param name The unique name for the member
-     * @return id The newly minted token ID
+     * @return tokenId The newly minted token ID
      */
     function mint(
         string calldata name
-    ) external returns (uint256 id, uint256 mintCost) {
-        string memory name_ = _addTestPrefixIfNeeded(name);
+    ) external returns (uint256 tokenId, uint256 mintCost) {
+        string memory prefixedName = _addTestPrefixIfNeeded(name);
 
-        string memory normalizedName = _validateName(name_);
+        string memory normalizedName = _validateName(prefixedName);
 
-        mintCost = calculateMintCost(name_);
-        id = _mintMember(msg.sender, name_, normalizedName, mintCost);
-        return (id, mintCost);
+        mintCost = calculateMintCost(prefixedName);
+        tokenId = _mintMember(msg.sender, prefixedName, normalizedName, mintCost);
+        return (tokenId, mintCost);
     }
 
     function _mintMember(
@@ -99,10 +99,10 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         string memory name,
         string memory normalizedName,
         uint256 mintCost
-    ) internal returns (uint256 id) {
-        id = _nextTokenId++;
-        _names[id] = name;
-        _normalizedNameToTokenId[normalizedName] = id;
+    ) internal returns (uint256 tokenId) {
+        tokenId = _nextTokenId++;
+        _memberNameByTokenId[tokenId] = name;
+        _tokenIdByNormalizedName[normalizedName] = tokenId;
 
         if (mintCost > 0) {
             totalBurnedForMint += mintCost;
@@ -111,18 +111,18 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
             ILOVE20Token(LOVE20_TOKEN_ADDRESS).burn(mintCost);
         }
 
-        _safeMint(memberOwner, id);
+        _safeMint(memberOwner, tokenId);
 
         // forge-lint: disable-next-item(reentrancy-events)
         emit MemberMinted({
-            memberId: id,
+            memberId: tokenId,
             owner: memberOwner,
             cost: mintCost,
             name: name,
             normalizedName: normalizedName
         });
 
-        return id;
+        return tokenId;
     }
 
     /**
@@ -136,7 +136,7 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     ) public view returns (uint256) {
         ILOVE20Token token = ILOVE20Token(LOVE20_TOKEN_ADDRESS);
 
-        uint256 unmintedSupply = token.maxSupply() - token.totalSupply();
+        uint256 unmintedSupply = token.MAX_SUPPLY() - token.totalSupply();
 
         uint256 baseCost = unmintedSupply / BASE_DIVISOR;
 
@@ -154,13 +154,13 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
 
     /**
      * @notice Get the member name for a token ID
-     * @param id The token ID to query
-     * @return The member name associated with the token ID (empty string if token doesn't exist)
+     * @param tokenId The member NFT token id to query
+     * @return The member name associated with the token id (empty string if the token does not exist)
      */
-    function nameOf(
-        uint256 id
+    function memberName(
+        uint256 tokenId
     ) external view returns (string memory) {
-        return _names[id];
+        return _memberNameByTokenId[tokenId];
     }
 
     /**
@@ -171,7 +171,7 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     function isNameUsed(
         string calldata name
     ) external view returns (bool) {
-        return _normalizedNameToTokenId[_toLowerCase(name)] != 0;
+        return _tokenIdByNormalizedName[_toLowerCase(name)] != 0;
     }
 
     /**
@@ -179,10 +179,10 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
      * @param name The member name to query
      * @return The token ID associated with the member name (0 if not exists)
      */
-    function idOf(
+    function memberId(
         string calldata name
     ) external view returns (uint256) {
-        return _normalizedNameToTokenId[_toLowerCase(name)];
+        return _tokenIdByNormalizedName[_toLowerCase(name)];
     }
 
     /**
@@ -190,7 +190,7 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
      * @param name The member name to normalize
      * @return The normalized member name with ASCII uppercase converted to lowercase
      */
-    function normalizedNameOf(
+    function normalizeName(
         string calldata name
     ) external pure returns (string memory) {
         return _toLowerCase(name);
@@ -302,7 +302,7 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
 
         // Check uniqueness (case-insensitive)
         normalizedName = _toLowerCase(name);
-        uint256 existingTokenId = _normalizedNameToTokenId[normalizedName];
+        uint256 existingTokenId = _tokenIdByNormalizedName[normalizedName];
         if (existingTokenId != 0) {
             revert NameAlreadyExists(existingTokenId);
         }

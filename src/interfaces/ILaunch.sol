@@ -103,11 +103,11 @@ interface ILaunchEvents {
 }
 
 interface ILaunch is ILaunchErrors, ILaunchEvents {
-    function mintAddress() external view returns (address);
-    function memberNFTAddress() external view returns (address);
-    function rootParentTokenAddress() external view returns (address);
-    function firstTokenAddress() external view returns (address);
-    function pairFactoryAddress() external view returns (address);
+    function MINT_ADDRESS() external view returns (address);
+    function MEMBER_NFT_ADDRESS() external view returns (address);
+    function ROOT_PARENT_TOKEN_ADDRESS() external view returns (address);
+    function FIRST_TOKEN_ADDRESS() external view returns (address);
+    function PAIR_FACTORY_ADDRESS() external view returns (address);
     function TOKEN_SYMBOL_LENGTH() external view returns (uint256);
     function MAX_TOKEN_SYMBOL_LENGTH() external view returns (uint256);
     function MAX_TOKEN_NAME_LENGTH() external view returns (uint256);
@@ -140,5 +140,5 @@ interface ILaunch is ILaunchErrors, ILaunchEvents {
         view
         returns (address[] memory tokenList, uint256 totalCount);
     function tokenAddressBySymbol(string calldata symbol) external view returns (address);
-    function parentTokenOf(address tokenAddress) external view returns (address);
+    function parentToken(address tokenAddress) external view returns (address);
 }

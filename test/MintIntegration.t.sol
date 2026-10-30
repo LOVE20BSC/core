@@ -420,8 +420,8 @@ contract MintIntegrationTest {
         vm.prank(member1);
         mint.mintGovReward(address(token), 1, 1, member1);
 
-        // Verify eligibleProposalVotes = 300 + 700 = 1000
-        assertEq(mint.eligibleProposalVotes(address(token), 1), 1000, "Eligible votes should sum correctly");
+        // Verify eligibleProposalVoteAmount = 300 + 700 = 1000
+        assertEq(mint.eligibleProposalVoteAmount(address(token), 1), 1000, "Eligible votes should sum correctly");
 
         // Verify member rewards are proportional to their votes
         (uint256 vote1,,,) = mint.govRewardByMemberId(address(token), 1, 1);
@@ -610,33 +610,33 @@ contract MockPhase {
 }
 
 contract MockVote {
-    mapping(address => mapping(uint256 => uint256)) public totalVotes;
-    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) public memberVotes;
-    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) public proposalVotes;
+    mapping(address => mapping(uint256 => uint256)) public votesByTokenByRound;
+    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) public memberVoteAmount;
+    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) public proposalVoteAmount;
     mapping(address => mapping(uint256 => uint256[])) public votedProposals;
     mapping(address => mapping(uint256 => uint256)) public totalBoost;
     mapping(address => mapping(uint256 => mapping(uint256 => uint256))) public memberBoost;
 
-    address public phaseAddress;
+    address public PHASE_ADDRESS;
 
     function setPhaseAddress(address phaseAddress_) external {
-        phaseAddress = phaseAddress_;
+        PHASE_ADDRESS = phaseAddress_;
     }
 
-    function votesNum(address token, uint256 round) external view returns (uint256) {
-        return totalVotes[token][round];
+    function totalVoteAmount(address token, uint256 round) external view returns (uint256) {
+        return votesByTokenByRound[token][round];
     }
 
-    function votesNumByMemberId(address token, uint256 round, uint256 memberId)
+    function voteAmountByMemberId(address token, uint256 round, uint256 memberId)
         external view returns (uint256)
     {
-        return memberVotes[token][round][memberId];
+        return memberVoteAmount[token][round][memberId];
     }
 
-    function votesNumByProposalId(address token, uint256 round, uint256 proposalId)
+    function voteAmountByProposalId(address token, uint256 round, uint256 proposalId)
         external view returns (uint256)
     {
-        return proposalVotes[token][round][proposalId];
+        return proposalVoteAmount[token][round][proposalId];
     }
 
     function votedProposalIds(address token, uint256 round, uint256, uint256 limit, bool)
@@ -653,28 +653,28 @@ contract MockVote {
         }
     }
 
-    function stakedAmountOfVoters(address token, uint256 round)
+    function totalVoterBoost(address token, uint256 round)
         external view returns (uint256)
     {
         return totalBoost[token][round];
     }
 
-    function stakedAmountOfVotersByMemberId(address token, uint256 round, uint256 memberId)
+    function voterBoost(address token, uint256 round, uint256 memberId)
         external view returns (uint256)
     {
         return memberBoost[token][round][memberId];
     }
 
     function setTotalVotes(address token, uint256 round, uint256 amount) external {
-        totalVotes[token][round] = amount;
+        votesByTokenByRound[token][round] = amount;
     }
 
     function setMemberVotes(address token, uint256 round, uint256 memberId, uint256 amount) external {
-        memberVotes[token][round][memberId] = amount;
+        memberVoteAmount[token][round][memberId] = amount;
     }
 
     function setProposalVotes(address token, uint256 round, uint256 proposalId, uint256 amount) external {
-        proposalVotes[token][round][proposalId] = amount;
+        proposalVoteAmount[token][round][proposalId] = amount;
     }
 
     function addVotedProposal(address token, uint256 round, uint256 proposalId) external {

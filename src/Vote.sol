@@ -12,23 +12,23 @@ import {Pagination} from "@libs/Pagination.sol";
 contract Vote is IVote {
     using Pagination for uint256[];
 
-    bool internal _initialized;
-    address internal _stakeAddress;
-    address internal _submitAddress;
-    address internal _phaseAddress;
-    address internal _memberNFTAddress;
+    bool public initialized;
+    address public STAKE_ADDRESS;
+    address public SUBMIT_ADDRESS;
+    address public PHASE_ADDRESS;
+    address public MEMBER_NFT_ADDRESS;
 
-    // ------ votesNums ----
-    // tokenAddress => round => votesNum
-    mapping(address => mapping(uint256 => uint256)) internal _votesNum;
-    // tokenAddress => round => proposalId => votesNum
-    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) internal _votesNumByProposalId;
+    // ------ vote amounts ------
+    // tokenAddress => round => totalVoteAmount
+    mapping(address => mapping(uint256 => uint256)) internal _totalVoteAmountByRound;
+    // tokenAddress => round => proposalId => voteAmount
+    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) internal _voteAmountByProposalId;
 
-    // tokenAddress => round => memberId => votesNum
-    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) internal _votesNumByMemberId;
-    // tokenAddress => round => memberId => proposalId => votesNum
+    // tokenAddress => round => memberId => voteAmount
+    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) internal _voteAmountByMemberId;
+    // tokenAddress => round => memberId => proposalId => voteAmount
     mapping(address => mapping(uint256 => mapping(uint256 => mapping(uint256 => uint256)))) internal
-        _votesNumByMemberIdByProposalId;
+        _voteAmountByMemberIdByProposalId;
 
     // ------ votedProposalIds ------
     // tokenAddress => round => proposalIds
@@ -40,51 +40,31 @@ contract Vote is IVote {
     // tokenAddress => round => proposalId => memberIds
     mapping(address => mapping(uint256 => mapping(uint256 => uint256[]))) internal _voterIdsByProposalId;
 
-    // ------- stakedBoostOfVoters snapshots ------
+    // ------- voter boost snapshots ------
     // tokenAddress => round => memberId => boostShares at first vote in round
-    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) internal _stakedBoostOfVotersByMemberId;
-    // tokenAddress => round => totalBoostShares
-    mapping(address => mapping(uint256 => uint256)) internal _stakedBoostOfVoters;
-
-    function initialized() external view returns (bool) {
-        return _initialized;
-    }
-
-    function stakeAddress() external view returns (address) {
-        return _stakeAddress;
-    }
-
-    function submitAddress() external view returns (address) {
-        return _submitAddress;
-    }
-
-    function phaseAddress() external view returns (address) {
-        return _phaseAddress;
-    }
-
-    function memberNFTAddress() external view returns (address) {
-        return _memberNFTAddress;
-    }
+    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) internal _voterBoostByMemberId;
+    // tokenAddress => round => totalVoterBoost
+    mapping(address => mapping(uint256 => uint256)) internal _totalVoterBoostByRound;
 
     // forge-lint: disable-next-item(missing-zero-check)
     function init(
-        address phaseAddress_,
-        address stakeAddress_,
-        address submitAddress_,
-        address memberNFTAddress_
+        address phaseAddress,
+        address stakeAddress,
+        address submitAddress,
+        address memberNFTAddress
     ) external {
-        if (_initialized) {
+        if (initialized) {
             revert AlreadyInitialized();
         }
-        _initialized = true;
-        _stakeAddress = stakeAddress_;
-        _submitAddress = submitAddress_;
-        _phaseAddress = phaseAddress_;
-        _memberNFTAddress = memberNFTAddress_;
+        initialized = true;
+        STAKE_ADDRESS = stakeAddress;
+        SUBMIT_ADDRESS = submitAddress;
+        PHASE_ADDRESS = phaseAddress;
+        MEMBER_NFT_ADDRESS = memberNFTAddress;
     }
 
     modifier onlyMemberOwner(uint256 memberId) {
-        if (IMemberNFT(_memberNFTAddress).ownerOf(memberId) != msg.sender) {
+        if (IMemberNFT(MEMBER_NFT_ADDRESS).ownerOf(memberId) != msg.sender) {
             revert NotMemberOwner(memberId);
         }
         _;
@@ -94,7 +74,7 @@ contract Vote is IVote {
         address tokenAddress,
         uint256 memberId,
         uint256[] calldata proposalIds,
-        uint256[] calldata votes,
+        uint256[] calldata voteAmounts,
         bytes[][] calldata targetData
     ) external onlyMemberOwner(memberId) {
         if (!canVote(tokenAddress, memberId)) {
@@ -103,15 +83,15 @@ contract Vote is IVote {
         if (proposalIds.length == 0) {
             revert ProposalIdsEmpty();
         }
-        if (proposalIds.length != votes.length) {
-            revert ProposalVotesLengthMismatch(proposalIds.length, votes.length);
+        if (proposalIds.length != voteAmounts.length) {
+            revert ProposalVoteAmountsLengthMismatch(proposalIds.length, voteAmounts.length);
         }
         if (targetData.length != 0 && targetData.length != proposalIds.length) {
             revert TargetDataLengthMismatch(proposalIds.length, targetData.length);
         }
 
         uint256 round = currentRound();
-        uint256 maxVotes = maxVotesNum(tokenAddress, memberId);
+        uint256 voteLimit = maxVoteAmount(tokenAddress, memberId);
 
         // An empty outer array means every callback gets empty Target Data; a supplied one lines up
         // with the proposals, entry by entry.
@@ -122,55 +102,59 @@ contract Vote is IVote {
             if (targetData.length != 0) {
                 itemTargetData = targetData[i];
             }
-            _vote(tokenAddress, round, memberId, proposalIds[i], votes[i], maxVotes, itemTargetData);
+            _vote(tokenAddress, round, memberId, proposalIds[i], voteAmounts[i], voteLimit, itemTargetData);
         }
     }
 
     function currentRound() public view returns (uint256) {
-        return IPhase(_phaseAddress).currentPhase();
+        return IPhase(PHASE_ADDRESS).currentPhase();
     }
 
     function isRoundEnded(uint256 round) public view returns (bool) {
         if (round == 0) {
             return false;
         }
-        return IPhase(_phaseAddress).currentPhase() > round;
+        return IPhase(PHASE_ADDRESS).currentPhase() > round;
     }
 
     function canVote(address tokenAddress, uint256 memberId) public view returns (bool) {
-        return maxVotesNum(tokenAddress, memberId) > 0;
+        return maxVoteAmount(tokenAddress, memberId) > 0;
     }
 
-    function maxVotesNum(address tokenAddress, uint256 memberId) public view returns (uint256) {
-        return IStake(_stakeAddress).validGovVotes(tokenAddress, currentRound(), memberId);
+    function maxVoteAmount(address tokenAddress, uint256 memberId) public view returns (uint256) {
+        return IStake(STAKE_ADDRESS).validGovVotes(tokenAddress, currentRound(), memberId);
     }
 
-    function votesNum(address tokenAddress, uint256 round) external view returns (uint256) {
-        return _votesNum[tokenAddress][round];
+    function totalVoteAmount(address tokenAddress, uint256 round) external view returns (uint256) {
+        return _totalVoteAmountByRound[tokenAddress][round];
     }
 
-    function votesNumByProposalId(address tokenAddress, uint256 round, uint256 proposalId)
+    function voteAmountByProposalId(address tokenAddress, uint256 round, uint256 proposalId)
         external
         view
         returns (uint256)
     {
-        return _votesNumByProposalId[tokenAddress][round][proposalId];
+        return _voteAmountByProposalId[tokenAddress][round][proposalId];
     }
 
-    function votesNumByMemberId(address tokenAddress, uint256 round, uint256 memberId) external view returns (uint256) {
-        return _votesNumByMemberId[tokenAddress][round][memberId];
-    }
-
-    function votesNumByMemberIdByProposalId(address tokenAddress, uint256 round, uint256 memberId, uint256 proposalId)
+    function voteAmountByMemberId(address tokenAddress, uint256 round, uint256 memberId)
         external
         view
         returns (uint256)
     {
-        return _votesNumByMemberIdByProposalId[tokenAddress][round][memberId][proposalId];
+        return _voteAmountByMemberId[tokenAddress][round][memberId];
+    }
+
+    function voteAmountByMemberIdByProposalId(address tokenAddress, uint256 round, uint256 memberId, uint256 proposalId)
+        external
+        view
+        returns (uint256)
+    {
+        return _voteAmountByMemberIdByProposalId[tokenAddress][round][memberId][proposalId];
     }
 
     function isProposalIdVoted(address tokenAddress, uint256 round, uint256 proposalId) external view returns (bool) {
-        return _votesNumByProposalId[tokenAddress][round][proposalId] > 0;
+        return _voteAmountByProposalId[tokenAddress][round][proposalId] > 0;
     }
 
     function votedProposalIds(address tokenAddress, uint256 round, uint256 offset, uint256 limit, bool reverse)
@@ -179,17 +163,6 @@ contract Vote is IVote {
         returns (uint256[] memory proposalIds, uint256 total)
     {
         return _votedProposalIds[tokenAddress][round].paginate(offset, limit, reverse);
-    }
-
-    function votedProposalIdsByMemberId(
-        address tokenAddress,
-        uint256 round,
-        uint256 memberId,
-        uint256 offset,
-        uint256 limit,
-        bool reverse
-    ) external view returns (uint256[] memory proposalIds, uint256 total) {
-        return _votedProposalIdsByMemberId[tokenAddress][round][memberId].paginate(offset, limit, reverse);
     }
 
     function voterIdsByProposalId(
@@ -203,44 +176,44 @@ contract Vote is IVote {
         return _voterIdsByProposalId[tokenAddress][round][proposalId].paginate(offset, limit, reverse);
     }
 
-    function votesNumsByMemberId(
+    function votedProposalIdsByMemberId(
         address tokenAddress,
         uint256 round,
         uint256 memberId,
         uint256 offset,
         uint256 limit,
         bool reverse
-    ) external view returns (uint256[] memory proposalIds, uint256[] memory votes, uint256 total) {
+    ) external view returns (uint256[] memory proposalIds, uint256[] memory voteAmounts, uint256 total) {
         (proposalIds, total) =
             _votedProposalIdsByMemberId[tokenAddress][round][memberId].paginate(offset, limit, reverse);
-        votes = new uint256[](proposalIds.length);
+        voteAmounts = new uint256[](proposalIds.length);
         for (uint256 i = 0; i < proposalIds.length; i++) {
-            votes[i] = _votesNumByMemberIdByProposalId[tokenAddress][round][memberId][proposalIds[i]];
+            voteAmounts[i] = _voteAmountByMemberIdByProposalId[tokenAddress][round][memberId][proposalIds[i]];
         }
     }
 
-    function votesNumsByMemberIdByProposalIds(
+    function voteAmountsByMemberIdByIds(
         address tokenAddress,
         uint256 round,
         uint256 memberId,
         uint256[] calldata proposalIds
-    ) external view returns (uint256[] memory votes) {
-        votes = new uint256[](proposalIds.length);
+    ) external view returns (uint256[] memory voteAmounts) {
+        voteAmounts = new uint256[](proposalIds.length);
         for (uint256 i = 0; i < proposalIds.length; i++) {
-            votes[i] = _votesNumByMemberIdByProposalId[tokenAddress][round][memberId][proposalIds[i]];
+            voteAmounts[i] = _voteAmountByMemberIdByProposalId[tokenAddress][round][memberId][proposalIds[i]];
         }
     }
 
-    function stakedAmountOfVotersByMemberId(address tokenAddress, uint256 round, uint256 memberId)
+    function voterBoost(address tokenAddress, uint256 round, uint256 memberId)
         external
         view
         returns (uint256)
     {
-        return _stakedBoostOfVotersByMemberId[tokenAddress][round][memberId];
+        return _voterBoostByMemberId[tokenAddress][round][memberId];
     }
 
-    function stakedAmountOfVoters(address tokenAddress, uint256 round) external view returns (uint256) {
-        return _stakedBoostOfVoters[tokenAddress][round];
+    function totalVoterBoost(address tokenAddress, uint256 round) external view returns (uint256) {
+        return _totalVoterBoostByRound[tokenAddress][round];
     }
 
     function _vote(
@@ -248,60 +221,60 @@ contract Vote is IVote {
         uint256 round,
         uint256 memberId,
         uint256 proposalId,
-        uint256 votes,
-        uint256 maxVotes,
+        uint256 voteAmount,
+        uint256 voteLimit,
         bytes[] memory targetData
     ) internal {
         // Batch voting validates each proposal individually; the call cannot be moved outside the loop.
         // forge-lint: disable-next-item(calls-loop)
-        if (!ISubmit(_submitAddress).isSubmitted(tokenAddress, round, proposalId)) {
+        if (!ISubmit(SUBMIT_ADDRESS).isSubmitted(tokenAddress, round, proposalId)) {
             // forge-lint: disable-next-line(require-revert-in-loop)
             revert ProposalNotSubmitted(tokenAddress, round, proposalId);
         }
 
-        if (votes == 0) {
+        if (voteAmount == 0) {
             // forge-lint: disable-next-line(require-revert-in-loop)
-            revert ZeroVotes(proposalId);
+            revert ZeroVoteAmount(proposalId);
         }
 
         // Update boost snapshot: check and add delta if member staked more
         {
-            uint256 currentBoost = _stakedBoostOfVotersByMemberId[tokenAddress][round][memberId];
+            uint256 currentVoterBoost = _voterBoostByMemberId[tokenAddress][round][memberId];
             // forge-lint: disable-next-line(calls-loop, unused-return)
-            uint256 actualBoost = IStake(_stakeAddress).validBoostShares(tokenAddress, round, memberId);
+            uint256 actualVoterBoost = IStake(STAKE_ADDRESS).validBoostShares(tokenAddress, round, memberId);
 
-            if (currentBoost == 0) {
+            if (currentVoterBoost == 0) {
                 // First vote in this round: record snapshot
-                _stakedBoostOfVotersByMemberId[tokenAddress][round][memberId] = actualBoost;
-                _stakedBoostOfVoters[tokenAddress][round] += actualBoost;
-            } else if (actualBoost > currentBoost) {
+                _voterBoostByMemberId[tokenAddress][round][memberId] = actualVoterBoost;
+                _totalVoterBoostByRound[tokenAddress][round] += actualVoterBoost;
+            } else if (actualVoterBoost > currentVoterBoost) {
                 // Member staked more: record delta
-                uint256 delta = actualBoost - currentBoost;
-                _stakedBoostOfVotersByMemberId[tokenAddress][round][memberId] = actualBoost;
-                _stakedBoostOfVoters[tokenAddress][round] += delta;
+                uint256 delta = actualVoterBoost - currentVoterBoost;
+                _voterBoostByMemberId[tokenAddress][round][memberId] = actualVoterBoost;
+                _totalVoterBoostByRound[tokenAddress][round] += delta;
             }
         }
 
         {
-            bool isNewProposal = _votesNumByMemberIdByProposalId[tokenAddress][round][memberId][proposalId] == 0;
+            bool isNewProposal = _voteAmountByMemberIdByProposalId[tokenAddress][round][memberId][proposalId] == 0;
 
-            _votesNum[tokenAddress][round] += votes;
-            _votesNumByProposalId[tokenAddress][round][proposalId] += votes;
-            _votesNumByMemberId[tokenAddress][round][memberId] += votes;
-            _votesNumByMemberIdByProposalId[tokenAddress][round][memberId][proposalId] += votes;
+            _totalVoteAmountByRound[tokenAddress][round] += voteAmount;
+            _voteAmountByProposalId[tokenAddress][round][proposalId] += voteAmount;
+            _voteAmountByMemberId[tokenAddress][round][memberId] += voteAmount;
+            _voteAmountByMemberIdByProposalId[tokenAddress][round][memberId][proposalId] += voteAmount;
 
             if (isNewProposal) {
-                if (_votesNumByProposalId[tokenAddress][round][proposalId] == votes) {
+                if (_voteAmountByProposalId[tokenAddress][round][proposalId] == voteAmount) {
                     _votedProposalIds[tokenAddress][round].push(proposalId);
                 }
                 _votedProposalIdsByMemberId[tokenAddress][round][memberId].push(proposalId);
                 _voterIdsByProposalId[tokenAddress][round][proposalId].push(memberId);
             }
 
-            if (_votesNumByMemberId[tokenAddress][round][memberId] > maxVotes) {
+            if (_voteAmountByMemberId[tokenAddress][round][memberId] > voteLimit) {
                 // forge-lint: disable-next-item(require-revert-in-loop)
                 revert VoteLimitExceeded(
-                    tokenAddress, round, memberId, _votesNumByMemberId[tokenAddress][round][memberId], maxVotes
+                    tokenAddress, round, memberId, _voteAmountByMemberId[tokenAddress][round][memberId], voteLimit
                 );
             }
         }
@@ -312,17 +285,17 @@ contract Vote is IVote {
             round: round,
             voterId: memberId,
             proposalId: proposalId,
-            votes: votes,
-            voterBoost: _stakedBoostOfVotersByMemberId[tokenAddress][round][memberId],
-            totalVoterBoost: _stakedBoostOfVoters[tokenAddress][round]
+            voteAmount: voteAmount,
+            voterBoost: _voterBoostByMemberId[tokenAddress][round][memberId],
+            totalVoterBoost: _totalVoterBoostByRound[tokenAddress][round]
         });
 
         // forge-lint: disable-next-item(calls-loop, reentrancy-events)
-        (address target, TargetMode targetMode) = ISubmit(_submitAddress).proposalTarget(tokenAddress, proposalId);
+        (address target, TargetMode targetMode) = ISubmit(SUBMIT_ADDRESS).proposalTarget(tokenAddress, proposalId);
 
         if (targetMode == TargetMode.Callback && target != address(0)) {
             // forge-lint: disable-next-item(calls-loop, reentrancy-events)
-            IProposalTarget(target).onProposalVoted(tokenAddress, round, proposalId, memberId, votes, targetData);
+            IProposalTarget(target).onProposalVoted(tokenAddress, round, proposalId, memberId, voteAmount, targetData);
         }
     }
 }

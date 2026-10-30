@@ -155,11 +155,11 @@ verify_value "name" "$TOKEN_NAME" "$ACTUAL_NAME" || ((FAILED+=1))
 ACTUAL_SYMBOL=$(cast call "$LOVE20_TOKEN_ADDRESS" "symbol()(string)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "symbol" "$TOKEN_SYMBOL" "$ACTUAL_SYMBOL" || ((FAILED+=1))
 
-ACTUAL_MAX_SUPPLY=$(cast call "$LOVE20_TOKEN_ADDRESS" "maxSupply()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "maxSupply" "$MAX_SUPPLY" "$ACTUAL_MAX_SUPPLY" || ((FAILED+=1))
+ACTUAL_MAX_SUPPLY=$(cast call "$LOVE20_TOKEN_ADDRESS" "MAX_SUPPLY()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "MAX_SUPPLY" "$MAX_SUPPLY" "$ACTUAL_MAX_SUPPLY" || ((FAILED+=1))
 
-ACTUAL_MINTER=$(cast call "$LOVE20_TOKEN_ADDRESS" "minter()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "minter" "$MINT_ADDRESS" "$ACTUAL_MINTER" || ((FAILED+=1))
+ACTUAL_MINTER=$(cast call "$LOVE20_TOKEN_ADDRESS" "MINTER()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "MINTER" "$MINT_ADDRESS" "$ACTUAL_MINTER" || ((FAILED+=1))
 
 ACTUAL_TOTAL_SUPPLY=$(cast call "$LOVE20_TOKEN_ADDRESS" "totalSupply()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "totalSupply" "$INITIAL_SUPPLY" "$ACTUAL_TOTAL_SUPPLY" || ((FAILED+=1))
@@ -167,8 +167,8 @@ verify_value "totalSupply" "$INITIAL_SUPPLY" "$ACTUAL_TOTAL_SUPPLY" || ((FAILED+
 ACTUAL_DISTRIBUTOR_BALANCE=$(cast call "$LOVE20_TOKEN_ADDRESS" "balanceOf(address)(uint256)" "$DISTRIBUTOR_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "distributor balance" "$INITIAL_SUPPLY" "$ACTUAL_DISTRIBUTOR_BALANCE" || ((FAILED+=1))
 
-ACTUAL_PARENT=$(cast call "$LOVE20_TOKEN_ADDRESS" "parentTokenAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "parentTokenAddress" "$ROUTER_WETH" "$ACTUAL_PARENT" || ((FAILED+=1))
+ACTUAL_PARENT=$(cast call "$LOVE20_TOKEN_ADDRESS" "PARENT_TOKEN_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "PARENT_TOKEN_ADDRESS" "$ROUTER_WETH" "$ACTUAL_PARENT" || ((FAILED+=1))
 
 # 2. 验证 MemberNFT
 print_contract_header "2" "MemberNFT" "$MEMBER_NFT_ADDRESS"
@@ -219,16 +219,16 @@ verify_value "LAUNCH_RATIO" "$LAUNCH_RATIO" "$ACTUAL_LAUNCH_RATIO" || ((FAILED+=
 ACTUAL_MAX_LAUNCH_COUNT=$(cast call "$LAUNCH_ADDRESS" "MAX_LAUNCH_COUNT()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "MAX_LAUNCH_COUNT" "$MAX_LAUNCH_COUNT" "$ACTUAL_MAX_LAUNCH_COUNT" || ((FAILED+=1))
 
-ACTUAL_LAUNCH_MINT=$(cast call "$LAUNCH_ADDRESS" "mintAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "mintAddress" "$MINT_ADDRESS" "$ACTUAL_LAUNCH_MINT" || ((FAILED+=1))
+ACTUAL_LAUNCH_MINT=$(cast call "$LAUNCH_ADDRESS" "MINT_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "MINT_ADDRESS" "$MINT_ADDRESS" "$ACTUAL_LAUNCH_MINT" || ((FAILED+=1))
 
-ACTUAL_LAUNCH_MEMBER=$(cast call "$LAUNCH_ADDRESS" "memberNFTAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "memberNFTAddress" "$MEMBER_NFT_ADDRESS" "$ACTUAL_LAUNCH_MEMBER" || ((FAILED+=1))
+ACTUAL_LAUNCH_MEMBER=$(cast call "$LAUNCH_ADDRESS" "MEMBER_NFT_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "MEMBER_NFT_ADDRESS" "$MEMBER_NFT_ADDRESS" "$ACTUAL_LAUNCH_MEMBER" || ((FAILED+=1))
 
-ACTUAL_ROOT_PARENT=$(cast call "$LAUNCH_ADDRESS" "rootParentTokenAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "rootParentTokenAddress" "$ROUTER_WETH" "$ACTUAL_ROOT_PARENT" || ((FAILED+=1))
-ACTUAL_LAUNCH_FACTORY=$(cast call "$LAUNCH_ADDRESS" "pairFactoryAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "pairFactoryAddress" "$FACTORY_ADDRESS" "$ACTUAL_LAUNCH_FACTORY" || ((FAILED+=1))
+ACTUAL_ROOT_PARENT=$(cast call "$LAUNCH_ADDRESS" "ROOT_PARENT_TOKEN_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "ROOT_PARENT_TOKEN_ADDRESS" "$ROUTER_WETH" "$ACTUAL_ROOT_PARENT" || ((FAILED+=1))
+ACTUAL_LAUNCH_FACTORY=$(cast call "$LAUNCH_ADDRESS" "PAIR_FACTORY_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "PAIR_FACTORY_ADDRESS" "$FACTORY_ADDRESS" "$ACTUAL_LAUNCH_FACTORY" || ((FAILED+=1))
 ACTUAL_SYMBOL_LENGTH=$(cast call "$LAUNCH_ADDRESS" "TOKEN_SYMBOL_LENGTH()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "TOKEN_SYMBOL_LENGTH" "$TOKEN_SYMBOL_LENGTH" "$ACTUAL_SYMBOL_LENGTH" || ((FAILED+=1))
 ACTUAL_LAUNCH_AMOUNT=$(cast call "$LAUNCH_ADDRESS" "LAUNCH_AMOUNT()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
@@ -237,8 +237,8 @@ ACTUAL_LAUNCH_MAX_SUPPLY=$(cast call "$LAUNCH_ADDRESS" "MAX_SUPPLY()(uint256)" -
 verify_value "MAX_SUPPLY" "$MAX_SUPPLY" "$ACTUAL_LAUNCH_MAX_SUPPLY" || ((FAILED+=1))
 ACTUAL_REGISTERED=$(cast call "$LAUNCH_ADDRESS" "isLOVE20Token(address)(bool)" "$LOVE20_TOKEN_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "first token registered" "true" "$ACTUAL_REGISTERED" || ((FAILED+=1))
-ACTUAL_FIRST_TOKEN=$(cast call "$LAUNCH_ADDRESS" "firstTokenAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "firstTokenAddress" "$LOVE20_TOKEN_ADDRESS" "$ACTUAL_FIRST_TOKEN" || ((FAILED+=1))
+ACTUAL_FIRST_TOKEN=$(cast call "$LAUNCH_ADDRESS" "FIRST_TOKEN_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "FIRST_TOKEN_ADDRESS" "$LOVE20_TOKEN_ADDRESS" "$ACTUAL_FIRST_TOKEN" || ((FAILED+=1))
 
 ACTUAL_LAUNCH_INIT=$(cast call "$LAUNCH_ADDRESS" "initialized()(bool)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "initialized" "true" "$ACTUAL_LAUNCH_INIT" || ((FAILED+=1))
@@ -247,20 +247,20 @@ verify_value "initialized" "true" "$ACTUAL_LAUNCH_INIT" || ((FAILED+=1))
 print_contract_header "5" "Mint" "$MINT_ADDRESS"
 verify_deployed "Mint" "$MINT_ADDRESS" || ((FAILED+=1))
 
-ACTUAL_MINT_VOTE=$(cast call "$MINT_ADDRESS" "voteAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "voteAddress" "$VOTE_ADDRESS" "$ACTUAL_MINT_VOTE" || ((FAILED+=1))
+ACTUAL_MINT_VOTE=$(cast call "$MINT_ADDRESS" "VOTE_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "VOTE_ADDRESS" "$VOTE_ADDRESS" "$ACTUAL_MINT_VOTE" || ((FAILED+=1))
 
-ACTUAL_MINT_SUBMIT=$(cast call "$MINT_ADDRESS" "submitAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "submitAddress" "$SUBMIT_ADDRESS" "$ACTUAL_MINT_SUBMIT" || ((FAILED+=1))
+ACTUAL_MINT_SUBMIT=$(cast call "$MINT_ADDRESS" "SUBMIT_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "SUBMIT_ADDRESS" "$SUBMIT_ADDRESS" "$ACTUAL_MINT_SUBMIT" || ((FAILED+=1))
 
-ACTUAL_MINT_LAUNCH=$(cast call "$MINT_ADDRESS" "launchAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "launchAddress" "$LAUNCH_ADDRESS" "$ACTUAL_MINT_LAUNCH" || ((FAILED+=1))
+ACTUAL_MINT_LAUNCH=$(cast call "$MINT_ADDRESS" "LAUNCH_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "LAUNCH_ADDRESS" "$LAUNCH_ADDRESS" "$ACTUAL_MINT_LAUNCH" || ((FAILED+=1))
 
-ACTUAL_MINT_MEMBER=$(cast call "$MINT_ADDRESS" "memberNFTAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "memberNFTAddress" "$MEMBER_NFT_ADDRESS" "$ACTUAL_MINT_MEMBER" || ((FAILED+=1))
+ACTUAL_MINT_MEMBER=$(cast call "$MINT_ADDRESS" "MEMBER_NFT_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "MEMBER_NFT_ADDRESS" "$MEMBER_NFT_ADDRESS" "$ACTUAL_MINT_MEMBER" || ((FAILED+=1))
 
-ACTUAL_MINT_PHASE=$(cast call "$MINT_ADDRESS" "phaseAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "phaseAddress" "$PHASE_ADDRESS" "$ACTUAL_MINT_PHASE" || ((FAILED+=1))
+ACTUAL_MINT_PHASE=$(cast call "$MINT_ADDRESS" "PHASE_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "PHASE_ADDRESS" "$PHASE_ADDRESS" "$ACTUAL_MINT_PHASE" || ((FAILED+=1))
 
 ACTUAL_MIN_PROPOSAL=$(cast call "$MINT_ADDRESS" "PROPOSAL_REWARD_MIN_VOTE_RATIO()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "PROPOSAL_REWARD_MIN_VOTE_RATIO" "$PROPOSAL_REWARD_MIN_VOTE_RATIO" "$ACTUAL_MIN_PROPOSAL" || ((FAILED+=1))
@@ -281,23 +281,23 @@ verify_value "initialized" "true" "$ACTUAL_MINT_INIT" || ((FAILED+=1))
 print_contract_header "6" "Stake" "$STAKE_ADDRESS"
 verify_deployed "Stake" "$STAKE_ADDRESS" || ((FAILED+=1))
 
-ACTUAL_STAKE_PHASE=$(cast call "$STAKE_ADDRESS" "phaseAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "phaseAddress" "$PHASE_ADDRESS" "$ACTUAL_STAKE_PHASE" || ((FAILED+=1))
+ACTUAL_STAKE_PHASE=$(cast call "$STAKE_ADDRESS" "PHASE_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "PHASE_ADDRESS" "$PHASE_ADDRESS" "$ACTUAL_STAKE_PHASE" || ((FAILED+=1))
 
-ACTUAL_STAKE_MEMBER=$(cast call "$STAKE_ADDRESS" "memberNFTAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "memberNFTAddress" "$MEMBER_NFT_ADDRESS" "$ACTUAL_STAKE_MEMBER" || ((FAILED+=1))
+ACTUAL_STAKE_MEMBER=$(cast call "$STAKE_ADDRESS" "MEMBER_NFT_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "MEMBER_NFT_ADDRESS" "$MEMBER_NFT_ADDRESS" "$ACTUAL_STAKE_MEMBER" || ((FAILED+=1))
 
-ACTUAL_STAKE_VOTE=$(cast call "$STAKE_ADDRESS" "voteAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "voteAddress" "$VOTE_ADDRESS" "$ACTUAL_STAKE_VOTE" || ((FAILED+=1))
+ACTUAL_STAKE_VOTE=$(cast call "$STAKE_ADDRESS" "VOTE_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "VOTE_ADDRESS" "$VOTE_ADDRESS" "$ACTUAL_STAKE_VOTE" || ((FAILED+=1))
 
-ACTUAL_STAKE_LAUNCH=$(cast call "$STAKE_ADDRESS" "launchAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "launchAddress" "$LAUNCH_ADDRESS" "$ACTUAL_STAKE_LAUNCH" || ((FAILED+=1))
+ACTUAL_STAKE_LAUNCH=$(cast call "$STAKE_ADDRESS" "LAUNCH_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "LAUNCH_ADDRESS" "$LAUNCH_ADDRESS" "$ACTUAL_STAKE_LAUNCH" || ((FAILED+=1))
 
-ACTUAL_ROUTER=$(cast call "$STAKE_ADDRESS" "routerAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "routerAddress" "$ROUTER_ADDRESS" "$ACTUAL_ROUTER" || ((FAILED+=1))
+ACTUAL_ROUTER=$(cast call "$STAKE_ADDRESS" "ROUTER_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "ROUTER_ADDRESS" "$ROUTER_ADDRESS" "$ACTUAL_ROUTER" || ((FAILED+=1))
 
-ACTUAL_FACTORY=$(cast call "$STAKE_ADDRESS" "pairFactoryAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "pairFactoryAddress" "$FACTORY_ADDRESS" "$ACTUAL_FACTORY" || ((FAILED+=1))
+ACTUAL_FACTORY=$(cast call "$STAKE_ADDRESS" "PAIR_FACTORY_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "PAIR_FACTORY_ADDRESS" "$FACTORY_ADDRESS" "$ACTUAL_FACTORY" || ((FAILED+=1))
 
 ACTUAL_WAITING_MIN=$(cast call "$STAKE_ADDRESS" "PROMISED_WAITING_PHASES_MIN()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "PROMISED_WAITING_PHASES_MIN" "$PROMISED_WAITING_PHASES_MIN" "$ACTUAL_WAITING_MIN" || ((FAILED+=1))
@@ -315,14 +315,14 @@ verify_value "initialized" "true" "$ACTUAL_STAKE_INIT" || ((FAILED+=1))
 print_contract_header "7" "Submit" "$SUBMIT_ADDRESS"
 verify_deployed "Submit" "$SUBMIT_ADDRESS" || ((FAILED+=1))
 
-ACTUAL_SUBMIT_PHASE=$(cast call "$SUBMIT_ADDRESS" "phaseAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "phaseAddress" "$PHASE_ADDRESS" "$ACTUAL_SUBMIT_PHASE" || ((FAILED+=1))
+ACTUAL_SUBMIT_PHASE=$(cast call "$SUBMIT_ADDRESS" "PHASE_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "PHASE_ADDRESS" "$PHASE_ADDRESS" "$ACTUAL_SUBMIT_PHASE" || ((FAILED+=1))
 
-ACTUAL_SUBMIT_STAKE=$(cast call "$SUBMIT_ADDRESS" "stakeAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "stakeAddress" "$STAKE_ADDRESS" "$ACTUAL_SUBMIT_STAKE" || ((FAILED+=1))
+ACTUAL_SUBMIT_STAKE=$(cast call "$SUBMIT_ADDRESS" "STAKE_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "STAKE_ADDRESS" "$STAKE_ADDRESS" "$ACTUAL_SUBMIT_STAKE" || ((FAILED+=1))
 
-ACTUAL_SUBMIT_MEMBER=$(cast call "$SUBMIT_ADDRESS" "memberNFTAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "memberNFTAddress" "$MEMBER_NFT_ADDRESS" "$ACTUAL_SUBMIT_MEMBER" || ((FAILED+=1))
+ACTUAL_SUBMIT_MEMBER=$(cast call "$SUBMIT_ADDRESS" "MEMBER_NFT_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "MEMBER_NFT_ADDRESS" "$MEMBER_NFT_ADDRESS" "$ACTUAL_SUBMIT_MEMBER" || ((FAILED+=1))
 
 ACTUAL_MIN_RATIO=$(cast call "$SUBMIT_ADDRESS" "SUBMIT_MIN_RATIO()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "SUBMIT_MIN_RATIO" "$SUBMIT_MIN_RATIO" "$ACTUAL_MIN_RATIO" || ((FAILED+=1))
@@ -334,17 +334,17 @@ verify_value "initialized" "true" "$ACTUAL_SUBMIT_INIT" || ((FAILED+=1))
 print_contract_header "8" "Vote" "$VOTE_ADDRESS"
 verify_deployed "Vote" "$VOTE_ADDRESS" || ((FAILED+=1))
 
-ACTUAL_VOTE_STAKE=$(cast call "$VOTE_ADDRESS" "stakeAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "stakeAddress" "$STAKE_ADDRESS" "$ACTUAL_VOTE_STAKE" || ((FAILED+=1))
+ACTUAL_VOTE_STAKE=$(cast call "$VOTE_ADDRESS" "STAKE_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "STAKE_ADDRESS" "$STAKE_ADDRESS" "$ACTUAL_VOTE_STAKE" || ((FAILED+=1))
 
-ACTUAL_VOTE_SUBMIT=$(cast call "$VOTE_ADDRESS" "submitAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "submitAddress" "$SUBMIT_ADDRESS" "$ACTUAL_VOTE_SUBMIT" || ((FAILED+=1))
+ACTUAL_VOTE_SUBMIT=$(cast call "$VOTE_ADDRESS" "SUBMIT_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "SUBMIT_ADDRESS" "$SUBMIT_ADDRESS" "$ACTUAL_VOTE_SUBMIT" || ((FAILED+=1))
 
-ACTUAL_VOTE_PHASE=$(cast call "$VOTE_ADDRESS" "phaseAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "phaseAddress" "$PHASE_ADDRESS" "$ACTUAL_VOTE_PHASE" || ((FAILED+=1))
+ACTUAL_VOTE_PHASE=$(cast call "$VOTE_ADDRESS" "PHASE_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "PHASE_ADDRESS" "$PHASE_ADDRESS" "$ACTUAL_VOTE_PHASE" || ((FAILED+=1))
 
-ACTUAL_VOTE_MEMBER=$(cast call "$VOTE_ADDRESS" "memberNFTAddress()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "memberNFTAddress" "$MEMBER_NFT_ADDRESS" "$ACTUAL_VOTE_MEMBER" || ((FAILED+=1))
+ACTUAL_VOTE_MEMBER=$(cast call "$VOTE_ADDRESS" "MEMBER_NFT_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "MEMBER_NFT_ADDRESS" "$MEMBER_NFT_ADDRESS" "$ACTUAL_VOTE_MEMBER" || ((FAILED+=1))
 
 ACTUAL_VOTE_INIT=$(cast call "$VOTE_ADDRESS" "initialized()(bool)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "initialized" "true" "$ACTUAL_VOTE_INIT" || ((FAILED+=1))
