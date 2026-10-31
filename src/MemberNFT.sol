@@ -33,10 +33,9 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     // normalizedName => id
     mapping(string => uint256) internal _tokenIdByNormalizedName;
 
-    // all holder addresses
-    address[] internal _allHolders;
+    address[] internal _holders;
 
-    // holderAddress => index in _allHolders array (0-based, only valid when balanceOf(holder) > 0)
+    // holderAddress => index in _holders array (0-based, only valid when balanceOf(holder) > 0)
     mapping(address => uint256) internal _holderIndex;
 
     constructor(
@@ -63,7 +62,7 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     ) external returns (uint256 tokenId, uint256 mintCost) {
         string memory prefixedName = _addTestPrefixIfNeeded(name);
 
-        string memory normalizedName = _validateName(prefixedName);
+        string memory normalizedName = _checkName(prefixedName);
 
         mintCost = calculateMintCost(prefixedName);
         tokenId = _mintMember(msg.sender, prefixedName, normalizedName, mintCost);
@@ -149,7 +148,7 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     function holders(uint256 offset, uint256 limit, bool reverse)
         external view returns (address[] memory holderList, uint256 totalCount)
     {
-        return _allHolders.paginate(offset, limit, reverse);
+        return _holders.paginate(offset, limit, reverse);
     }
 
     function _addTestPrefixIfNeeded(
@@ -177,30 +176,22 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         return name;
     }
 
-    /**
-     * @dev Add a holder to the holders array if not already present
-     * @param holder The address to add
-     */
     function _addHolder(address holder) internal {
-        uint256 index = _allHolders.length;
-        _allHolders.push(holder);
-        _holderIndex[holder] = index; // 0-based index
+        uint256 index = _holders.length;
+        _holders.push(holder);
+        _holderIndex[holder] = index;
     }
 
-    /**
-     * @dev Remove a holder from the holders array using swap-and-pop
-     * @param holder The address to remove
-     */
     function _removeHolder(address holder) internal {
         uint256 index = _holderIndex[holder];
-        uint256 lastIndex = _allHolders.length - 1;
+        uint256 lastIndex = _holders.length - 1;
 
         if (index != lastIndex) {
-            address lastHolder = _allHolders[lastIndex];
-            _allHolders[index] = lastHolder;
+            address lastHolder = _holders[lastIndex];
+            _holders[index] = lastHolder;
             _holderIndex[lastHolder] = index;
         }
-        _allHolders.pop();
+        _holders.pop();
         delete _holderIndex[holder];
     }
 
@@ -221,12 +212,7 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         return from;
     }
 
-    /**
-     * @dev Validate member name and revert with specific error
-     * @param name The member name to validate
-     * @return normalizedName The ASCII-lowercased name, reused as the uniqueness mapping key
-     */
-    function _validateName(string memory name) internal view returns (string memory normalizedName) {
+    function _checkName(string memory name) internal view returns (string memory normalizedName) {
         bytes memory nameBytes = bytes(name);
         uint256 len = nameBytes.length;
 
@@ -246,21 +232,20 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     ) internal pure returns (bool) {
         uint256 len = nameBytes.length;
 
+        // Rejected code points are matched by first byte below; the authoritative list, grouped by
+        // category, is in 02-member-nft.md (name validation).
         uint256 i = 0;
         while (i < len) {
             uint8 byteValue = uint8(nameBytes[i]);
 
-            // Reject C0 control characters (0x00-0x1F) and space (0x20)
             if (byteValue <= 0x20) {
                 return false;
             }
 
-            // Reject DEL character (0x7F)
             if (byteValue == 0x7F) {
                 return false;
             }
 
-            // ASCII range (0x21-0x7E): valid single-byte character
             if (byteValue < 0x80) {
                 i++;
                 continue;
@@ -269,16 +254,12 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
             uint8 numBytes = 0;
 
             if (byteValue >= 0xC2 && byteValue <= 0xDF) {
-                // 2-byte sequence: 110xxxxx 10xxxxxx
                 numBytes = 2;
             } else if (byteValue >= 0xE0 && byteValue <= 0xEF) {
-                // 3-byte sequence: 1110xxxx 10xxxxxx 10xxxxxx
                 numBytes = 3;
             } else if (byteValue >= 0xF0 && byteValue <= 0xF4) {
-                // 4-byte sequence: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
                 numBytes = 4;
             } else {
-                // Invalid UTF-8 start byte (0x80-0xC1, 0xF5-0xFF)
                 return false;
             }
 
@@ -289,7 +270,6 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
             for (uint256 j = 1; j < numBytes; j++) {
                 uint8 contByte = uint8(nameBytes[i + j]);
 
-                // All continuation bytes must be in range 0x80-0xBF
                 if (contByte < 0x80 || contByte > 0xBF) {
                     return false;
                 }
@@ -300,9 +280,6 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
                 uint8 byte2 = uint8(nameBytes[i + 1]);
 
                 if (byte1 == 0xC2) {
-                    // C1 control characters (U+0080-U+009F): 0x80-0x9F
-                    // U+00A0 (No-Break Space): 0xA0
-                    // U+00AD (Soft Hyphen): 0xAD
                     if (
                         (byte2 >= 0x80 && byte2 <= 0x9F) ||
                         byte2 == 0xA0 ||
@@ -311,12 +288,10 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
                         return false;
                     }
                 } else if (byte1 == 0xCD) {
-                    // U+034F (Combining Grapheme Joiner): 0xCD 0x8F
                     if (byte2 == 0x8F) {
                         return false;
                     }
                 } else if (byte1 == 0xD8) {
-                    // U+061C (Arabic Letter Mark): 0xD8 0x9C
                     if (byte2 == 0x9C) {
                         return false;
                     }
@@ -328,18 +303,13 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
                 uint8 byte2 = uint8(nameBytes[i + 1]);
                 uint8 byte3 = uint8(nameBytes[i + 2]);
 
-                // Gas-optimized: checks grouped by first byte
 
                 if (byte1 == 0xE1) {
-                    // Check for U+1680 (Ogham Space Mark): 0xE1 0x9A 0x80
                     if (byte2 == 0x9A && byte3 == 0x80) {
                         return false;
                     }
                 } else if (byte1 == 0xE2) {
-                    // All U+2xxx forbidden characters start with 0xE2
                     if (byte2 == 0x80) {
-                        // U+2000-U+200F (spaces, zero-width chars): 0x80-0x8F
-                        // U+2028-U+202F (separators, bidi, NNBSP): 0xA8-0xAF
                         if (
                             (byte3 >= 0x80 && byte3 <= 0x8F) ||
                             (byte3 >= 0xA8 && byte3 <= 0xAF)
@@ -347,10 +317,6 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
                             return false;
                         }
                     } else if (byte2 == 0x81) {
-                        // U+205F (Medium Math Space): 0x9F
-                        // U+2060-U+2064 (Word Joiner, Invisible Math Ops): 0xA0-0xA4
-                        // U+2066-U+2069 (Bidi Isolates): 0xA6-0xA9
-                        // U+206A-U+206F (Deprecated Format Chars): 0xAA-0xAF
                         if (
                             byte3 == 0x9F ||
                             (byte3 >= 0xA0 && byte3 <= 0xA4) ||
@@ -360,22 +326,18 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
                         }
                     }
                 } else if (byte1 == 0xE3) {
-                    // Check for U+3000 (Ideographic Space): 0xE3 0x80 0x80
                     if (byte2 == 0x80 && byte3 == 0x80) {
                         return false;
                     }
                 } else if (byte1 == 0xEF) {
-                    // Check for U+FEFF (BOM): 0xEF 0xBB 0xBF
                     if (byte2 == 0xBB && byte3 == 0xBF) {
                         return false;
                     }
                 } else if (byte1 == 0xE0) {
-                    // Reject overlong encodings
                     if (byte2 < 0xA0) {
                         return false;
                     }
                 } else if (byte1 == 0xED) {
-                    // Reject UTF-16 surrogates (U+D800-U+DFFF)
                     if (byte2 >= 0xA0) {
                         return false;
                     }
@@ -387,11 +349,9 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
                 uint8 byte2 = uint8(nameBytes[i + 1]);
 
                 if (byte1 == 0xF0 && byte2 < 0x90) {
-                    // Overlong encoding
                     return false;
                 }
                 if (byte1 == 0xF4 && byte2 >= 0x90) {
-                    // Code point > U+10FFFF
                     return false;
                 }
             }

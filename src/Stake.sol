@@ -94,7 +94,7 @@ contract Stake is IStake {
     }
 
     function settleFees(address tokenAddress) external {
-        _requireToken(tokenAddress);
+        _checkToken(tokenAddress);
         _settleFees(tokenAddress, _pairFor(tokenAddress));
     }
 
@@ -114,12 +114,12 @@ contract Stake is IStake {
         if (tokenAmount == 0) revert ZeroTokenAmount();
         if (parentTokenAmount == 0) revert ZeroParentTokenAmount();
         _checkPromisedWaitingPhases(promisedWaitingPhases);
-        _requireToken(tokenAddress);
+        _checkToken(tokenAddress);
         address pair = _pairFor(tokenAddress);
-        uint256 round = _requireActiveRound();
+        uint256 round = _checkActiveRound();
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
-        _requireNoUnstakeRequest(member, tokenAddress, memberId);
+        _checkNoUnstakeRequest(member, tokenAddress, memberId);
         if (promisedWaitingPhases < member.promisedWaitingPhases) {
             revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, member.promisedWaitingPhases);
         }
@@ -135,11 +135,11 @@ contract Stake is IStake {
     {
         if (boostAmount == 0) revert ZeroBoostAmount();
         _checkPromisedWaitingPhases(promisedWaitingPhases);
-        _requireToken(tokenAddress);
+        _checkToken(tokenAddress);
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
-        _requireNoUnstakeRequest(member, tokenAddress, memberId);
-        _requireStakedLiquidity(member, tokenAddress, memberId);
+        _checkNoUnstakeRequest(member, tokenAddress, memberId);
+        _checkStakedLiquidity(member, tokenAddress, memberId);
         if (promisedWaitingPhases < member.promisedWaitingPhases) {
             revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, member.promisedWaitingPhases);
         }
@@ -181,11 +181,11 @@ contract Stake is IStake {
     }
 
     function unstake(address tokenAddress, uint256 memberId) external onlyMemberOwner(memberId) {
-        _requireToken(tokenAddress);
+        _checkToken(tokenAddress);
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
-        _requireNoUnstakeRequest(member, tokenAddress, memberId);
-        _requireStakedLiquidity(member, tokenAddress, memberId);
+        _checkNoUnstakeRequest(member, tokenAddress, memberId);
+        _checkStakedLiquidity(member, tokenAddress, memberId);
 
         uint256 round = _currentRound();
         if (_hasUsedStakeRights(tokenAddress, round, memberId)) {
@@ -221,12 +221,12 @@ contract Stake is IStake {
     }
 
     function withdraw(address tokenAddress, uint256 memberId) external onlyMemberOwner(memberId) {
-        _requireToken(tokenAddress);
+        _checkToken(tokenAddress);
         address pair = _pairFor(tokenAddress);
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
         if (member.unlockRequestPhase == 0) revert UnstakeNotRequested(tokenAddress, memberId);
-        _requireStakedLiquidity(member, tokenAddress, memberId);
+        _checkStakedLiquidity(member, tokenAddress, memberId);
 
         uint256 round = _currentRound();
         uint256 promisedWaitingPhases = member.promisedWaitingPhases;
@@ -273,14 +273,14 @@ contract Stake is IStake {
         if (sourceMemberId == targetMemberId) {
             revert SourceAndTargetMemberIdsMustBeDifferent(sourceMemberId, targetMemberId);
         }
-        _requireToken(tokenAddress);
+        _checkToken(tokenAddress);
         IMemberNFT(MEMBER_NFT_ADDRESS).ownerOf(targetMemberId);
 
         MemberStake storage source = _memberStake[tokenAddress][sourceMemberId];
         MemberStake storage target = _memberStake[tokenAddress][targetMemberId];
-        _requireNoUnstakeRequest(source, tokenAddress, sourceMemberId);
-        _requireNoUnstakeRequest(target, tokenAddress, targetMemberId);
-        _requireStakedLiquidity(source, tokenAddress, sourceMemberId);
+        _checkNoUnstakeRequest(source, tokenAddress, sourceMemberId);
+        _checkNoUnstakeRequest(target, tokenAddress, targetMemberId);
+        _checkStakedLiquidity(source, tokenAddress, sourceMemberId);
 
         uint256 round = _currentRound();
         if (_hasUsedStakeRights(tokenAddress, round, sourceMemberId)) {
@@ -327,22 +327,22 @@ contract Stake is IStake {
         view
         returns (uint256)
     {
-        _requireRoundStarted(round);
+        _checkRoundStarted(round);
         return _validGovVotesByMember[tokenAddress][memberId].value(round);
     }
 
     function totalValidGovVotes(address tokenAddress, uint256 round) external view returns (uint256) {
-        _requireRoundStarted(round);
+        _checkRoundStarted(round);
         return _totalValidGovVotesAt(tokenAddress, round);
     }
 
     function totalValidGovVotesAdded(address tokenAddress, uint256 round) external view returns (uint256) {
-        _requireRoundStarted(round);
+        _checkRoundStarted(round);
         return _totalValidGovVotesAdded[tokenAddress].value(round);
     }
 
     function totalValidGovVotesRemoved(address tokenAddress, uint256 round) external view returns (uint256) {
-        _requireRoundStarted(round);
+        _checkRoundStarted(round);
         return _totalValidGovVotesRemoved[tokenAddress].value(round);
     }
 
@@ -421,22 +421,22 @@ contract Stake is IStake {
         view
         returns (uint256)
     {
-        _requireRoundStarted(round);
+        _checkRoundStarted(round);
         return _validBoostSharesByMember[tokenAddress][memberId].value(round);
     }
 
     function totalValidBoostShares(address tokenAddress, uint256 round) external view returns (uint256) {
-        _requireRoundStarted(round);
+        _checkRoundStarted(round);
         return _totalValidBoostSharesAt(tokenAddress, round);
     }
 
     function totalValidBoostSharesAdded(address tokenAddress, uint256 round) external view returns (uint256) {
-        _requireRoundStarted(round);
+        _checkRoundStarted(round);
         return _totalValidBoostSharesAdded[tokenAddress].value(round);
     }
 
     function totalValidBoostSharesRemoved(address tokenAddress, uint256 round) external view returns (uint256) {
-        _requireRoundStarted(round);
+        _checkRoundStarted(round);
         return _totalValidBoostSharesRemoved[tokenAddress].value(round);
     }
 
@@ -444,7 +444,7 @@ contract Stake is IStake {
         return IPhase(PHASE_ADDRESS).currentPhase();
     }
 
-    function _requireRoundStarted(uint256 round) private view {
+    function _checkRoundStarted(uint256 round) private view {
         uint256 currentRound = _currentRound();
         if (round > currentRound) revert RoundNotStarted(round, currentRound);
     }
@@ -459,7 +459,7 @@ contract Stake is IStake {
             - _totalValidBoostSharesRemoved[tokenAddress].value(round);
     }
 
-    function _requireActiveRound() private view returns (uint256 round) {
+    function _checkActiveRound() private view returns (uint256 round) {
         round = _currentRound();
         if (round == 0) revert NotAllowedToStakeAtRoundZero();
     }
@@ -472,11 +472,11 @@ contract Stake is IStake {
         }
     }
 
-    function _requireToken(address tokenAddress) private view {
+    function _checkToken(address tokenAddress) private view {
         if (!ILaunch(LAUNCH_ADDRESS).isLOVE20Token(tokenAddress)) revert TokenNotRegistered(tokenAddress);
     }
 
-    function _requireNoUnstakeRequest(
+    function _checkNoUnstakeRequest(
         MemberStake storage member,
         address tokenAddress,
         uint256 memberId
@@ -484,7 +484,7 @@ contract Stake is IStake {
         if (member.unlockRequestPhase != 0) revert UnstakeAlreadyRequested(tokenAddress, memberId);
     }
 
-    function _requireStakedLiquidity(
+    function _checkStakedLiquidity(
         MemberStake storage member,
         address tokenAddress,
         uint256 memberId
@@ -722,8 +722,8 @@ contract Stake is IStake {
         }
     }
 
-    /// @dev The accounted LP total is always `lastFeeLp + lastWithdrawableLp`: LP transferred to this
-    ///      contract from outside is claimable by nobody, so it must not shift the fee baseline.
+    // The accounted LP total is always `lastFeeLp + lastWithdrawableLp`: LP transferred to this
+    // contract from outside is claimable by nobody, so it must not shift the fee baseline.
     function _updateSqrtKBaseline(TotalStake storage totals, address pair, address tokenAddress) private {
         (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
         if (pairTotalSupply == 0) {
@@ -798,9 +798,9 @@ contract Stake is IStake {
         _realizeFees(tokenAddress, pair, settlementUnit, round);
     }
 
-    /// @dev `pair.burn` reverts when either side of the proportional payout floors to zero, so a unit too
-    ///      small to move both reserves is skipped instead of failing the settlement. `lp * reserve >=
-    ///      totalSupply` is the exact integer form of `lp * reserve / totalSupply > 0`.
+    // `pair.burn` reverts when either side of the proportional payout floors to zero, so a unit too
+    // small to move both reserves is skipped instead of failing the settlement. `lp * reserve >=
+    // totalSupply` is the exact integer form of `lp * reserve / totalSupply > 0`.
     function _canBurn(uint256 lpAmount, uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply)
         private
         pure

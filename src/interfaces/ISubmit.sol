@@ -4,7 +4,6 @@ pragma solidity =0.8.37;
 enum TargetMode { NoCallback, Callback }
 
 struct ProposalHead {
-    // managed by contract
     uint256 id;
     uint256 author;
     uint256 createAtBlock;
@@ -123,7 +122,7 @@ interface ISubmit is ISubmitErrors, ISubmitEvents {
     function submitNewProposal(
         address tokenAddress,
         uint256 memberId,
-        ProposalBody calldata body
+        ProposalBody calldata proposalBody
     ) external returns (uint256 proposalId);
 
     function submit(address tokenAddress, uint256 memberId, uint256 proposalId) external;

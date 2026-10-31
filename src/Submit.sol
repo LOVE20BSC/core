@@ -30,7 +30,7 @@ contract Submit is ISubmit {
     mapping(address => ProposalInfo[]) internal _proposals;
 
     // tokenAddress => author => proposalId[]
-    mapping(address => mapping(uint256 => uint256[])) internal _authorProposalIds;
+    mapping(address => mapping(uint256 => uint256[])) internal _proposalIdsByAuthor;
     // tokenAddress => round => SubmitInfo[]
     mapping(address => mapping(uint256 => SubmitInfo[]))
         internal _submits;
@@ -85,7 +85,7 @@ contract Submit is ISubmit {
         return requiredVotes != 0 && validVotes >= requiredVotes;
     }
 
-    function _requireSubmitPower(address tokenAddress, uint256 memberId) private view {
+    function _checkSubmitPower(address tokenAddress, uint256 memberId) private view {
         (uint256 validVotes, uint256 requiredVotes, uint256 totalVotes) = _submitPower(tokenAddress, memberId);
         if (totalVotes == 0) {
             revert NoGovVotes(tokenAddress);
@@ -107,8 +107,8 @@ contract Submit is ISubmit {
         uint256 memberId,
         ProposalBody calldata proposalBody
     ) external onlyMemberOwner(memberId) returns (uint256 proposalId) {
-        _validateProposalBody(proposalBody);
-        _requireSubmitPower(tokenAddress, memberId);
+        _checkProposalBody(proposalBody);
+        _checkSubmitPower(tokenAddress, memberId);
 
         proposalId = _createProposal(tokenAddress, memberId, proposalBody);
 
@@ -122,8 +122,8 @@ contract Submit is ISubmit {
         external
         onlyMemberOwner(memberId)
     {
-        _requireProposalExists(tokenAddress, proposalId);
-        _requireSubmitPower(tokenAddress, memberId);
+        _checkExistingProposal(tokenAddress, proposalId);
+        _checkSubmitPower(tokenAddress, memberId);
 
         _submitByProposalId(tokenAddress, memberId, proposalId);
         _callProposalSubmitted(tokenAddress, proposalId, memberId);
@@ -156,7 +156,7 @@ contract Submit is ISubmit {
         uint256 limit,
         bool reverse
     ) external view returns (uint256[] memory proposalIdList, uint256 totalCount) {
-        return _authorProposalIds[tokenAddress][author].paginate(offset, limit, reverse);
+        return _proposalIdsByAuthor[tokenAddress][author].paginate(offset, limit, reverse);
     }
 
     function proposalTarget(address tokenAddress, uint256 proposalId)
@@ -164,7 +164,7 @@ contract Submit is ISubmit {
         view
         returns (address target, TargetMode targetMode)
     {
-        _requireProposalExists(tokenAddress, proposalId);
+        _checkExistingProposal(tokenAddress, proposalId);
         ProposalBody storage body = _proposals[tokenAddress][proposalId - 1].body;
         return (body.target, body.targetMode);
     }
@@ -175,7 +175,7 @@ contract Submit is ISubmit {
     ) external view returns (ProposalInfo[] memory) {
         ProposalInfo[] memory infos = new ProposalInfo[](requestedProposalIds.length);
         for (uint256 i = 0; i < requestedProposalIds.length; i++) {
-            _requireProposalExists(tokenAddress, requestedProposalIds[i]);
+            _checkExistingProposal(tokenAddress, requestedProposalIds[i]);
             infos[i] = _proposals[tokenAddress][requestedProposalIds[i] - 1];
         }
         return infos;
@@ -212,7 +212,7 @@ contract Submit is ISubmit {
         return _submitInfoByProposalId[tokenAddress][round][proposalId].submitterId;
     }
 
-    function _validateProposalBody(ProposalBody calldata proposalBody) internal view {
+    function _checkProposalBody(ProposalBody calldata proposalBody) internal view {
         uint256 titleLength = bytes(proposalBody.title).length;
         if (titleLength == 0) revert TitleEmpty();
         if (titleLength > MAX_TITLE_LENGTH) revert TitleTooLong(titleLength, MAX_TITLE_LENGTH);
@@ -251,7 +251,7 @@ contract Submit is ISubmit {
         });
 
         _proposals[tokenAddress].push(ProposalInfo({head: head, body: proposalBody}));
-        _authorProposalIds[tokenAddress][memberId].push(proposalId);
+        _proposalIdsByAuthor[tokenAddress][memberId].push(proposalId);
 
         emit ProposalCreated({
             tokenAddress: tokenAddress,
@@ -267,7 +267,7 @@ contract Submit is ISubmit {
         return proposalId;
     }
 
-    function _requireProposalExists(address tokenAddress, uint256 proposalId) internal view {
+    function _checkExistingProposal(address tokenAddress, uint256 proposalId) internal view {
         if (proposalId == 0 || proposalId > _proposals[tokenAddress].length) {
             // forge-lint: disable-next-line(require-revert-in-loop)
             revert ProposalNotFound(proposalId);
@@ -279,7 +279,7 @@ contract Submit is ISubmit {
         uint256 memberId,
         uint256 proposalId
     ) internal {
-        _requireProposalExists(tokenAddress, proposalId);
+        _checkExistingProposal(tokenAddress, proposalId);
 
         uint256 round = currentRound();
         if (isSubmitted(tokenAddress, round, proposalId)) {

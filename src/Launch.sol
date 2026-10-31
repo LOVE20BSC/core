@@ -37,7 +37,6 @@ contract Launch is ILaunch {
         _;
     }
 
-    // creation-ordered list of every launched token, the first token included
     address[] internal _tokens;
     // tokenAddress => parent token address; the zero address means Launch did not create the token
     mapping(address => address) internal _parentTokenByTokenAddress;
@@ -118,9 +117,6 @@ contract Launch is ILaunch {
             });
         }
 
-        // Mainnet test support: a parent symbol starting with "Test" prefixes the sub-token symbol; a
-        // root-level launch reads the first token instead, since the root parent symbol is shared across
-        // networks. The prefix is applied after the symbol check, so the actual symbol may exceed the length.
         string memory parentTokenSymbol = ILOVE20Token(parentTokenAddress).symbol();
         string memory prefixSourceSymbol = parentTokenAddress == ROOT_PARENT_TOKEN_ADDRESS
             ? ILOVE20Token(FIRST_TOKEN_ADDRESS).symbol()
@@ -131,9 +127,6 @@ contract Launch is ILaunch {
         }
         string memory tokenName = string.concat(subTokenSymbol, "@", parentTokenSymbol);
 
-        // Registration must follow creation because the token address is only known afterwards; a
-        // reentrant call cannot observe an inconsistent registry, and the registry is complete before
-        // the distributor callback runs.
         // forge-lint: disable-next-item(reentrancy-no-eth)
         tokenAddress = _createToken(parentTokenAddress, tokenName, subTokenSymbol, distributor);
         _tokens.push(tokenAddress);
@@ -266,22 +259,10 @@ contract Launch is ILaunch {
         }
     }
 
-    /**
-     * @dev Read the current owner of a member NFT; a missing member reverts with the MemberNFT error.
-     */
     function _ownerOf(uint256 memberId) internal view returns (address) {
         return IMemberNFT(MEMBER_NFT_ADDRESS).ownerOf(memberId);
     }
 
-    /**
-     * @dev Sub-token symbol rules: the UTF-8 byte length must equal the configured TOKEN_SYMBOL_LENGTH;
-     *      the first character must be ASCII "A"-"Z" or a Chinese character, every following character
-     *      must be ASCII "A"-"Z", "0"-"9" or a Chinese character. ASCII codes: "A"-"Z" is 0x41-0x5A,
-     *      "0"-"9" is 0x30-0x39; a Chinese character is the three-byte UTF-8 encoding of a code point
-     *      in the CJK Unified Ideographs block U+4E00-U+9FFF, so a pure-Chinese symbol needs a
-     *      configured length that is a multiple of three. Any other byte sequence reverts, including
-     *      incomplete UTF-8 sequences and multi-byte characters outside the block.
-     */
     function _checkValidTokenSymbol(string calldata tokenSymbol) internal view {
         bytes calldata symbolBytes = bytes(tokenSymbol);
         uint256 length = symbolBytes.length;
@@ -290,11 +271,6 @@ contract Launch is ILaunch {
         if (!_isValidTokenSymbolBytes(symbolBytes)) revert InvalidTokenSymbolCharacters();
     }
 
-    /**
-     * @dev Whether every character of the symbol bytes is allowed: the first position must be ASCII
-     *      "A"-"Z" or a Chinese character, the remaining positions must be ASCII "A"-"Z", "0"-"9" or
-     *      a Chinese character.
-     */
     function _isValidTokenSymbolBytes(bytes calldata symbolBytes) internal pure returns (bool) {
         uint256 length = symbolBytes.length;
         uint256 i = 0;
@@ -313,12 +289,6 @@ contract Launch is ILaunch {
         return true;
     }
 
-    /**
-     * @dev Whether the three bytes starting at the index encode a Chinese character in the CJK
-     *      Unified Ideographs block U+4E00-U+9FFF: two continuation bytes 0x80-0xBF after a lead byte
-     *      0xE5-0xE9, or after 0xE4 with a second byte of at least 0xB8 (0xE4 with a lower second byte
-     *      lies below U+4E00). An incomplete trailing sequence cannot match.
-     */
     function _isChineseChar(bytes calldata symbolBytes, uint256 start, uint256 length)
         internal
         pure
@@ -335,9 +305,6 @@ contract Launch is ILaunch {
         return byte1 >= 0xE5 && byte1 <= 0xE9;
     }
 
-    /**
-     * @dev NoCallback ignores distributor data; Callback requires a contract distributor.
-     */
     function _checkDistributorMode(
         DistributorMode distributorMode,
         address distributor
@@ -348,11 +315,6 @@ contract Launch is ILaunch {
         if (distributor.code.length == 0) revert DistributorNotContract(distributor);
     }
 
-    /**
-     * @dev Add the "Test" prefix when the prefix source symbol starts with "Test"; the comparison uses the
-     *      first four bytes, so a shorter symbol never matches. The caller passes the parent token symbol,
-     *      or the first token symbol for root-level launches whose root parent symbol is shared across networks.
-     */
     function _addTestPrefixIfNeeded(string calldata tokenSymbol, string memory prefixSourceSymbol)
         internal
         pure
