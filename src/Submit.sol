@@ -142,8 +142,6 @@ contract Submit is ISubmit {
     function proposalIds(address tokenAddress, uint256 offset, uint256 limit, bool reverse)
         external view returns (uint256[] memory proposalIdList, uint256 totalCount) {
         totalCount = _proposals[tokenAddress].length;
-        // Proposal records carry bodies, so only their ids belong on a page; bodies come from
-        // proposalInfosByProposalIds.
         uint256[] memory indices = Pagination.paginateIndices(totalCount, offset, limit, reverse);
         proposalIdList = new uint256[](indices.length);
         for (uint256 i = 0; i < indices.length; i++) {
@@ -166,9 +164,7 @@ contract Submit is ISubmit {
         view
         returns (address target, TargetMode targetMode)
     {
-        if (proposalId == 0 || proposalId > _proposals[tokenAddress].length) {
-            revert ProposalNotFound(proposalId);
-        }
+        _requireProposalExists(tokenAddress, proposalId);
         ProposalBody storage body = _proposals[tokenAddress][proposalId - 1].body;
         return (body.target, body.targetMode);
     }
@@ -179,10 +175,7 @@ contract Submit is ISubmit {
     ) external view returns (ProposalInfo[] memory) {
         ProposalInfo[] memory infos = new ProposalInfo[](requestedProposalIds.length);
         for (uint256 i = 0; i < requestedProposalIds.length; i++) {
-            if (requestedProposalIds[i] == 0 || requestedProposalIds[i] > _proposals[tokenAddress].length) {
-                // forge-lint: disable-next-line(require-revert-in-loop)
-                revert ProposalNotFound(requestedProposalIds[i]);
-            }
+            _requireProposalExists(tokenAddress, requestedProposalIds[i]);
             infos[i] = _proposals[tokenAddress][requestedProposalIds[i] - 1];
         }
         return infos;
@@ -276,6 +269,7 @@ contract Submit is ISubmit {
 
     function _requireProposalExists(address tokenAddress, uint256 proposalId) internal view {
         if (proposalId == 0 || proposalId > _proposals[tokenAddress].length) {
+            // forge-lint: disable-next-line(require-revert-in-loop)
             revert ProposalNotFound(proposalId);
         }
     }
@@ -285,7 +279,6 @@ contract Submit is ISubmit {
         uint256 memberId,
         uint256 proposalId
     ) internal {
-        // Checks
         _requireProposalExists(tokenAddress, proposalId);
 
         uint256 round = currentRound();
@@ -300,7 +293,6 @@ contract Submit is ISubmit {
             revert SubmitRoundFull(tokenAddress, round, SUBMIT_ROUND_LIMIT);
         }
 
-        // Effects
         SubmitInfo memory submitInfo = SubmitInfo(
             memberId,
             proposalId
@@ -324,7 +316,6 @@ contract Submit is ISubmit {
             proposalId: proposalId
         });
 
-        // Interactions
         if (isFirstSubmit) {
             // forge-lint: disable-next-line(unused-return)
             IPhase(PHASE_ADDRESS).sync();

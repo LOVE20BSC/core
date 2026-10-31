@@ -11,22 +11,15 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Pagination} from "@libs/Pagination.sol";
 
-/**
- * @title MemberNFT
- * @notice ERC721-based Member identity system for LOVE20 ecosystem
- */
 contract MemberNFT is ERC721Enumerable, IMemberNFT {
     using Pagination for address[];
     using SafeERC20 for IERC20;
-    // ============ Fixed Parameters ============
 
     address public LOVE20_TOKEN_ADDRESS;
     uint256 public immutable BASE_DIVISOR;
     uint256 public immutable BYTES_THRESHOLD;
     uint256 public immutable MULTIPLIER;
     uint256 public immutable MAX_NAME_LENGTH;
-
-    // ============ State Variables ============
 
     bool public initialized;
 
@@ -46,14 +39,6 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     // holderAddress => index in _allHolders array (0-based, only valid when balanceOf(holder) > 0)
     mapping(address => uint256) internal _holderIndex;
 
-    // ============ Constructor ============
-
-    /**
-     * @param baseDivisor Base divisor for cost calculation (e.g., 1e8)
-     * @param bytesThreshold Byte length threshold for cost multiplier (e.g., 7)
-     * @param multiplier Multiplier for short names (e.g., 10)
-     * @param maxNameLength Maximum name length in bytes (e.g., 32)
-     */
     constructor(
         uint256 baseDivisor,
         uint256 bytesThreshold,
@@ -73,15 +58,6 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         initialized = true;
     }
 
-    // ============ Member Functions ============
-
-    /**
-     * @notice Mint a new member identity with the given name
-     * @dev Requires payment in LOVE20 tokens based on name length.
-     *      Uses safeMint to ensure recipient can receive ERC721.
-     * @param name The unique name for the member
-     * @return tokenId The newly minted token ID
-     */
     function mint(
         string calldata name
     ) external returns (uint256 tokenId, uint256 mintCost) {
@@ -125,12 +101,6 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         return tokenId;
     }
 
-    /**
-     * @notice Calculate the cost to mint a member with the given name
-     * @dev Uses the supplied name's byte length without adding a Test prefix.
-     * @param name The member name to calculate cost for
-     * @return The cost in LOVE20 tokens
-     */
     function calculateMintCost(
         string memory name
     ) public view returns (uint256) {
@@ -152,72 +122,36 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         return baseCost * (MULTIPLIER ** difference);
     }
 
-    /**
-     * @notice Get the member name for a token ID
-     * @param tokenId The member NFT token id to query
-     * @return The member name associated with the token id (empty string if the token does not exist)
-     */
     function memberName(
         uint256 tokenId
     ) external view returns (string memory) {
         return _memberNameByTokenId[tokenId];
     }
 
-    /**
-     * @notice Check if a member name is already used (case-insensitive)
-     * @param name The member name to check
-     * @return True if the member name is already used
-     */
     function isNameUsed(
         string calldata name
     ) external view returns (bool) {
         return _tokenIdByNormalizedName[_toLowerCase(name)] != 0;
     }
 
-    /**
-     * @notice Get token ID by member name (case-insensitive)
-     * @param name The member name to query
-     * @return The token ID associated with the member name (0 if not exists)
-     */
     function memberId(
         string calldata name
     ) external view returns (uint256) {
         return _tokenIdByNormalizedName[_toLowerCase(name)];
     }
 
-    /**
-     * @notice Get the normalized (lowercase) version of a member name
-     * @param name The member name to normalize
-     * @return The normalized member name with ASCII uppercase converted to lowercase
-     */
     function normalizeName(
         string calldata name
     ) external pure returns (string memory) {
         return _toLowerCase(name);
     }
 
-    /**
-     * @notice Get paginated list of holder addresses
-     * @param offset Starting index in the holders array (0-based)
-     * @param limit Maximum number of holders to return
-     * @param reverse If true, iterate from the end (newest holders first)
-     * @return holderList Array of holder addresses in the requested page
-     * @return totalCount Total number of unique holders
-     */
     function holders(uint256 offset, uint256 limit, bool reverse)
         external view returns (address[] memory holderList, uint256 totalCount)
     {
         return _allHolders.paginate(offset, limit, reverse);
     }
 
-    // ============ Internal Functions ============
-
-    /**
-     * @dev Add "Test" prefix to member name if token symbol starts with "Test"
-     *      and member name doesn't already start with "Test"
-     * @param name The original member name
-     * @return The member name with "Test" prefix added if needed
-     */
     function _addTestPrefixIfNeeded(
         string memory name
     ) internal view returns (string memory) {
@@ -300,7 +234,6 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         if (len > MAX_NAME_LENGTH) revert NameTooLong(len, MAX_NAME_LENGTH);
         if (!_isValidNameChars(nameBytes)) revert NameInvalidCharacters();
 
-        // Check uniqueness (case-insensitive)
         normalizedName = _toLowerCase(name);
         uint256 existingTokenId = _tokenIdByNormalizedName[normalizedName];
         if (existingTokenId != 0) {
@@ -308,31 +241,11 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         }
     }
 
-    /**
-     * @dev Validate member name characters and format
-     * @param nameBytes The member name bytes to validate
-     * @return bool True if the member name characters are valid
-     *
-     * Validation rules:
-     * - Must be valid UTF-8 encoding
-     * - No ASCII whitespace (0x20) or control characters (0x00-0x1F, 0x7F)
-     * - No Unicode whitespace characters (U+00A0, U+1680, U+2000-U+200A, U+202F, U+205F, U+3000)
-     * - No zero-width characters (U+200B-U+200F, U+034F, U+FEFF, U+2060, U+00AD)
-     * - No line/paragraph separators (U+2028, U+2029)
-     * - No directional formatting (U+061C, U+202A-U+202E, U+2066-U+2069)
-     * - No invisible mathematical operators (U+2061-U+2064)
-     * - No deprecated format characters (U+206A-U+206F)
-     * - Supports UTF-8 encoded characters including Unicode
-     *
-     * Note: We check byte length, not character count. A single Unicode
-     * character may use multiple bytes in UTF-8 encoding.
-     */
     function _isValidNameChars(
         bytes memory nameBytes
     ) internal pure returns (bool) {
         uint256 len = nameBytes.length;
 
-        // Validate UTF-8 encoding and check for invalid characters
         uint256 i = 0;
         while (i < len) {
             uint8 byteValue = uint8(nameBytes[i]);
@@ -353,10 +266,8 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
                 continue;
             }
 
-            // Multi-byte UTF-8 sequence validation
             uint8 numBytes = 0;
 
-            // Determine expected sequence length based on first byte
             if (byteValue >= 0xC2 && byteValue <= 0xDF) {
                 // 2-byte sequence: 110xxxxx 10xxxxxx
                 numBytes = 2;
@@ -371,12 +282,10 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
                 return false;
             }
 
-            // Check if there are enough remaining bytes
             if (i + numBytes > len) {
                 return false;
             }
 
-            // Validate continuation bytes and check for forbidden sequences
             for (uint256 j = 1; j < numBytes; j++) {
                 uint8 contByte = uint8(nameBytes[i + j]);
 
@@ -386,8 +295,6 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
                 }
             }
 
-            // Now check for forbidden Unicode characters
-            // Gas-optimized: checks grouped by first byte
             if (numBytes == 2) {
                 uint8 byte1 = uint8(nameBytes[i]);
                 uint8 byte2 = uint8(nameBytes[i + 1]);
@@ -479,8 +386,6 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
                 uint8 byte1 = uint8(nameBytes[i]);
                 uint8 byte2 = uint8(nameBytes[i + 1]);
 
-                // Additional validation for 4-byte sequences
-                // Reject overlong encodings and code points > U+10FFFF
                 if (byte1 == 0xF0 && byte2 < 0x90) {
                     // Overlong encoding
                     return false;
@@ -491,28 +396,18 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
                 }
             }
 
-            // Move to next character
             i += numBytes;
         }
 
         return true;
     }
 
-    /**
-     * @dev Convert ASCII uppercase letters (A-Z) to lowercase (a-z)
-     * @param str The string to convert
-     * @return A new string with uppercase letters converted to lowercase
-     * @notice Only converts ASCII letters (0x41-0x5A). Unicode characters
-     *         (e.g., German ß, Turkish İ, etc.) are NOT converted due to
-     *         complexity of Unicode case mapping rules.
-     */
     function _toLowerCase(
         string memory str
     ) internal pure returns (string memory) {
         bytes memory bStr = bytes(str);
         bytes memory result = new bytes(bStr.length);
         for (uint256 i = 0; i < bStr.length; i++) {
-            // ASCII A-Z: 0x41-0x5A -> a-z: 0x61-0x7A
             if (bStr[i] >= 0x41 && bStr[i] <= 0x5A) {
                 result[i] = bytes1(uint8(bStr[i]) + 32);
             } else {

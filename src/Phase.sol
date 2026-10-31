@@ -88,7 +88,6 @@ contract Phase is IPhase {
         if (phase == 0) revert PhaseNotStarted();
         uint256 phaseBlocks = _phaseBlocks(phase);
         if (_lastSyncPhase == phase) {
-            // No adjustment occurred before this idempotent sync; return false explicitly.
             // forge-lint: disable-next-line(boolean-cst)
             return (false, phaseBlocks);
         }

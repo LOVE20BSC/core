@@ -16,9 +16,6 @@ import {IUniswapV2Router02} from "./interfaces/UniswapV2/IUniswapV2Router02.sol"
 import {IVote} from "./interfaces/IVote.sol";
 import {IStake, MemberStake, TotalStake} from "./interfaces/IStake.sol";
 
-// The swap amounts actually deposited and the share price basis of this add have to travel together from
-// `_addLiquidity` to `_creditLiquidity`; packing them into one memory struct keeps the two functions
-// below the 16-slot limit instead of returning four separate values.
 struct AddedLiquidity {
     uint256 tokenAmountDesired;
     uint256 parentTokenAmountDesired;
@@ -28,9 +25,6 @@ struct AddedLiquidity {
     uint256 withdrawableLpBefore;
 }
 
-// The merge payload has to be assembled while the source position still exists and emitted only after
-// the boost history moved; carrying its nine values in one memory struct keeps `mergeStake` below the
-// 16-slot limit instead of holding nine locals alive across the emit.
 struct MergedStake {
     uint256 liquidityShares;
     uint256 boostShares;
@@ -65,8 +59,6 @@ contract Stake is IStake {
     mapping(address => mapping(uint256 => MemberStake)) internal _memberStake;
     mapping(address => uint256) internal _totalBurnedToken;
     mapping(address => uint256) internal _totalParentTokenBurned;
-    // Valid weights are kept as two cumulative ledgers per community; the level is their difference,
-    // so `total == added - removed` holds by construction instead of by maintenance.
     mapping(address => RoundHistoryUint256.History) internal _totalValidGovVotesAdded;
     mapping(address => RoundHistoryUint256.History) internal _totalValidGovVotesRemoved;
     mapping(address => RoundHistoryUint256.History) internal _totalValidBoostSharesAdded;
@@ -153,8 +145,6 @@ contract Stake is IStake {
         }
 
         uint256 round = _currentRound();
-        // No reentrancy guard: the entry validates first and the boost tokens are pulled before any
-        // accounting changes, so a reentrant call can only observe the state this call already settled.
         _pull(tokenAddress, msg.sender, boostAmount);
 
         TotalStake storage totals = _totalStake[tokenAddress];
@@ -209,8 +199,6 @@ contract Stake is IStake {
         _totalValidGovVotesRemoved[tokenAddress].increase(round, govVotes);
         _validGovVotesByMember[tokenAddress][memberId].decrease(round, govVotes);
 
-        // The boost leaves the community history as soon as the unlock is requested, keeping the old
-        // `LOVE20Stake` behaviour; the withdrawal must not subtract it a second time.
         if (boostShares > 0) {
             _validBoostSharesByMember[tokenAddress][memberId].decrease(round, boostShares);
             _totalValidBoostSharesRemoved[tokenAddress].increase(round, boostShares);
@@ -244,8 +232,6 @@ contract Stake is IStake {
         uint256 promisedWaitingPhases = member.promisedWaitingPhases;
         uint256 liquidityShares = member.liquidityShares;
         uint256 boostShares = member.boostShares;
-        // The promised waiting period is counted in whole phases beyond the request phase, matching the
-        // old `LOVE20Stake.withdraw`: phase P after the request is still too early.
         if (round <= member.unlockRequestPhase + promisedWaitingPhases) {
             revert InsufficientWaitingPhases(round, member.unlockRequestPhase + promisedWaitingPhases);
         }
@@ -410,7 +396,7 @@ contract Stake is IStake {
     {
         TotalStake storage totals = _totalStake[tokenAddress];
         totalLiquidityShares = totals.totalLiquidityShares;
-        totalLp = totals.totalLp;
+        totalLp = totals.lastFeeLp + totals.lastWithdrawableLp;
         totalBoostShares = totals.totalBoostShares;
 
         address pair = _pairAddressByTokenAddress[tokenAddress];
@@ -424,8 +410,6 @@ contract Stake is IStake {
         }
     }
 
-    /// @dev Returns a boolean for any token address, like `memberStake`: an unregistered community simply has
-    ///      no withdrawal to report, so callers get `false` instead of a revert.
     function canWithdraw(address tokenAddress, uint256 memberId) external view returns (bool) {
         MemberStake storage member = _memberStake[tokenAddress][memberId];
         if (member.unlockRequestPhase == 0) return false;
@@ -460,8 +444,6 @@ contract Stake is IStake {
         return IPhase(PHASE_ADDRESS).currentPhase();
     }
 
-    /// @dev A round that has not started has no record yet: reverting keeps the old behaviour instead
-    ///      of reporting the latest record as if it belonged to a future round.
     function _requireRoundStarted(uint256 round) private view {
         uint256 currentRound = _currentRound();
         if (round > currentRound) revert RoundNotStarted(round, currentRound);
@@ -524,16 +506,10 @@ contract Stake is IStake {
     }
 
     function _push(address tokenAddress, address to, uint256 amount) private {
-        // No reentrancy guard: the caller validated and priced the position before this payout, and the
-        // LP accounting is written from the amounts the pair returns, never from a state a reentered
-        // call could observe half applied.
         // forge-lint: disable-next-line(reentrancy-no-eth)
         IERC20(tokenAddress).safeTransfer(to, amount);
     }
 
-    /// @dev Launch creates the pair of every token when it is launched, so the first stake only has to read
-    ///      it from the factory and remember it. A community without a pair is not stakeable and is rejected
-    ///      here instead of being created on the side.
     function _pairFor(address tokenAddress) private returns (address pair) {
         pair = _pairAddressByTokenAddress[tokenAddress];
         if (pair == address(0)) {
@@ -545,9 +521,6 @@ contract Stake is IStake {
         }
     }
 
-    /// @dev Moves the source stake into the target and re-prices the merged governance votes. The target
-    ///      keeps its own waiting phases when it is not empty, so the merged liquidity can only raise the
-    ///      vote count and the subtraction below cannot underflow.
     function _mergeIntoTarget(
         address tokenAddress,
         uint256 round,
@@ -613,8 +586,6 @@ contract Stake is IStake {
         MemberStake storage member = _memberStake[tokenAddress][memberId];
         TotalStake storage totals = _totalStake[tokenAddress];
 
-        // Zero-priced basis keeps the old `LOVE20SLToken` branch: the whole basis was reclassified into
-        // fees, so the deposit is worth its own LP amount instead of dividing by zero.
         liquiditySharesAdded = totals.totalLiquidityShares == 0 || added.withdrawableLpBefore == 0
             ? added.lpMinted
             : (totals.totalLiquidityShares * added.lpMinted) / added.withdrawableLpBefore;
@@ -663,8 +634,6 @@ contract Stake is IStake {
         added.tokenAmountDesired = tokenAmount;
         added.parentTokenAmountDesired = parentTokenAmount;
 
-        // Fee reclassification runs before the shares are priced, so the new deposit is priced against
-        // the withdrawable basis that already excludes this round's fees.
         (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
         (totals.lastFeeLp, totals.lastWithdrawableLp, totals.lastSqrtKOfLp) =
             _reclassify(totals, reserveToken, reserveParent, pairTotalSupply);
@@ -689,7 +658,6 @@ contract Stake is IStake {
         returns (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply)
     {
         IUniswapV2Pair pairContract = IUniswapV2Pair(pair);
-        // The pair's cached timestamp is not part of the LP accounting, only the two reserves are.
         // forge-lint: disable-next-line(unused-return)
         (uint112 reserve0, uint112 reserve1, ) = pairContract.getReserves();
         pairTotalSupply = pairContract.totalSupply();
@@ -709,8 +677,6 @@ contract Stake is IStake {
         uint256 lastWithdrawableLp = totals.lastWithdrawableLp;
         uint256 lastSqrtKOfLp = totals.lastSqrtKOfLp;
 
-        // Without a baseline the ratio below would price the whole basis down to zero, so an unset baseline
-        // skips reclassification instead of reclassifying everything into fees.
         if (lastFeeLp + lastWithdrawableLp == 0 || lastSqrtKOfLp == 0 || pairTotalSupply == 0) {
             return (lastFeeLp, lastWithdrawableLp, lastSqrtKOfLp);
         }
@@ -751,26 +717,23 @@ contract Stake is IStake {
         (uint256 productHigh, uint256 productLow) = Math.mul512(desiredAmount, slippage);
         (uint256 deviationHigh, uint256 deviationLow) = Math.mul512(deviation, SLIPPAGE_PRECISION);
         if (deviationHigh > productHigh || (deviationHigh == productHigh && deviationLow > productLow)) {
-            // The condition above guarantees the floor is below `deviation`, so it fits in uint256.
             uint256 maxDeviation = Math.mulDiv(desiredAmount, slippage, SLIPPAGE_PRECISION);
             revert SlippageExceeded(deviation, maxDeviation);
         }
     }
 
-    /// @dev `totalLp` is owned here and always means the accounted amount: LP transferred to this contract
-    ///      from outside is claimable by nobody, so it must not shift the fee baseline.
+    /// @dev The accounted LP total is always `lastFeeLp + lastWithdrawableLp`: LP transferred to this
+    ///      contract from outside is claimable by nobody, so it must not shift the fee baseline.
     function _updateSqrtKBaseline(TotalStake storage totals, address pair, address tokenAddress) private {
         (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
-        totals.totalLp = totals.lastFeeLp + totals.lastWithdrawableLp;
         if (pairTotalSupply == 0) {
             totals.lastSqrtKOfLp = 0;
             return;
         }
-        totals.lastSqrtKOfLp = (Math.sqrt(reserveToken * reserveParent) * totals.totalLp) / pairTotalSupply;
+        uint256 totalLp = totals.lastFeeLp + totals.lastWithdrawableLp;
+        totals.lastSqrtKOfLp = (Math.sqrt(reserveToken * reserveParent) * totalLp) / pairTotalSupply;
     }
 
-    /// @dev Fees are settled first so the shares are redeemed against the withdrawable basis that already
-    ///      excludes this round's fees; a failing settlement fails the whole withdrawal.
     function _withdrawLiquidity(address tokenAddress, address pair, uint256 liquidityShares)
         private
         returns (uint256 tokenAmount, uint256 parentTokenAmount, uint256 lpBurned, uint256 lpToMember)
@@ -801,8 +764,6 @@ contract Stake is IStake {
         private
         returns (uint256 tokenAmount, uint256 parentTokenAmount)
     {
-        // No reentrancy guard: the shares were already priced and removed from the ledger, and the
-        // withdrawn amounts come from this burn.
         // forge-lint: disable-next-line(reentrancy-no-eth)
         (uint256 amount0, uint256 amount1) = pairContract.burn(to);
         if (tokenAddress == pairContract.token0()) {
@@ -811,8 +772,6 @@ contract Stake is IStake {
         return (amount1, amount0);
     }
 
-    /// @dev Reclassification always runs, because every later pricing reads the withdrawable basis. The
-    ///      swap-and-burn that realises the fee is limited to one settlement per community per phase.
     function _settleFees(address tokenAddress, address pair) private {
         TotalStake storage totals = _totalStake[tokenAddress];
 
@@ -823,14 +782,11 @@ contract Stake is IStake {
         totals.lastFeeLp = feeLp;
         totals.lastWithdrawableLp = withdrawableLp;
         totals.lastSqrtKOfLp = sqrtKOfLp;
-        totals.totalLp = feeLp + withdrawableLp;
 
         uint256 settlementUnit = Math.mulDiv(withdrawableLp, FEE_SETTLEMENT_RATIO, 1e18);
         if (feeLp < settlementUnit) {
             return;
         }
-        // The round is read once, after every early return, so a settlement and the phase it is recorded
-        // against cannot disagree.
         uint256 round = _currentRound();
         if (_lastSettlePhase[tokenAddress] == round) {
             return;
@@ -853,14 +809,7 @@ contract Stake is IStake {
         return lpAmount * reserveToken >= pairTotalSupply && lpAmount * reserveParent >= pairTotalSupply;
     }
 
-    /// @dev Keeps the unprocessed fee as the pending basis, so the next phase settles the remainder.
-    /// @dev The withdrawable basis is left as the caller reclassified it; only the fee side changes here.
     function _realizeFees(address tokenAddress, address pair, uint256 processedFeeLp, uint256 round) private {
-        // A zero amount is reachable, not defensive padding: a pair that exists but has no liquidity has
-        // `totalSupply == 0`, which makes `_canBurn` judge `0 >= 0` true and lets the settlement through
-        // with a zero unit — a token launched but never staked is exactly that state. Burning zero would
-        // divide by zero in the pair and turn a no-op settlement into a revert, which would also block
-        // `withdraw`, because it settles before pricing the shares.
         if (processedFeeLp == 0) {
             return;
         }
@@ -878,8 +827,6 @@ contract Stake is IStake {
             totalTokenBurned += _swapParentTokenForToken(tokenAddress, parentTokenBurned);
         }
         if (totalTokenBurned > 0) {
-            // No reentrancy guard: the fee LP left the ledger before this burn and the withdrawable basis
-            // was already rewritten by the caller.
             // forge-lint: disable-next-line(reentrancy-no-eth)
             ILOVE20Token(tokenAddress).burn(totalTokenBurned);
         }
@@ -912,12 +859,9 @@ contract Stake is IStake {
         path[0] = parentTokenAddress;
         path[1] = tokenAddress;
 
-        // the accepted minimum is derived from the reserves in this same transaction, never from the caller
         uint256[] memory amounts = IUniswapV2Router02(ROUTER_ADDRESS).getAmountsOut(parentTokenAmount, path);
         uint256 amountOutMin = amounts[amounts.length - 1];
 
-        // No reentrancy guard: the fee was already taken out of the ledger and the swap only converts the
-        // parent token that is burned afterwards in the same transaction.
         // forge-lint: disable-next-line(reentrancy-no-eth)
         IERC20(parentTokenAddress).forceApprove(ROUTER_ADDRESS, parentTokenAmount);
         // forge-lint: disable-next-item(reentrancy-no-eth)

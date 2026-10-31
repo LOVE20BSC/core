@@ -18,7 +18,6 @@ contract Vote is IVote {
     address public PHASE_ADDRESS;
     address public MEMBER_NFT_ADDRESS;
 
-    // ------ vote amounts ------
     // tokenAddress => round => totalVoteAmount
     mapping(address => mapping(uint256 => uint256)) internal _totalVoteAmountByRound;
     // tokenAddress => round => proposalId => voteAmount
@@ -30,17 +29,14 @@ contract Vote is IVote {
     mapping(address => mapping(uint256 => mapping(uint256 => mapping(uint256 => uint256)))) internal
         _voteAmountByMemberIdByProposalId;
 
-    // ------ votedProposalIds ------
     // tokenAddress => round => proposalIds
     mapping(address => mapping(uint256 => uint256[])) internal _votedProposalIds;
     // tokenAddress => round => memberId => proposalIds
     mapping(address => mapping(uint256 => mapping(uint256 => uint256[]))) internal _votedProposalIdsByMemberId;
 
-    // ------- voters ------
     // tokenAddress => round => proposalId => memberIds
     mapping(address => mapping(uint256 => mapping(uint256 => uint256[]))) internal _voterIdsByProposalId;
 
-    // ------- voter boost snapshots ------
     // tokenAddress => round => memberId => boostShares at first vote in round
     mapping(address => mapping(uint256 => mapping(uint256 => uint256))) internal _voterBoostByMemberId;
     // tokenAddress => round => totalVoterBoost
@@ -77,7 +73,9 @@ contract Vote is IVote {
         uint256[] calldata voteAmounts,
         bytes[][] calldata targetData
     ) external onlyMemberOwner(memberId) {
-        if (!canVote(tokenAddress, memberId)) {
+        uint256 round = currentRound();
+        uint256 voteLimit = _maxVoteAmount(tokenAddress, round, memberId);
+        if (voteLimit == 0) {
             revert NoVotingPower(tokenAddress, memberId);
         }
         if (proposalIds.length == 0) {
@@ -90,11 +88,6 @@ contract Vote is IVote {
             revert TargetDataLengthMismatch(proposalIds.length, targetData.length);
         }
 
-        uint256 round = currentRound();
-        uint256 voteLimit = maxVoteAmount(tokenAddress, memberId);
-
-        // An empty outer array means every callback gets empty Target Data; a supplied one lines up
-        // with the proposals, entry by entry.
         bytes[] memory noTargetData = new bytes[](0);
 
         for (uint256 i = 0; i < proposalIds.length; i++) {
@@ -122,7 +115,7 @@ contract Vote is IVote {
     }
 
     function maxVoteAmount(address tokenAddress, uint256 memberId) public view returns (uint256) {
-        return IStake(STAKE_ADDRESS).validGovVotes(tokenAddress, currentRound(), memberId);
+        return _maxVoteAmount(tokenAddress, currentRound(), memberId);
     }
 
     function totalVoteAmount(address tokenAddress, uint256 round) external view returns (uint256) {
@@ -225,7 +218,6 @@ contract Vote is IVote {
         uint256 voteLimit,
         bytes[] memory targetData
     ) internal {
-        // Batch voting validates each proposal individually; the call cannot be moved outside the loop.
         // forge-lint: disable-next-item(calls-loop)
         if (!ISubmit(SUBMIT_ADDRESS).isSubmitted(tokenAddress, round, proposalId)) {
             // forge-lint: disable-next-line(require-revert-in-loop)
@@ -237,18 +229,15 @@ contract Vote is IVote {
             revert ZeroVoteAmount(proposalId);
         }
 
-        // Update boost snapshot: check and add delta if member staked more
         {
             uint256 currentVoterBoost = _voterBoostByMemberId[tokenAddress][round][memberId];
             // forge-lint: disable-next-line(calls-loop, unused-return)
             uint256 actualVoterBoost = IStake(STAKE_ADDRESS).validBoostShares(tokenAddress, round, memberId);
 
             if (currentVoterBoost == 0) {
-                // First vote in this round: record snapshot
                 _voterBoostByMemberId[tokenAddress][round][memberId] = actualVoterBoost;
                 _totalVoterBoostByRound[tokenAddress][round] += actualVoterBoost;
             } else if (actualVoterBoost > currentVoterBoost) {
-                // Member staked more: record delta
                 uint256 delta = actualVoterBoost - currentVoterBoost;
                 _voterBoostByMemberId[tokenAddress][round][memberId] = actualVoterBoost;
                 _totalVoterBoostByRound[tokenAddress][round] += delta;
@@ -256,26 +245,25 @@ contract Vote is IVote {
         }
 
         {
-            bool isNewProposal = _voteAmountByMemberIdByProposalId[tokenAddress][round][memberId][proposalId] == 0;
+            bool isFirstVoteByMember = _voteAmountByMemberIdByProposalId[tokenAddress][round][memberId][proposalId] == 0;
+            bool isFirstVoteOnProposal = _voteAmountByProposalId[tokenAddress][round][proposalId] == 0;
+            uint256 memberVoteAfter = _voteAmountByMemberId[tokenAddress][round][memberId] + voteAmount;
+            if (memberVoteAfter > voteLimit) {
+                // forge-lint: disable-next-item(require-revert-in-loop)
+                revert VoteLimitExceeded(tokenAddress, round, memberId, memberVoteAfter, voteLimit);
+            }
 
             _totalVoteAmountByRound[tokenAddress][round] += voteAmount;
             _voteAmountByProposalId[tokenAddress][round][proposalId] += voteAmount;
-            _voteAmountByMemberId[tokenAddress][round][memberId] += voteAmount;
+            _voteAmountByMemberId[tokenAddress][round][memberId] = memberVoteAfter;
             _voteAmountByMemberIdByProposalId[tokenAddress][round][memberId][proposalId] += voteAmount;
 
-            if (isNewProposal) {
-                if (_voteAmountByProposalId[tokenAddress][round][proposalId] == voteAmount) {
+            if (isFirstVoteByMember) {
+                if (isFirstVoteOnProposal) {
                     _votedProposalIds[tokenAddress][round].push(proposalId);
                 }
                 _votedProposalIdsByMemberId[tokenAddress][round][memberId].push(proposalId);
                 _voterIdsByProposalId[tokenAddress][round][proposalId].push(memberId);
-            }
-
-            if (_voteAmountByMemberId[tokenAddress][round][memberId] > voteLimit) {
-                // forge-lint: disable-next-item(require-revert-in-loop)
-                revert VoteLimitExceeded(
-                    tokenAddress, round, memberId, _voteAmountByMemberId[tokenAddress][round][memberId], voteLimit
-                );
             }
         }
 
@@ -297,5 +285,9 @@ contract Vote is IVote {
             // forge-lint: disable-next-item(calls-loop, reentrancy-events)
             IProposalTarget(target).onProposalVoted(tokenAddress, round, proposalId, memberId, voteAmount, targetData);
         }
+    }
+
+    function _maxVoteAmount(address tokenAddress, uint256 round, uint256 memberId) internal view returns (uint256) {
+        return IStake(STAKE_ADDRESS).validGovVotes(tokenAddress, round, memberId);
     }
 }

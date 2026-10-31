@@ -10,7 +10,6 @@ struct MemberStake {
 
 struct TotalStake {
     uint256 totalLiquidityShares;
-    uint256 totalLp;
     uint256 lastWithdrawableLp;
     uint256 lastFeeLp;
     uint256 lastSqrtKOfLp;
