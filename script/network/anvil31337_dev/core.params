@@ -1,14 +1,16 @@
-# LOVE20Token
-TOKEN_NAME=TestLOVE20
-TOKEN_SYMBOL=TestLOVE20@WETH
-INITIAL_SUPPLY=1e27                     # 1e9 tokens
+# Dev/test profile: values are tuned so Phase and issuance advance within minutes; they are not the
+# production deployment values, which are the examples in docs/whitepaper-core.md appendix A.
+# LOVE20Token (the first token; LAUNCH_AMOUNT/MAX_SUPPLY also apply to every launched token)
+TOKEN_NAME=TestLOVE20@WETH
+TOKEN_SYMBOL=TestLOVE20
+LAUNCH_AMOUNT=1e27                      # per token, 1e9 tokens
 MAX_SUPPLY=1e28                         # 1e10 tokens
 # Deploy wallet (anvil default account).
 DISTRIBUTOR_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 # Root parent token is read from Router.WETH(); do not configure it here.
 
 # MemberNFT
-MEMBER_BASE_DIVISOR=1e8
+MEMBER_BASE_DIVISOR=1e7
 MEMBER_BYTES_THRESHOLD=7
 MEMBER_MULTIPLIER=10
 MEMBER_MAX_NAME_LENGTH=32
@@ -17,25 +19,25 @@ MEMBER_MAX_NAME_LENGTH=32
 PHASE_ORIGIN_BLOCKS=1
 PHASE_ORIGIN_PHASE_BLOCKS=100
 PHASE_TARGET_SECONDS=300
-PHASE_ADJUST_THRESHOLD=6e17             # 60%
-PHASE_SYNC_OBSERVATION_LIMIT=100
+PHASE_ADJUST_THRESHOLD=1e17             # 10%
+PHASE_SYNC_OBSERVATION_LIMIT=10
 
 # Launch
-LAUNCH_RATIO=1e18                       # 100%
-MAX_LAUNCH_COUNT=1000
-TOKEN_SYMBOL_LENGTH=4
+LAUNCH_RATIO=1e17                       # 10%
+MAX_LAUNCH_COUNT=10000
+TOKEN_SYMBOL_LENGTH=6
 
 # Mint (ratios: 1e18 = 100%)
 PROPOSAL_REWARD_MIN_VOTE_RATIO=5e16     # 5%
-GOV_REWARD_RATIO=1e17                   # 10%
-PROPOSAL_REWARD_RATIO=1e17              # 10%
-MAX_BOOST_MULTIPLIER=2
+ROUND_REWARD_GOV_RATIO=1e15             # 0.1%
+ROUND_REWARD_PROPOSAL_RATIO=1e15        # 0.1%
+MAX_BOOST_MULTIPLIER=3
 
 # Submit (ratios: 1e18 = 100%)
-SUBMIT_MIN_RATIO=1e16                   # 1%
+SUBMIT_MIN_RATIO=5e15                   # 0.5%
 
 # Stake
 PROMISED_WAITING_PHASES_MIN=1
 PROMISED_WAITING_PHASES_MAX=100
-# Fee settlement share of withdrawable LP (1e18 = 100%); must not exceed the pool fee.
-FEE_SETTLEMENT_RATIO=3e15               # 0.30%
+# Fee settlement share of withdrawable LP (1e18 = 100%); must not exceed MAX_FEE_SETTLEMENT_RATIO (0.25%).
+FEE_SETTLEMENT_RATIO=25e14              # 0.25%

@@ -109,8 +109,8 @@ contract DeployCoreTest is Test {
 
     function testRejectsLaunchAmountAboveMaxSupply() public {
         DeployCore.CoreConfig memory config = _validConfig();
-        config.initialSupply = config.maxSupply + 1;
-        vm.expectRevert("Initial supply out of range");
+        config.launchAmount = config.maxSupply + 1;
+        vm.expectRevert("Launch amount out of range");
         deployer.validateConfigForTest(config);
     }
 
@@ -150,10 +150,10 @@ contract DeployCoreTest is Test {
         deployer.validateConfigForTest(config);
     }
 
-    function testRejectsFeeRatioAbovePoolFee() public {
+    function testRejectsFeeRatioAboveMaxFeeSettlementRatio() public {
         DeployCore.CoreConfig memory config = _validConfig();
-        config.feeSettlementRatio = 3e15 + 1;
-        vm.expectRevert("Fee settlement ratio exceeds the 0.30% pool fee");
+        config.feeSettlementRatio = 2.5e15 + 1;
+        vm.expectRevert("Fee settlement ratio exceeds MAX_FEE_SETTLEMENT_RATIO (0.25%)");
         deployer.validateConfigForTest(config);
     }
 
@@ -268,10 +268,10 @@ contract DeployCoreTest is Test {
         deployer.validateConfigForTest(config);
     }
 
-    function testRejectsZeroInitialSupply() public {
+    function testRejectsZeroLaunchAmount() public {
         DeployCore.CoreConfig memory config = _validConfig();
-        config.initialSupply = 0;
-        vm.expectRevert("Initial supply out of range");
+        config.launchAmount = 0;
+        vm.expectRevert("Launch amount out of range");
         deployer.validateConfigForTest(config);
     }
 
@@ -299,7 +299,7 @@ contract DeployCoreTest is Test {
     function testRejectsZeroFeeSettlementRatio() public {
         DeployCore.CoreConfig memory config = _validConfig();
         config.feeSettlementRatio = 0;
-        vm.expectRevert("Fee settlement ratio out of range");
+        vm.expectRevert("Fee settlement ratio must be nonzero");
         deployer.validateConfigForTest(config);
     }
 
@@ -330,7 +330,7 @@ contract DeployCoreTest is Test {
             launchRatio: 1e18,
             maxLaunchCount: 1000,
             tokenSymbolLength: 4,
-            initialSupply: 1e27,
+            launchAmount: 1e27,
             maxSupply: 1e28,
             proposalRewardMinVoteRatio: 5e16,
             roundRewardGovRatio: 1e17,
@@ -339,7 +339,7 @@ contract DeployCoreTest is Test {
             submitMinRatio: 1e16,
             promisedWaitingPhasesMin: 1,
             promisedWaitingPhasesMax: 100,
-            feeSettlementRatio: 3e15
+            feeSettlementRatio: 2.5e15
         });
     }
 }

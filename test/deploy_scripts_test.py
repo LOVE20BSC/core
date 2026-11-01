@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import shutil
@@ -46,6 +47,9 @@ def fake_tool(tool, args):
             os.close(fd)
             print(path)
     elif args[0] == "script":
+        # 记录 forge 进程看到的参数环境：用于断言「调用方注入的同名键不生效」。
+        with Path(os.environ["MOCK_LOG"]).open("a") as log:
+            log.write(json.dumps(["ENV", {key: os.environ.get(key) for key in data["env"]}]) + "\n")
         # 凭据哨兵：密码不得进进程参数，密码文件必须已写入且非空。
         if "--password" in args:
             print("CREDENTIAL_IN_ARGV", file=sys.stderr)
@@ -74,6 +78,21 @@ def fake_tool(tool, args):
     return 0
 
 
+# params.sh 是 core / action / group-chat / dex 四份逐字节相同的副本：每个仓都要能独立部署，
+# 文件无法共享，只能靠这个常量防止漂移。改动该文件时四个仓一起改，并同步这四个常量。
+PARAMS_SH_SHA256 = "b3a8f64dc87d9e823a364de92e3bc79144d246f1c1a861cdcf95616042b8f840"
+
+
+def params_shared_copy() -> None:
+    """params.sh 必须与四仓共享副本逐字节相同。"""
+    repo = Path(__file__).resolve().parents[1]
+    digest = hashlib.sha256((repo / "script/deploy/params.sh").read_bytes()).hexdigest()
+    assert digest == PARAMS_SH_SHA256, (
+        "script/deploy/params.sh 与四仓共享副本不一致（sha256 " + digest + "）；"
+        "把同一个文件同步到 core / action / group-chat / dex"
+    )
+
+
 def params_loader_cases() -> None:
     """params.sh：1e 写法展开、行尾注释、引号内 # 保留、逗号项去空格。"""
     repo = Path(__file__).resolve().parents[1]
@@ -96,9 +115,87 @@ def params_loader_cases() -> None:
             assert result.returncode == 0, (text, result.stderr)
             assert result.stdout == expected, (text, result.stdout)
 
+    # params_unset_all 的键集来自文件本身：文件定义的键必须被清掉，文件没定义的键不受影响。
+    with tempfile.TemporaryDirectory(prefix="params-unset-test-") as directory:
+        path = Path(directory) / "case.params"
+        path.write_text("A=1\n")
+        result = subprocess.run(
+            ["bash", "-c",
+             '. "$1"; A=inherited; B=inherited; params_unset_all "$2"; printf "%s|%s" "${A:-<unset>}" "${B:-<unset>}"',
+             "bash", str(repo / "script/deploy/params.sh"), str(path)],
+            text=True, capture_output=True)
+        assert result.returncode == 0, (result.stderr,)
+        assert result.stdout == "<unset>|inherited", result.stdout
+
+
+def params_unset_coverage() -> None:
+    """每个 source params.sh 的部署脚本都必须在首次 params_load 之前清掉继承值，
+    且 params_unset_all 的入参必须覆盖 params_load 读到的每个文件。"""
+    repo = Path(__file__).resolve().parents[1]
+    scripts = sorted((repo / "script/deploy").glob("*.sh"))
+    assert scripts
+    for script in scripts:
+        text = script.read_text()
+        if 'source "$SCRIPT_DIR/params.sh"' not in text:
+            continue
+        # 只看代码行：注释里出现同名字符串会让下面两条断言一起误通过。
+        code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+        assert "params_unset_all " in code, script
+        assert code.index("params_unset_all ") < code.index("params_load "), script
+        # 续行先拼回一行，否则只看得到首个参数。
+        joined = code.replace("\\\n", " ")
+        statement = re.search(r"params_unset_all(.*)", joined).group(1).split("\n")[0]
+        unset_files = set(re.findall(r'"([^"]+)"', statement))
+        load_files = set(re.findall(r'params_load\s+"([^"]+)"', joined))
+        assert not load_files - unset_files, (script, load_files - unset_files)
+
+
+def expand_solidity_uint(literal: str) -> str:
+    """把 Solidity 无符号十进制字面量（`2.5e15`、`25e14`、`1_000`）展开成十进制整数字符串。"""
+    match = re.fullmatch(r"([0-9]*)(?:\.([0-9]*))?(?:[eE]([0-9]+))?", literal.replace("_", ""))
+    assert match and (match.group(1) or match.group(2)), literal
+    whole, fraction, exponent = match.group(1) or "", match.group(2) or "", match.group(3) or "0"
+    return str(int(whole + fraction) * 10 ** (int(exponent) - len(fraction)))
+
+
+def fee_settlement_bound_single_source() -> None:
+    """21_check 的结算比例上界必须等于 DeployCore.MAX_FEE_SETTLEMENT_RATIO。
+
+    上界在两处各写一次：源码常量决定广播前校验，21_check 复核链上取值。两者漂移时
+    21_check 会给出误导性的失败（或放行一个越界配置），所以在这里锁死。
+    """
+    repo = Path(__file__).resolve().parents[1]
+    declared = re.search(
+        r"MAX_FEE_SETTLEMENT_RATIO\s*=\s*([0-9][0-9_.eE]*)\s*;",
+        (repo / "script/deploy/DeployCore.s.sol").read_text())
+    assert declared, "DeployCore.s.sol 缺少 MAX_FEE_SETTLEMENT_RATIO"
+    boundary = re.search(
+        r'verify_boundary "FEE_SETTLEMENT_RATIO" "\$ACTUAL_FEE_RATIO" "([0-9]+)"',
+        (repo / "script/deploy/21_check.sh").read_text())
+    assert boundary, "21_check.sh 缺少 FEE_SETTLEMENT_RATIO 上界断言"
+    assert boundary.group(1) == expand_solidity_uint(declared.group(1)), (
+        boundary.group(1), expand_solidity_uint(declared.group(1)))
+
+
+def verifier_skip_never_production() -> None:
+    """生产链不能出现在跳过列表：验证默认开启，跳过必须显式且只针对没有浏览器的链。"""
+    profile = Path(__file__).resolve().parents[1] / "script/network/verifier.params"
+    assert profile.is_file(), "script/network/verifier.params 缺失"
+    text = profile.read_text()
+    url = re.search(r"^ETHERSCAN_VERIFIER_URL=(.*)$", text, re.MULTILINE)
+    skip = re.search(r"^VERIFY_SKIP_CHAIN_IDS=(.*)$", text, re.MULTILINE)
+    assert url and url.group(1).strip(), (profile, "ETHERSCAN_VERIFIER_URL 为空")
+    assert skip, (profile, "缺少 VERIFY_SKIP_CHAIN_IDS")
+    skipped = {item.strip() for item in skip.group(1).split(",") if item.strip()}
+    assert not skipped & {"56", "97"}, (profile, sorted(skipped))
+
 
 def main():
+    params_shared_copy()
     params_loader_cases()
+    params_unset_coverage()
+    fee_settlement_bound_single_source()
+    verifier_skip_never_production()
     core = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory(prefix="core-deploy-test-") as directory:
         root = Path(directory)
@@ -118,17 +215,17 @@ def main():
         contracts = list(env)
         env.update({"CHAIN_ID": "97", "RPC_URL": "http://invalid.local", "ETHERSCAN_API_KEY": "test-key",
                     "WETH_ADDRESS": "0x" + "ab" * 20, "FACTORY_ADDRESS": "0x" + "cd" * 20,
-                    "ROUTER_ADDRESS": "0x" + "ef" * 20, "TOKEN_NAME": "TestLOVE20", "TOKEN_SYMBOL": "TestLOVE20@WETH",
-                    "INITIAL_SUPPLY": "1000000000000000000000000000", "MAX_SUPPLY": "10000000000000000000000000000",
+                    "ROUTER_ADDRESS": "0x" + "ef" * 20, "TOKEN_NAME": "TestLOVE20@WETH", "TOKEN_SYMBOL": "TestLOVE20",
+                    "LAUNCH_AMOUNT": "1000000000000000000000000000", "MAX_SUPPLY": "10000000000000000000000000000",
                     "DISTRIBUTOR_ADDRESS": "0x" + "12" * 20, "MEMBER_BASE_DIVISOR": "100000000", "MEMBER_BYTES_THRESHOLD": "7",
                     "MEMBER_MULTIPLIER": "10", "MEMBER_MAX_NAME_LENGTH": "32", "PHASE_ORIGIN_BLOCKS": "1",
                     "PHASE_ORIGIN_PHASE_BLOCKS": "100", "PHASE_TARGET_SECONDS": "300",
                     "PHASE_ADJUST_THRESHOLD": "600000000000000000", "PHASE_SYNC_OBSERVATION_LIMIT": "100",
                     "LAUNCH_RATIO": "1000000000000000000", "MAX_LAUNCH_COUNT": "1000", "TOKEN_SYMBOL_LENGTH": "4",
-                    "PROPOSAL_REWARD_MIN_VOTE_RATIO": "50000000000000000", "GOV_REWARD_RATIO": "100000000000000000",
-                    "PROPOSAL_REWARD_RATIO": "100000000000000000",
+                    "PROPOSAL_REWARD_MIN_VOTE_RATIO": "50000000000000000", "ROUND_REWARD_GOV_RATIO": "100000000000000000",
+                    "ROUND_REWARD_PROPOSAL_RATIO": "100000000000000000",
                     "MAX_BOOST_MULTIPLIER": "2", "SUBMIT_MIN_RATIO": "10000000000000000", "PROMISED_WAITING_PHASES_MIN": "1",
-                    "PROMISED_WAITING_PHASES_MAX": "100", "FEE_SETTLEMENT_RATIO": "3000000000000000"})
+                    "PROMISED_WAITING_PHASES_MAX": "100", "FEE_SETTLEMENT_RATIO": "2500000000000000"})
         calls = {}
 
         def getters(contract, fields):
@@ -137,18 +234,20 @@ def main():
 
         getters("LOVE20_TOKEN", {"name()(string)": "TOKEN_NAME", "symbol()(string)": "TOKEN_SYMBOL",
                 "MAX_SUPPLY()(uint256)": "MAX_SUPPLY", "MINTER()(address)": "MINT_ADDRESS",
-                "PARENT_TOKEN_ADDRESS()(address)": "WETH_ADDRESS", "totalSupply()(uint256)": "INITIAL_SUPPLY"})
-        calls[env["LOVE20_TOKEN_ADDRESS"].lower() + "/balanceOf(address)(uint256)"] = env["INITIAL_SUPPLY"]
+                "PARENT_TOKEN_ADDRESS()(address)": "WETH_ADDRESS", "totalSupply()(uint256)": "LAUNCH_AMOUNT"})
+        calls[env["LOVE20_TOKEN_ADDRESS"].lower() + "/balanceOf(address)(uint256)"] = env["LAUNCH_AMOUNT"]
         getters("MEMBER_NFT", {key + "()(uint256)": "MEMBER_" + key for key in ("BASE_DIVISOR", "BYTES_THRESHOLD", "MULTIPLIER", "MAX_NAME_LENGTH")})
         getters("MEMBER_NFT", {"LOVE20_TOKEN_ADDRESS()(address)": "LOVE20_TOKEN_ADDRESS"})
         getters("PHASE", {key + "()(uint256)": "PHASE_" + key for key in ("ORIGIN_BLOCKS", "ORIGIN_PHASE_BLOCKS", "TARGET_SECONDS", "ADJUST_THRESHOLD", "SYNC_OBSERVATION_LIMIT")})
         getters("LAUNCH", {key + "()(uint256)": key for key in ("LAUNCH_RATIO", "MAX_LAUNCH_COUNT", "TOKEN_SYMBOL_LENGTH", "MAX_SUPPLY")})
-        getters("LAUNCH", {"LAUNCH_AMOUNT()(uint256)": "INITIAL_SUPPLY", "ROOT_PARENT_TOKEN_ADDRESS()(address)": "WETH_ADDRESS",
+        getters("LAUNCH", {"LAUNCH_AMOUNT()(uint256)": "LAUNCH_AMOUNT", "MAX_TOKEN_SYMBOL_LENGTH()(uint256)": "32",
+                "TEST_PREFIX_BYTES()(uint256)": "4",
+                "ROOT_PARENT_TOKEN_ADDRESS()(address)": "WETH_ADDRESS",
                 "FIRST_TOKEN_ADDRESS()(address)": "LOVE20_TOKEN_ADDRESS", "PAIR_FACTORY_ADDRESS()(address)": "FACTORY_ADDRESS",
                 "isLOVE20Token(address)(bool)": "true"})
         getters("MINT", {key + "()(uint256)": value for key, value in {
-            "PROPOSAL_REWARD_MIN_VOTE_RATIO": "PROPOSAL_REWARD_MIN_VOTE_RATIO", "ROUND_REWARD_GOV_RATIO": "GOV_REWARD_RATIO",
-            "ROUND_REWARD_PROPOSAL_RATIO": "PROPOSAL_REWARD_RATIO", "MAX_GOV_BOOST_REWARD_MULTIPLIER": "MAX_BOOST_MULTIPLIER"}.items()})
+            "PROPOSAL_REWARD_MIN_VOTE_RATIO": "PROPOSAL_REWARD_MIN_VOTE_RATIO", "ROUND_REWARD_GOV_RATIO": "ROUND_REWARD_GOV_RATIO",
+            "ROUND_REWARD_PROPOSAL_RATIO": "ROUND_REWARD_PROPOSAL_RATIO", "MAX_GOV_BOOST_REWARD_MULTIPLIER": "MAX_BOOST_MULTIPLIER"}.items()})
         getters("MINT", {"PHASE_ADDRESS()(address)": "PHASE_ADDRESS"})
         getters("STAKE", {key + "()(uint256)": key for key in ("PROMISED_WAITING_PHASES_MIN", "PROMISED_WAITING_PHASES_MAX", "FEE_SETTLEMENT_RATIO")})
         getters("STAKE", {"ROUTER_ADDRESS()(address)": "ROUTER_ADDRESS", "PAIR_FACTORY_ADDRESS()(address)": "FACTORY_ADDRESS"})
@@ -161,15 +260,17 @@ def main():
             getters(name, {dep_keys.get(dep, dep.upper()) + "_ADDRESS()(address)": dep_keys.get(dep, dep.upper()) + "_ADDRESS" for dep in dependencies})
         getters("ROUTER", {"factory()(address)": "FACTORY_ADDRESS", "WETH()(address)": "WETH_ADDRESS"})
         # cast 对 uint 返回值会带科学计数法标注，且供应量超过 64 位；21_check 必须先归一再按十进制串比较。
-        calls[env["LAUNCH_ADDRESS"].lower() + "/LAUNCH_AMOUNT()(uint256)"] = env["INITIAL_SUPPLY"] + " [1e27]"
+        calls[env["LAUNCH_ADDRESS"].lower() + "/LAUNCH_AMOUNT()(uint256)"] = env["LAUNCH_AMOUNT"] + " [1e27]"
         calls[env["LAUNCH_ADDRESS"].lower() + "/MAX_SUPPLY()(uint256)"] = env["MAX_SUPPLY"] + " [1e28]"
-        calls[env["MINT_ADDRESS"].lower() + "/ROUND_REWARD_GOV_RATIO()(uint256)"] = env["GOV_REWARD_RATIO"] + " [1e17]"
-        calls[env["MINT_ADDRESS"].lower() + "/ROUND_REWARD_PROPOSAL_RATIO()(uint256)"] = env["PROPOSAL_REWARD_RATIO"] + " [1e17]"
+        calls[env["MINT_ADDRESS"].lower() + "/ROUND_REWARD_GOV_RATIO()(uint256)"] = env["ROUND_REWARD_GOV_RATIO"] + " [1e17]"
+        calls[env["MINT_ADDRESS"].lower() + "/ROUND_REWARD_PROPOSAL_RATIO()(uint256)"] = env["ROUND_REWARD_PROPOSAL_RATIO"] + " [1e17]"
         data_path, log_path = root / "rpc.json", root / "calls.log"
         tmp_dir = root / "tmp"
         tmp_dir.mkdir()
         data_path.write_text(json.dumps({"env": env, "contracts": contracts, "calls": calls}))
         network.joinpath("network.params").write_text("\n".join(key + "=" + shlex.quote(value) for key, value in env.items()) + "\n")
+        network.parent.joinpath("verifier.params").write_text(
+            "ETHERSCAN_VERIFIER_URL=https://api.etherscan.io/v2/api\nVERIFY_SKIP_CHAIN_IDS=31337\n")
         for name in ("addresses.uniswapv2.params", "core.params"):
             network.joinpath(name).write_text("")
         saved = network / "addresses.core.params"
@@ -260,6 +361,20 @@ def main():
             result.stdout + result.stderr
         assert len([call for call in log if call[0] == "osascript"]) == 1, log
         assert "VOTE_ADDRESS=" in saved.read_text()
+        # 调用方环境注入同名键不得覆盖文件值：把参数从 network.params 挪进各自的文件，再注入
+        # 冲突的 TOKEN_NAME，部署进程看到的仍必须是 core.params 的值。
+        core_keys = sorted(set(env) - set(contracts) - {"CHAIN_ID", "RPC_URL", "ETHERSCAN_API_KEY",
+                                                        "FACTORY_ADDRESS", "ROUTER_ADDRESS", "WETH_ADDRESS"})
+        network.joinpath("core.params").write_text("".join(key + "=" + env[key] + "\n" for key in core_keys))
+        network.joinpath("addresses.uniswapv2.params").write_text(
+            "FACTORY_ADDRESS=" + env["FACTORY_ADDRESS"] + "\nROUTER_ADDRESS=" + env["ROUTER_ADDRESS"] + "\n")
+        network_params = network / "network.params"
+        network_params_text = network_params.read_text()
+        network_params.write_text("CHAIN_ID=97\nRPC_URL=http://invalid.local\nETHERSCAN_API_KEY=test-key\n")
+        _, log = run("one_click_deploy.sh", args=("test",), TOKEN_NAME="InjectedName")
+        deployed_env = next(entry[1] for entry in log if entry[0] == "ENV")
+        assert deployed_env["TOKEN_NAME"] == env["TOKEN_NAME"], deployed_env["TOKEN_NAME"]
+        network_params.write_text(network_params_text)
         # .account 配了非空 KEYSTORE_PASSWORD 就直接用它解锁，不弹窗。
         write_account("KEYSTORE_PASSWORD=" + SECRET_PASSWORD + "\n")
         result, log = run("one_click_deploy.sh", args=("test",))
@@ -311,6 +426,26 @@ def main():
         assert len([call for call in log if call[:2] == ["forge", "verify-contract"]]) == 8
         _, log = run("31_verify.sh", args=("test",))
         assert len([call for call in log if call[:2] == ["forge", "verify-contract"]]) == 8
+        # 跳过由 verifier.params 显式声明：默认验证，只有列表内的链才跳过，且不发任何验证请求。
+        network.parent.joinpath("verifier.params").write_text(
+            "ETHERSCAN_VERIFIER_URL=https://api.etherscan.io/v2/api\nVERIFY_SKIP_CHAIN_IDS=31337,97\n")
+        result, skip_log = run("31_verify.sh", args=("test",))
+        assert "Skip: source verification is disabled for chain 97" in result.stdout, result.stdout
+        assert not [call for call in skip_log if call[:2] == ["forge", "verify-contract"]]
+        # 跳过路径不依赖端点配置：列进名单的链即使 URL 为空也照样跳过。
+        network.parent.joinpath("verifier.params").write_text(
+            "ETHERSCAN_VERIFIER_URL=\nVERIFY_SKIP_CHAIN_IDS=31337,97\n")
+        result, skip_log = run("31_verify.sh", args=("test",))
+        assert "Skip: source verification is disabled" in result.stdout
+        assert not [call for call in skip_log if call[:2] == ["forge", "verify-contract"]]
+        # 端点是必填键：空值不能落到 forge 的命令行里。
+        network.parent.joinpath("verifier.params").write_text(
+            "ETHERSCAN_VERIFIER_URL=\nVERIFY_SKIP_CHAIN_IDS=31337\n")
+        result, bad_url_log = run("31_verify.sh", False, ("test",))
+        assert "ETHERSCAN_VERIFIER_URL" in result.stdout + result.stderr
+        assert not any(call[0] == "forge" for call in bad_url_log)
+        network.parent.joinpath("verifier.params").write_text(
+            "ETHERSCAN_VERIFIER_URL=https://api.etherscan.io/v2/api\nVERIFY_SKIP_CHAIN_IDS=31337\n")
         token_args = next(call for call in log if call[:2] == ["cast", "abi-encode"] and "string,string" in call[2])
         assert token_args[-2] == env["MINT_ADDRESS"]
         for signature, label in [("constructor(uint256,uint256,uint256,uint256)", "MemberNFT"),

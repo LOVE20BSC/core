@@ -25,6 +25,7 @@ contract Launch is ILaunch {
     uint256 public MAX_SUPPLY;
     uint256 public constant MAX_TOKEN_SYMBOL_LENGTH = 32;
     uint256 public constant MAX_TOKEN_NAME_LENGTH = 96;
+    uint256 public constant TEST_PREFIX_BYTES = 4;
     bool public initialized;
 
     modifier onlyMint() {
@@ -322,8 +323,8 @@ contract Launch is ILaunch {
     {
         bytes memory symbolBytes = bytes(prefixSourceSymbol);
         if (
-            symbolBytes.length >= 4 && symbolBytes[0] == "T" && symbolBytes[1] == "e" && symbolBytes[2] == "s"
-                && symbolBytes[3] == "t"
+            symbolBytes.length >= TEST_PREFIX_BYTES && symbolBytes[0] == "T" && symbolBytes[1] == "e"
+                && symbolBytes[2] == "s" && symbolBytes[3] == "t"
         ) {
             return string(abi.encodePacked("Test", tokenSymbol));
         }

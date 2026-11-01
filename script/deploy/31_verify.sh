@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 步骤三：合约开源验证。自包含——自行载入 network.params、dex 的两个模块地址文件、core.params
-# 与上次部署写入的 addresses.core.params，不依赖入口脚本在部署后刷新地址。
-# 用法：script/deploy/31_verify.sh <network>
+# Step 3: source verification. Self-contained: loads network.params, verifier.params, the dex
+# UniswapV2 address file, core.params and the addresses.core.params written by the last deployment,
+# without relying on the entrypoint to refresh addresses afterwards.
+# Usage: script/deploy/31_verify.sh <network>
 
 network="${1:?usage: script/deploy/31_verify.sh <network>}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 NETWORK_DIR="$PROJECT_ROOT/script/network/$network"
+VERIFIER_PARAMS="$PROJECT_ROOT/script/network/verifier.params"
 
-# 参数文件载入器：1e17 / 1_000_000 这类写法在载入时展开为十进制（见 params.sh）。
+# Parameter file loader: 1e17 / 1_000_000 style literals are expanded to decimal on load (params.sh).
 source "$SCRIPT_DIR/params.sh"
 
 if [ ! -d "$NETWORK_DIR" ]; then
@@ -19,27 +21,47 @@ if [ ! -d "$NETWORK_DIR" ]; then
     exit 1
 fi
 
-# 载入 dex UniswapV2 模块地址文件（FACTORY_ADDRESS / ROUTER_ADDRESS）与 core.params；
-# 根父币不配置，LOVE20Token 构造参数里的父币地址从 Router.WETH() 现场读取。
+# Load the dex UniswapV2 address file (FACTORY_ADDRESS / ROUTER_ADDRESS) and core.params; the root
+# parent token is not configured - the parent address in the LOVE20Token constructor arguments is
+# read from Router.WETH().
 for config in network.params addresses.uniswapv2.params core.params addresses.core.params; do
     if [ ! -f "$NETWORK_DIR/$config" ]; then
         echo "Error: Missing required configuration: $NETWORK_DIR/$config"
         exit 1
     fi
 done
+if [ ! -f "$VERIFIER_PARAMS" ]; then
+    echo "Error: Missing required configuration: $VERIFIER_PARAMS"
+    exit 1
+fi
+
+# Parameters come from files only: clear every key the files define, so a value exported by the
+# caller cannot override a file value.
+params_unset_all "$NETWORK_DIR/network.params" "$VERIFIER_PARAMS" \
+    "$NETWORK_DIR/addresses.uniswapv2.params" "$NETWORK_DIR/core.params" \
+    "$NETWORK_DIR/addresses.core.params"
 
 params_load "$NETWORK_DIR/network.params"
+params_load "$VERIFIER_PARAMS"
 params_load "$NETWORK_DIR/addresses.uniswapv2.params"
 params_load "$NETWORK_DIR/core.params"
 params_load "$NETWORK_DIR/addresses.core.params"
 
 cd "$PROJECT_ROOT"
 
-# 链不支持开源验证时跳过，不视为失败，使一键部署在本地/未接入浏览器的链上仍可跑通。
-case "$CHAIN_ID" in
-    56|97) ;;
-    *) echo "Skip: source verification is not configured for chain $CHAIN_ID"; exit 0 ;;
-esac
+# The opt-out list is mandatory as a key but may be empty: "verify every chain" is a legal answer.
+params_require_keys "$VERIFIER_PARAMS" VERIFY_SKIP_CHAIN_IDS || exit 1
+
+# Verification is attempted by default: only the chains listed here skip it, so a new production
+# chain fails loudly instead of passing unverified.
+skip_chains=",${VERIFY_SKIP_CHAIN_IDS:-},"
+if [ -n "${CHAIN_ID:-}" ] && [[ "$skip_chains" == *",$CHAIN_ID,"* ]]; then
+    echo "Skip: source verification is disabled for chain $CHAIN_ID in $VERIFIER_PARAMS"
+    exit 0
+fi
+
+# The endpoint is a mandatory key: an empty URL would be passed straight to forge.
+params_require_values "$VERIFIER_PARAMS" ETHERSCAN_VERIFIER_URL || exit 1
 : "${ETHERSCAN_API_KEY:?Set an Etherscan API key; source verification has not run.}"
 
 require_core_addresses() {
@@ -54,8 +76,9 @@ require_core_addresses() {
 }
 require_core_addresses
 
-# Encode all constructor arguments before submitting any verification request.
-# 命令替换失败在 set -e 下会静默中止，故逐个显式判别，保证失败有明确输出。
+# Encode all constructor arguments before submitting any verification request. A failing command
+# substitution would silently abort under set -e, so each call is checked explicitly and every
+# failure produces a clear message.
 if ! ROOT_PARENT=$(cast call "$ROUTER_ADDRESS" "WETH()(address)" --rpc-url "$RPC_URL"); then
     echo "Error: Failed to read WETH() from Router $ROUTER_ADDRESS"
     exit 1
@@ -72,13 +95,13 @@ if ! PHASE_ARGS=$(cast abi-encode "constructor(uint256,uint256,uint256,uint256,u
     exit 1
 fi
 if ! TOKEN_ARGS=$(cast abi-encode "constructor(string,string,uint256,uint256,address,address,address)" \
-    "$TOKEN_NAME" "$TOKEN_SYMBOL" "$INITIAL_SUPPLY" "$MAX_SUPPLY" \
+    "$TOKEN_NAME" "$TOKEN_SYMBOL" "$LAUNCH_AMOUNT" "$MAX_SUPPLY" \
     "$DISTRIBUTOR_ADDRESS" "$MINT_ADDRESS" "$ROOT_PARENT"); then
     echo "Error: Failed to encode LOVE20Token constructor arguments"
     exit 1
 fi
 
-COMMON_ARGS=(--chain "$CHAIN_ID" --verifier etherscan --verifier-url "https://api.etherscan.io/v2/api" --watch)
+COMMON_ARGS=(--chain "$CHAIN_ID" --verifier etherscan --verifier-url "$ETHERSCAN_VERIFIER_URL" --watch)
 verify_contract() {
     local address=$1 name=$2
     shift 2

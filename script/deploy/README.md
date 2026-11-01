@@ -11,6 +11,7 @@ script/
 │   ├── 31_verify.sh           # 合约开源验证（自载入网络与地址文件）
 │   └── DeployCore.s.sol       # Foundry 部署脚本
 └── network/
+    ├── verifier.params        # 开源验证端点与跳过链（所有网络共用一份）
     └── anvil31337_dev/        # 本地测试网配置（后续网络按 <链名><链id>_<类型> 新建）
         ├── .account           # 账户信息（敏感，已 gitignore）
         ├── network.params     # 网络参数
@@ -27,7 +28,16 @@ script/
 ```bash
 CHAIN_ID=97
 RPC_URL=https://data-seed-prebsc-1-s1.binance.org:8545
+ETHERSCAN_API_KEY=                        # 开源验证凭据；空=验证步骤直接失败（跳过与否只看 VERIFY_SKIP_CHAIN_IDS）
 ```
+
+编辑 `script/network/verifier.params`（所有网络共用一份，不随网络目录新建）：
+```bash
+ETHERSCAN_VERIFIER_URL=https://api.etherscan.io/v2/api   # 验证器端点；自建/第三方验证器改这里
+VERIFY_SKIP_CHAIN_IDS=31337               # 逗号分隔；默认验证，只有列出的链跳过
+```
+
+验证默认开启：没有列进 `VERIFY_SKIP_CHAIN_IDS` 的链会真去验证，缺 Key 或端点不可用都会失败，不会静默放过。`56`、`97` 不允许出现跳过名单里（部署回归测试会拒绝），否则一条没验证的主网部署看起来会像成功。
 
 ### 2. 配置账户信息
 
@@ -60,12 +70,12 @@ ROUTER_ADDRESS=0x...     # dex 部署的 Uniswap V2 Router02
 编辑 `script/network/<network>/core.params`：
 
 ```bash
-# LOVE20Token
-TOKEN_NAME=LOVE20
-TOKEN_SYMBOL=LOVE
-INITIAL_SUPPLY=1e27                          # 10亿枚（18位小数）
-MAX_SUPPLY=1e28                              # 100亿枚（18位小数）
-DISTRIBUTOR_ADDRESS=0xYourDeployerAddressHere  # 初始代币接收地址
+# LOVE20Token（首币；LAUNCH_AMOUNT / MAX_SUPPLY 同时决定此后每个子币的铸造量与上限）
+TOKEN_NAME=LOVE@WBNB                          # 首币名称，惯例为 <首币符号>@<根父币符号>
+TOKEN_SYMBOL=LOVE                             # 首币符号；以 "Test" 开头时，子币符号自动加 "Test" 前缀
+LAUNCH_AMOUNT=1e27                           # 每个代币的首批供应，10亿枚（18位小数）
+MAX_SUPPLY=1e28                              # 每个代币的供应上限，100亿枚（18位小数）
+DISTRIBUTOR_ADDRESS=0xYourDeployerAddressHere  # 首批供应接收地址
 
 # MemberNFT
 MEMBER_BASE_DIVISOR=1e8
@@ -81,33 +91,37 @@ PHASE_ADJUST_THRESHOLD=6e17                  # 60%
 PHASE_SYNC_OBSERVATION_LIMIT=100
 
 # Launch
-LAUNCH_RATIO=1e18                            # 100%，上限即 1e18
+LAUNCH_RATIO=1e16                            # 1%，折算一次发射所需的未铸供应比例
 MAX_LAUNCH_COUNT=1000
-TOKEN_SYMBOL_LENGTH=4                        # 子币符号 UTF-8 字节长度（首币不受此限；汉字占 3 字节）
+TOKEN_SYMBOL_LENGTH=6                        # 子币符号 UTF-8 字节长度（首币不受此限；两个汉字或六个字母数字）
 
 # Mint 部署参数（比例以 1e18 表示 100%）
-PROPOSAL_REWARD_MIN_VOTE_RATIO=5e16              # 提案奖励门槛（5%，须 <= 1e18）
-GOV_REWARD_RATIO=1e17                            # 治理奖池占比（10%）
-PROPOSAL_REWARD_RATIO=1e17                       # 提案奖池占比（10%）
+PROPOSAL_REWARD_MIN_VOTE_RATIO=3e16              # 提案奖励门槛（3%，须 <= 1e18）
+ROUND_REWARD_GOV_RATIO=5e14                      # 治理奖池占可用供应的比例（0.05%）
+ROUND_REWARD_PROPOSAL_RATIO=5e14                 # 提案奖池占可用供应的比例（0.05%）
 MAX_BOOST_MULTIPLIER=2
 
 # Submit 部署参数（比例以 1e18 表示 100%）
-SUBMIT_MIN_RATIO=1e16                            # 推举门槛（1%）
+SUBMIT_MIN_RATIO=3e15                            # 推举门槛（0.3%）
 
 # Stake 部署参数
 PROMISED_WAITING_PHASES_MIN=1
 PROMISED_WAITING_PHASES_MAX=100
 
 # 单笔手续费结算占可提取 LP 的比例（1e18 = 100%），同时是结算阈值
-FEE_SETTLEMENT_RATIO=3e15  # 0.3%；每次处理 floor(withdrawableLp * 该值 / 1e18) 个手续费 LP 最小单位
+FEE_SETTLEMENT_RATIO=25e14   # 0.25%，即上界 MAX_FEE_SETTLEMENT_RATIO（源码常量写作 2.5e15）；每次处理 floor(withdrawableLp * 该值 / 1e18) 个手续费 LP 最小单位
 ```
 
-值可写成 `<尾数>e<指数>`（`1e17` 即 10%）或带下划线的分组写法（`1_000_000`），由 `script/deploy/params.sh` 在载入时展开为十进制再导出。展开是纯词法的：没有键表，新增或删除参数都不需要改载入器；只对整体形如 `<整数>e<整数>` 的值生效，其余原样保留，写错的写法会留给 `vm.envUint` 在广播前报错。行尾 `#` 注释在展开前丢弃。该机制只作用于 `*.params`，`.account` 仍直接 `source`（密码可能含 `#`）。
+上例取正式网络的部署值（同白皮书附录 A）。`script/network/anvil31337_dev/core.params` 是本地测试 profile，为了让 Phase 与发行节奏在几分钟内跑完，取值刻意不同（如 Phase 目标 300 秒、发射比例 10%），不要拿它当正式配置。
 
-`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；全部部署期静态参数由 `DeployCore` 在广播前校验，部署后再由 `_validateDeployment` 逐项核对完整绑定图，`21_check.sh` 独立复核（含首币 `totalSupply` 与 `DISTRIBUTOR_ADDRESS` 余额）：MemberNFT 四项非零、Phase 五项非零且 `ADJUST_THRESHOLD <= 1e18`、`0 < LAUNCH_RATIO <= 1e18`、`MAX_LAUNCH_COUNT/TOKEN_SYMBOL_LENGTH/LAUNCH_AMOUNT` 非零且 `LAUNCH_AMOUNT <= MAX_SUPPLY`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、两项激励比例之和 `<= 1e18`、`0 < MAX_BOOST_MULTIPLIER <= 1000`、`0 < SUBMIT_MIN_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN > 0` 且 `<= MAX`、`0 < FEE_SETTLEMENT_RATIO <= 0.30%` 池费率。合约 `init` 只防重复初始化并保存配置。
+值可写成 `<整数>e<指数>`（`1e17` 即 10%）或带下划线的分组写法（`1_000_000`），由 `script/deploy/params.sh` 在载入时展开为十进制再导出。展开是纯词法的：没有键表，新增或删除参数都不需要改载入器；只对整体形如 `<整数>e<整数>` 的值生效，其余原样保留，写错的写法会留给 `vm.envUint` 在广播前报错。尾数必须是不带小数点的整数，`2.5e15` 不会被展开（写成 `25e14`）。行尾 `#` 注释在展开前丢弃。该机制只作用于 `*.params`，`.account` 仍直接 `source`（密码可能含 `#`）。
+
+本仓没有必填键断言：core 的部署参数没有「缺键即静默改变行为」的成员，缺键一律由 `vm.envUint` 在广播前失败；因此三个步骤只做 `params_unset_all`，不调用 `params_require_keys` / `params_require_values`。
+
+`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；全部部署期静态参数由 `DeployCore` 在广播前校验，部署后再由 `_validateDeployment` 逐项核对完整绑定图（含 `Launch.MAX_TOKEN_SYMBOL_LENGTH` 与广播前副本相等），`21_check.sh` 独立复核（含首币 `totalSupply`、`DISTRIBUTOR_ADDRESS` 余额，以及 `TOKEN_SYMBOL_LENGTH + TEST_PREFIX_BYTES <= MAX_TOKEN_SYMBOL_LENGTH` 的 Test 前缀余量，两者均从链上读取）：MemberNFT 四项非零、Phase 五项非零且 `ADJUST_THRESHOLD <= 1e18`、`0 < LAUNCH_RATIO <= 1e18`、`MAX_LAUNCH_COUNT/TOKEN_SYMBOL_LENGTH` 非零、`0 < LAUNCH_AMOUNT <= MAX_SUPPLY`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、两项激励比例之和 `<= 1e18`、`0 < MAX_BOOST_MULTIPLIER <= 1000`、`0 < SUBMIT_MIN_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN > 0` 且 `<= MAX`、`0 < FEE_SETTLEMENT_RATIO <= 0.25%`（`MAX_FEE_SETTLEMENT_RATIO`）。合约 `init` 只防重复初始化并保存配置。
 
 **重要参数说明：**
-- `DISTRIBUTOR_ADDRESS`: 设置为部署钱包地址，接收初始代币
+- `DISTRIBUTOR_ADDRESS`: 设置为部署钱包地址，接收首币的首批供应
 - 首币的 minter 自动绑定本次部署的 Mint 地址，部署参数中没有 minter 项。
 - 根父币（WETH）无需配置：`DeployCore` 从 `Router.WETH()` 读取，BSC 主网/测试网即官方 WBNB，Anvil 本地即 dex 部署的 WETH9。
 - `PHASE_ORIGIN_PHASE_BLOCKS`: 以目标链实测出块间隔估算；不要将固定的“3 秒一块”当作发布依据。
@@ -125,13 +139,13 @@ cd core
 
 1. `11_deploy.sh` —— 自载入部署输入并部署初始化全部合约，写入合约地址
 2. `21_check.sh` —— 自载入校验文件，校验部署与初始化结果
-3. `31_verify.sh` —— 自载入地址文件做合约开源验证；链支持时执行（需 `ETHERSCAN_API_KEY`），链不支持时跳过
+3. `31_verify.sh` —— 自载入地址文件做合约开源验证；默认执行（需 `network.params` 的 `ETHERSCAN_API_KEY`），只有 `verifier.params` 的 `VERIFY_SKIP_CHAIN_IDS` 列出的链才跳过
 
 链 ID、全部部署期静态参数、初始化绑定及常量、DEX 地址关系任一不一致，部署入口返回失败，并回滚到上一次已保存的地址（校验失败不覆盖旧地址）。广播阶段或其后的校验失败时，`11_deploy.sh` 保留部署日志并打印日志与 broadcast 产物路径；广播前失败只清理本次临时文件。网络名必填，缺参直接报错。`FACTORY_ADDRESS`、`ROUTER_ADDRESS` 有代码、`Router.factory()` 与配置一致、`Router.WETH()` 读出的根父币有代码，均在广播前校验，配错不会产生任何交易。
 
-DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2：交易手续费固定为 0.30%，Factory 的 `feeTo` 与 `feeToSetter` 均为零。地址应来自该仓库同网络的部署及验收结果，不使用旧 PancakeSwap 配置。
+DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2，Factory 的 `feeTo` 与 `feeToSetter` 均为零。地址应来自该仓库同网络的部署及验收结果，不使用旧 PancakeSwap 配置。
 
-`FEE_SETTLEMENT_RATIO` 是单笔手续费结算占可提取 LP 的比例，同时决定触发阈值和单次处理量，不是交易费率。它以 `1e18` 表示 100%；`21_check.sh` 中的 `ACTUAL_FEE_RATIO` 只是链上读取结果，用于与这个配置值比对。现有配置 `3e15` 表示 0.3%，等于目标池费率，是该约束的上界；单次价格移动严格小于一个池费，一次往返的夹子成本仍为两个池费。该值必须不大于目标池费率，否则单笔结算的价格移动会盖过池费、放大夹子敞口。每社区每 Phase 至多实际结算一次，且单次处理量须足够让 Pair 两侧产出非零数量。
+`FEE_SETTLEMENT_RATIO` 是单笔手续费结算占可提取 LP 的比例，同时决定触发阈值和单次处理量，不是交易费率。它以 `1e18` 表示 100%；`21_check.sh` 中的 `ACTUAL_FEE_RATIO` 只是链上读取结果，用于与这个配置值比对。上界是编译期常量 `MAX_FEE_SETTLEMENT_RATIO = 2.5e15`（0.25%，低于池费率），配置值取 `25e14`（0.25%，与白皮书附录 A 一致）。单次价格移动不超过一个池费，一次往返的夹子成本仍为两个池费。该值必须不大于目标池费率，否则单笔结算的价格移动会盖过池费、放大夹子敞口。每社区每 Phase 至多实际结算一次，且单次处理量须足够让 Pair 两侧产出非零数量。
 
 ### 分步部署
 
@@ -141,7 +155,7 @@ DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2：交易手续费固
 | --- | --- |
 | `11_deploy.sh` | `network.params`、`addresses.uniswapv2.params`、`core.params`、`.account`；写入 `addresses.core.params` |
 | `21_check.sh` | `network.params`、`addresses.uniswapv2.params`、`core.params`、`addresses.core.params` |
-| `31_verify.sh` | `network.params`、`addresses.uniswapv2.params`、`core.params`、`addresses.core.params` |
+| `31_verify.sh` | `network.params`、`verifier.params`、`addresses.uniswapv2.params`、`core.params`、`addresses.core.params` |
 
 各步骤自行载入自己的输入（见上表），dex 的地址文件与 `core.params` 之间无引用关系，载入顺序不再敏感。`21_check.sh` 另断言 `addresses.core.params` 的键集合等于 8 个期望合约键。
 
@@ -149,7 +163,7 @@ DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2：交易手续费固
 # 部署与初始化
 ./script/deploy/11_deploy.sh anvil31337_dev
 
-# 校验部署与初始化结果（只读配置与链上状态，可重复运行）
+# 校验部署与初始化结果（只读配置与链上状态）
 ./script/deploy/21_check.sh anvil31337_dev
 
 # 合约开源验证
@@ -163,16 +177,15 @@ DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2：交易手续费固
 部署完成后，在 BSCScan 上验证合约：
 
 ```bash
-# 设置 Etherscan API Key
-export ETHERSCAN_API_KEY=your-api-key
+# 把 Etherscan API Key 填进 script/network/<network>/network.params 的 ETHERSCAN_API_KEY
 
-# 执行验证
+# 执行验证（端点与跳过名单见 verifier.params）
 ./script/deploy/31_verify.sh anvil31337_dev
 ```
 
-使用 Etherscan V2 API Key。缺少 Key、构造参数错误或任何一份合约验证失败均返回非零；链不支持开源验证时跳过并返回 0；只有 8 份全部成功才显示完成。API 入口依据 [Etherscan 官方文档](https://docs.etherscan.io/make-your-first-call)。
+使用 Etherscan V2 API Key。缺少 Key、构造参数错误或任何一份合约验证失败均返回非零；链列在 `verifier.params` 的 `VERIFY_SKIP_CHAIN_IDS` 时跳过并返回 0；只有 8 份全部成功才显示完成。API 入口依据 [Etherscan 官方文档](https://docs.etherscan.io/make-your-first-call)。
 
-API Key 只通过环境变量传入，不要写进 `network.params`：步骤脚本会载入该文件，文件里的空值会覆盖已导出的环境变量。
+`ETHERSCAN_API_KEY` 是 `network.params` 的一个键，和 `CHAIN_ID`、`RPC_URL` 一样只从文件取值：步骤脚本载入该文件时文件值（包括空值）覆盖调用方的同名环境变量，因此 `ETHERSCAN_API_KEY=xxx ./31_verify.sh` 不生效。该键是凭据，仓库里只放空值，本地或 CI 运行前再填。
 
 ## 部署输出
 

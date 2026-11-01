@@ -111,6 +111,7 @@ interface ILaunch is ILaunchErrors, ILaunchEvents {
     function TOKEN_SYMBOL_LENGTH() external view returns (uint256);
     function MAX_TOKEN_SYMBOL_LENGTH() external view returns (uint256);
     function MAX_TOKEN_NAME_LENGTH() external view returns (uint256);
+    function TEST_PREFIX_BYTES() external view returns (uint256);
     function LAUNCH_RATIO() external view returns (uint256);
     function MAX_LAUNCH_COUNT() external view returns (uint256);
     function LAUNCH_AMOUNT() external view returns (uint256);

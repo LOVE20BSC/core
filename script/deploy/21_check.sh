@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 部署与初始化正确性校验：只读配置与链上状态，可重复运行。自行独立载入校验所需文件，
-# 不依赖调用方预载环境：network.params 提供 RPC 与链 ID，dex 的两个模块地址文件提供期望的
-# 绑定，core.params 提供期望的部署参数，addresses.core.params 提供待校验的已部署地址。
-# 根父币期望值取自链上 Router.WETH()（部署脚本的同源读取），不在配置中重复登记。
-# 用法：script/deploy/21_check.sh <network>
+# Deployment and initialization check: read-only over config and chain state.
+# Loads its own inputs instead of relying on a preloaded environment: network.params provides
+# RPC and chain ID, the dex UniswapV2 address file the expected bindings, core.params the
+# expected deployment parameters and addresses.core.params the addresses to verify.
+# The expected root parent token comes from the on-chain Router.WETH() (the same source the
+# deploy script reads) and is not registered again in the configuration.
+# Usage: script/deploy/21_check.sh <network>
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -13,7 +15,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 network="${1:?usage: script/deploy/21_check.sh <network>}"
 NETWORK_DIR="$PROJECT_ROOT/script/network/$network"
 
-# 参数文件载入器：1e17 / 1_000_000 这类写法在载入时展开为十进制（见 params.sh）。
+# Parameter file loader: 1e17 / 1_000_000 style literals are expanded to decimal on load (params.sh).
 source "$SCRIPT_DIR/params.sh"
 
 if [ ! -d "$NETWORK_DIR" ]; then
@@ -21,8 +23,9 @@ if [ ! -d "$NETWORK_DIR" ]; then
     exit 1
 fi
 
-# 载入 dex UniswapV2 模块地址文件（FACTORY_ADDRESS / ROUTER_ADDRESS）与 core.params；
-# 根父币不配置，期望值取自链上 Router.WETH()，与 DeployCore.s.sol 同源。
+# Load the dex UniswapV2 address file (FACTORY_ADDRESS / ROUTER_ADDRESS) and core.params; the root
+# parent token is not configured: its expected value is read from Router.WETH(), as in
+# DeployCore.s.sol.
 for config in network.params addresses.uniswapv2.params core.params addresses.core.params; do
     if [ ! -f "$NETWORK_DIR/$config" ]; then
         echo "Error: Missing required configuration: $NETWORK_DIR/$config"
@@ -30,13 +33,18 @@ for config in network.params addresses.uniswapv2.params core.params addresses.co
     fi
 done
 
+# Parameters come from files only: clear every key the files define, so a value exported by the
+# caller cannot override a file value.
+params_unset_all "$NETWORK_DIR/network.params" "$NETWORK_DIR/addresses.uniswapv2.params" \
+    "$NETWORK_DIR/core.params" "$NETWORK_DIR/addresses.core.params"
+
 params_load "$NETWORK_DIR/network.params"
 params_load "$NETWORK_DIR/addresses.uniswapv2.params"
 params_load "$NETWORK_DIR/core.params"
 params_load "$NETWORK_DIR/addresses.core.params"
 
-# 地址文件的键集合必须与期望合约集合一致：键名漏改会让后续变量静默为空，
-# 逐项 cast 调用要到很后面才以难以定位的形式失败，故在此显式断言。
+# The address file's key set must equal the expected contract set: a renamed key would leave later
+# variables silently empty and fail much later with an unhelpful message, so assert it here.
 address_file="$NETWORK_DIR/addresses.core.params"
 expected_keys="LAUNCH_ADDRESS LOVE20_TOKEN_ADDRESS MEMBER_NFT_ADDRESS MINT_ADDRESS PHASE_ADDRESS STAKE_ADDRESS SUBMIT_ADDRESS VOTE_ADDRESS"
 actual_keys=$(grep -oE '^[A-Z0-9_]+=' "$address_file" | sed 's/=$//' | sort | tr '\n' ' ' || true)
@@ -47,14 +55,14 @@ if [ "$actual_keys" != "$(printf '%s\n' $expected_keys | sort | tr '\n' ' ')" ];
     exit 1
 fi
 
-# 根父币期望值：链上 Router.WETH()，与 DeployCore.s.sol 同源。
+# Expected root parent token: on-chain Router.WETH(), the same source DeployCore.s.sol uses.
 ROUTER_WETH=$(cast call "$ROUTER_ADDRESS" "WETH()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 if [ "$ROUTER_WETH" = "ERROR" ]; then
     echo "Error: Failed to read WETH() from Router $ROUTER_ADDRESS"
     exit 1
 fi
 
-# 颜色定义
+# Colors.
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -69,7 +77,7 @@ echo -e "${CYAN}║     Verifying Contract Deployment     ║${NC}"
 echo -e "${CYAN}╚════════════════════════════════════════╝${NC}"
 echo ""
 
-# 检查所有合约地址是否已设置
+# Every contract address must be set.
 if [ -z "${LOVE20_TOKEN_ADDRESS:-}" ] || [ -z "${MEMBER_NFT_ADDRESS:-}" ] || \
    [ -z "${PHASE_ADDRESS:-}" ] || [ -z "${LAUNCH_ADDRESS:-}" ] || \
    [ -z "${MINT_ADDRESS:-}" ] || [ -z "${STAKE_ADDRESS:-}" ] || \
@@ -78,24 +86,24 @@ if [ -z "${LOVE20_TOKEN_ADDRESS:-}" ] || [ -z "${MEMBER_NFT_ADDRESS:-}" ] || \
     exit 1
 fi
 
-# 辅助函数：标准化输出（去掉引号和科学计数法标记）
+# Helper: normalize output (strip quotes and the scientific-notation marker).
 normalize_output() {
     local value="$1"
-    # 去掉首尾引号
+    # strip surrounding quotes
     value="${value%\"}"
     value="${value#\"}"
-    # 去掉科学计数法标记 [1e18]
+    # strip the scientific-notation marker [1e18]
     value="${value% \[*\]}"
     echo "$value"
 }
 
-# 辅助函数：验证单个值
+# Helper: verify a single value.
 verify_value() {
     local field_name=$1
     local expected=$2
     local actual=$3
 
-    # 标准化两个值
+    # normalize both values
     expected=$(normalize_output "$expected")
     actual=$(normalize_output "$actual")
 
@@ -117,7 +125,7 @@ verify_value() {
     fi
 }
 
-# 辅助函数：验证合约是否部署
+# Helper: verify that a contract is deployed.
 verify_deployed() {
     local name=$1
     local address=$2
@@ -131,7 +139,7 @@ verify_deployed() {
     return 0
 }
 
-# 辅助函数：打印合约头部
+# Helper: print a contract header.
 print_contract_header() {
     local num=$1
     local name=$2
@@ -145,7 +153,7 @@ FAILED=0
 ACTUAL_CHAIN_ID=$(cast chain-id --rpc-url "$RPC_URL")
 verify_value "CHAIN_ID" "$CHAIN_ID" "$ACTUAL_CHAIN_ID" || exit 1
 
-# 1. 验证 LOVE20Token
+# 1. LOVE20Token.
 print_contract_header "1" "LOVE20Token" "$LOVE20_TOKEN_ADDRESS"
 verify_deployed "LOVE20Token" "$LOVE20_TOKEN_ADDRESS" || ((FAILED+=1))
 
@@ -162,15 +170,17 @@ ACTUAL_MINTER=$(cast call "$LOVE20_TOKEN_ADDRESS" "MINTER()(address)" --rpc-url 
 verify_value "MINTER" "$MINT_ADDRESS" "$ACTUAL_MINTER" || ((FAILED+=1))
 
 ACTUAL_TOTAL_SUPPLY=$(cast call "$LOVE20_TOKEN_ADDRESS" "totalSupply()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "totalSupply" "$INITIAL_SUPPLY" "$ACTUAL_TOTAL_SUPPLY" || ((FAILED+=1))
+# totalSupply / distributor balance equal the deployment values only while the first token has no
+# mint, burn or transfer: this step is idempotent read-only, not a timeless invariant.
+verify_value "totalSupply" "$LAUNCH_AMOUNT" "$ACTUAL_TOTAL_SUPPLY" || ((FAILED+=1))
 
 ACTUAL_DISTRIBUTOR_BALANCE=$(cast call "$LOVE20_TOKEN_ADDRESS" "balanceOf(address)(uint256)" "$DISTRIBUTOR_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "distributor balance" "$INITIAL_SUPPLY" "$ACTUAL_DISTRIBUTOR_BALANCE" || ((FAILED+=1))
+verify_value "distributor balance" "$LAUNCH_AMOUNT" "$ACTUAL_DISTRIBUTOR_BALANCE" || ((FAILED+=1))
 
 ACTUAL_PARENT=$(cast call "$LOVE20_TOKEN_ADDRESS" "PARENT_TOKEN_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "PARENT_TOKEN_ADDRESS" "$ROUTER_WETH" "$ACTUAL_PARENT" || ((FAILED+=1))
 
-# 2. 验证 MemberNFT
+# 2. MemberNFT.
 print_contract_header "2" "MemberNFT" "$MEMBER_NFT_ADDRESS"
 verify_deployed "MemberNFT" "$MEMBER_NFT_ADDRESS" || ((FAILED+=1))
 
@@ -192,7 +202,7 @@ verify_value "LOVE20_TOKEN_ADDRESS" "$LOVE20_TOKEN_ADDRESS" "$ACTUAL_TOKEN" || (
 ACTUAL_INIT=$(cast call "$MEMBER_NFT_ADDRESS" "initialized()(bool)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "initialized" "true" "$ACTUAL_INIT" || ((FAILED+=1))
 
-# 3. 验证 Phase
+# 3. Phase.
 print_contract_header "3" "Phase" "$PHASE_ADDRESS"
 verify_deployed "Phase" "$PHASE_ADDRESS" || ((FAILED+=1))
 
@@ -209,7 +219,7 @@ verify_value "ORIGIN_PHASE_BLOCKS" "$PHASE_ORIGIN_PHASE_BLOCKS" "$ACTUAL_ORIGIN_
 ACTUAL_OBSERVATION_LIMIT=$(cast call "$PHASE_ADDRESS" "SYNC_OBSERVATION_LIMIT()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "SYNC_OBSERVATION_LIMIT" "$PHASE_SYNC_OBSERVATION_LIMIT" "$ACTUAL_OBSERVATION_LIMIT" || ((FAILED+=1))
 
-# 4. 验证 Launch
+# 4. Launch.
 print_contract_header "4" "Launch" "$LAUNCH_ADDRESS"
 verify_deployed "Launch" "$LAUNCH_ADDRESS" || ((FAILED+=1))
 
@@ -231,8 +241,31 @@ ACTUAL_LAUNCH_FACTORY=$(cast call "$LAUNCH_ADDRESS" "PAIR_FACTORY_ADDRESS()(addr
 verify_value "PAIR_FACTORY_ADDRESS" "$FACTORY_ADDRESS" "$ACTUAL_LAUNCH_FACTORY" || ((FAILED+=1))
 ACTUAL_SYMBOL_LENGTH=$(cast call "$LAUNCH_ADDRESS" "TOKEN_SYMBOL_LENGTH()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "TOKEN_SYMBOL_LENGTH" "$TOKEN_SYMBOL_LENGTH" "$ACTUAL_SYMBOL_LENGTH" || ((FAILED+=1))
+
+# The testnet "Test" prefix is applied after the length check, so the final symbol is still bounded
+# by Launch.MAX_TOKEN_SYMBOL_LENGTH. Both limits are read from chain instead of being duplicated
+# here; every reading goes through normalize_output, or a cast scientific-notation suffix would read
+# as non-numeric and turn a passing deployment into a failure.
+ACTUAL_SYMBOL_LENGTH=$(normalize_output "${ACTUAL_SYMBOL_LENGTH:-}")
+ACTUAL_MAX_SYMBOL_LENGTH=$(cast call "$LAUNCH_ADDRESS" "MAX_TOKEN_SYMBOL_LENGTH()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+ACTUAL_MAX_SYMBOL_LENGTH=$(normalize_output "$ACTUAL_MAX_SYMBOL_LENGTH")
+ACTUAL_TEST_PREFIX_BYTES=$(cast call "$LAUNCH_ADDRESS" "TEST_PREFIX_BYTES()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+ACTUAL_TEST_PREFIX_BYTES=$(normalize_output "$ACTUAL_TEST_PREFIX_BYTES")
+if [[ ! "$ACTUAL_MAX_SYMBOL_LENGTH" =~ ^[0-9]+$ ]] || [[ ! "$ACTUAL_TEST_PREFIX_BYTES" =~ ^[0-9]+$ ]]; then
+    echo -e "  ${RED}✗${NC} Failed to read MAX_TOKEN_SYMBOL_LENGTH / TEST_PREFIX_BYTES from $LAUNCH_ADDRESS"
+    ((FAILED+=1))
+elif [[ ! "$ACTUAL_SYMBOL_LENGTH" =~ ^[0-9]+$ ]]; then
+    # A failed TOKEN_SYMBOL_LENGTH read is already counted by verify_value above; counting it here
+    # too would report one failure twice.
+    :
+elif [ "$((ACTUAL_SYMBOL_LENGTH + ACTUAL_TEST_PREFIX_BYTES))" -gt "$ACTUAL_MAX_SYMBOL_LENGTH" ]; then
+    echo -e "  ${RED}✗${NC} TOKEN_SYMBOL_LENGTH + TEST_PREFIX_BYTES exceeds MAX_TOKEN_SYMBOL_LENGTH (${ACTUAL_SYMBOL_LENGTH} + ${ACTUAL_TEST_PREFIX_BYTES} > ${ACTUAL_MAX_SYMBOL_LENGTH})"
+    ((FAILED+=1))
+else
+    echo -e "  ${GREEN}✓${NC} TOKEN_SYMBOL_LENGTH + TEST_PREFIX_BYTES <= MAX_TOKEN_SYMBOL_LENGTH ($((ACTUAL_SYMBOL_LENGTH + ACTUAL_TEST_PREFIX_BYTES)) <= ${ACTUAL_MAX_SYMBOL_LENGTH})"
+fi
 ACTUAL_LAUNCH_AMOUNT=$(cast call "$LAUNCH_ADDRESS" "LAUNCH_AMOUNT()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "LAUNCH_AMOUNT" "$INITIAL_SUPPLY" "$ACTUAL_LAUNCH_AMOUNT" || ((FAILED+=1))
+verify_value "LAUNCH_AMOUNT" "$LAUNCH_AMOUNT" "$ACTUAL_LAUNCH_AMOUNT" || ((FAILED+=1))
 ACTUAL_LAUNCH_MAX_SUPPLY=$(cast call "$LAUNCH_ADDRESS" "MAX_SUPPLY()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "MAX_SUPPLY" "$MAX_SUPPLY" "$ACTUAL_LAUNCH_MAX_SUPPLY" || ((FAILED+=1))
 ACTUAL_REGISTERED=$(cast call "$LAUNCH_ADDRESS" "isLOVE20Token(address)(bool)" "$LOVE20_TOKEN_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
@@ -243,7 +276,7 @@ verify_value "FIRST_TOKEN_ADDRESS" "$LOVE20_TOKEN_ADDRESS" "$ACTUAL_FIRST_TOKEN"
 ACTUAL_LAUNCH_INIT=$(cast call "$LAUNCH_ADDRESS" "initialized()(bool)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "initialized" "true" "$ACTUAL_LAUNCH_INIT" || ((FAILED+=1))
 
-# 5. 验证 Mint
+# 5. Mint.
 print_contract_header "5" "Mint" "$MINT_ADDRESS"
 verify_deployed "Mint" "$MINT_ADDRESS" || ((FAILED+=1))
 
@@ -266,10 +299,10 @@ ACTUAL_MIN_PROPOSAL=$(cast call "$MINT_ADDRESS" "PROPOSAL_REWARD_MIN_VOTE_RATIO(
 verify_value "PROPOSAL_REWARD_MIN_VOTE_RATIO" "$PROPOSAL_REWARD_MIN_VOTE_RATIO" "$ACTUAL_MIN_PROPOSAL" || ((FAILED+=1))
 
 ACTUAL_GOV_REWARD=$(cast call "$MINT_ADDRESS" "ROUND_REWARD_GOV_RATIO()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "ROUND_REWARD_GOV_RATIO" "$GOV_REWARD_RATIO" "$ACTUAL_GOV_REWARD" || ((FAILED+=1))
+verify_value "ROUND_REWARD_GOV_RATIO" "$ROUND_REWARD_GOV_RATIO" "$ACTUAL_GOV_REWARD" || ((FAILED+=1))
 
 ACTUAL_PROPOSAL_REWARD=$(cast call "$MINT_ADDRESS" "ROUND_REWARD_PROPOSAL_RATIO()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "ROUND_REWARD_PROPOSAL_RATIO" "$PROPOSAL_REWARD_RATIO" "$ACTUAL_PROPOSAL_REWARD" || ((FAILED+=1))
+verify_value "ROUND_REWARD_PROPOSAL_RATIO" "$ROUND_REWARD_PROPOSAL_RATIO" "$ACTUAL_PROPOSAL_REWARD" || ((FAILED+=1))
 
 ACTUAL_MAX_BOOST=$(cast call "$MINT_ADDRESS" "MAX_GOV_BOOST_REWARD_MULTIPLIER()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "MAX_GOV_BOOST_REWARD_MULTIPLIER" "$MAX_BOOST_MULTIPLIER" "$ACTUAL_MAX_BOOST" || ((FAILED+=1))
@@ -277,7 +310,7 @@ verify_value "MAX_GOV_BOOST_REWARD_MULTIPLIER" "$MAX_BOOST_MULTIPLIER" "$ACTUAL_
 ACTUAL_MINT_INIT=$(cast call "$MINT_ADDRESS" "initialized()(bool)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "initialized" "true" "$ACTUAL_MINT_INIT" || ((FAILED+=1))
 
-# 6. 验证 Stake
+# 6. Stake.
 print_contract_header "6" "Stake" "$STAKE_ADDRESS"
 verify_deployed "Stake" "$STAKE_ADDRESS" || ((FAILED+=1))
 
@@ -311,7 +344,7 @@ verify_value "FEE_SETTLEMENT_RATIO" "$FEE_SETTLEMENT_RATIO" "$ACTUAL_FEE_RATIO" 
 ACTUAL_STAKE_INIT=$(cast call "$STAKE_ADDRESS" "initialized()(bool)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "initialized" "true" "$ACTUAL_STAKE_INIT" || ((FAILED+=1))
 
-# 7. 验证 Submit
+# 7. Submit.
 print_contract_header "7" "Submit" "$SUBMIT_ADDRESS"
 verify_deployed "Submit" "$SUBMIT_ADDRESS" || ((FAILED+=1))
 
@@ -330,7 +363,7 @@ verify_value "SUBMIT_MIN_RATIO" "$SUBMIT_MIN_RATIO" "$ACTUAL_MIN_RATIO" || ((FAI
 ACTUAL_SUBMIT_INIT=$(cast call "$SUBMIT_ADDRESS" "initialized()(bool)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "initialized" "true" "$ACTUAL_SUBMIT_INIT" || ((FAILED+=1))
 
-# 8. 验证 Vote
+# 8. Vote.
 print_contract_header "8" "Vote" "$VOTE_ADDRESS"
 verify_deployed "Vote" "$VOTE_ADDRESS" || ((FAILED+=1))
 
@@ -350,15 +383,16 @@ ACTUAL_VOTE_INIT=$(cast call "$VOTE_ADDRESS" "initialized()(bool)" --rpc-url "$R
 verify_value "initialized" "true" "$ACTUAL_VOTE_INIT" || ((FAILED+=1))
 
 # ========================================
-# 边界值验证（安全检查）
+# Boundary value checks (safety).
 # ========================================
 echo ""
 echo -e "${CYAN}─────────────────────────────────────────${NC}"
 echo -e "${BLUE}Boundary Value Checks${NC}"
 echo -e "${CYAN}─────────────────────────────────────────${NC}"
 
-# 比较两个非负十进制整数字符串：输出 -1 / 0 / 1。bash 内建算术只有 64 位，
-# 供应量到 1e28，不能先转整数再比；同长度数字串的字典序与数值序一致。
+# Compare two non-negative decimal integer strings: -1 / 0 / 1. Bash arithmetic is 64-bit only and
+# supply reaches 1e28, so compare digit strings; equal-length decimal strings sort like numbers,
+# which makes the digit-by-digit comparison exact.
 decimal_cmp() {
     local a b
     a=$(normalize_output "$1" | sed -E 's/^0+//')
@@ -380,7 +414,7 @@ decimal_cmp() {
     fi
 }
 
-# 验证边界值的辅助函数
+# Helper: verify an upper bound.
 verify_boundary() {
     local field_name=$1
     local actual=$2
@@ -415,16 +449,16 @@ verify_positive() {
     return 0
 }
 
-# 1. 验证 PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18
+# 1. PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18.
 echo -e "${GRAY}Checking PROPOSAL_REWARD_MIN_VOTE_RATIO...${NC}"
 verify_boundary "PROPOSAL_REWARD_MIN_VOTE_RATIO" "$ACTUAL_MIN_PROPOSAL" "1000000000000000000" || ((FAILED+=1))
 
-# 2. 验证 LAUNCH_RATIO <= 1e18 且非零
+# 2. LAUNCH_RATIO <= 1e18 and nonzero.
 echo -e "${GRAY}Checking LAUNCH_RATIO...${NC}"
 verify_boundary "LAUNCH_RATIO" "$ACTUAL_LAUNCH_RATIO" "1000000000000000000" || ((FAILED+=1))
 verify_positive "LAUNCH_RATIO" "$ACTUAL_LAUNCH_RATIO" || ((FAILED+=1))
 
-# 3. 验证全部部署期静态参数非零/范围
+# 3. Every deployment-static parameter is nonzero and within range.
 echo -e "${GRAY}Checking deployment-static bounds...${NC}"
 for pair in \
     "MEMBER_BASE_DIVISOR:$ACTUAL_BASE_DIVISOR" \
@@ -449,9 +483,10 @@ done
 verify_boundary "PHASE_ADJUST_THRESHOLD" "$ACTUAL_ADJUST_THRESHOLD" "1000000000000000000" || ((FAILED+=1))
 verify_boundary "MAX_GOV_BOOST_REWARD_MULTIPLIER" "$ACTUAL_MAX_BOOST" "1000" || ((FAILED+=1))
 verify_boundary "SUBMIT_MIN_RATIO" "$ACTUAL_MIN_RATIO" "1000000000000000000" || ((FAILED+=1))
-verify_boundary "FEE_SETTLEMENT_RATIO" "$ACTUAL_FEE_RATIO" "3000000000000000" || ((FAILED+=1))
+# Upper bound mirrors MAX_FEE_SETTLEMENT_RATIO in DeployCore.s.sol: 0.25%, below the pool fee.
+verify_boundary "FEE_SETTLEMENT_RATIO" "$ACTUAL_FEE_RATIO" "2500000000000000" || ((FAILED+=1))
 
-# 两个非负十进制整数字符串相加；逐位处理避免 64 位溢出。
+# Add two non-negative decimal integer strings; digit by digit to avoid 64-bit overflow.
 decimal_add() {
     local a b i digit carry=0 out=""
     a=$(normalize_output "$1" | sed -E 's/^0+//')
@@ -499,7 +534,7 @@ else
     echo -e "  ${GREEN}✓${NC} token name, symbol and distributor are set"
 fi
 
-# 4. 验证 Router 和 Factory 的地址一致性
+# 4. Router / Factory address consistency.
 echo -e "${GRAY}Checking Router-Factory consistency...${NC}"
 ROUTER_FACTORY=$(cast call "$ACTUAL_ROUTER" "factory()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 if [ "$ROUTER_FACTORY" = "ERROR" ]; then
@@ -514,7 +549,7 @@ else
     ((FAILED+=1))
 fi
 
-# 5. 验证根父币（Router.WETH() 读出的 WETH）本身是已部署合约
+# 5. The root parent token (Router.WETH()) must itself be a deployed contract.
 echo -e "${GRAY}Checking Router WETH...${NC}"
 verify_deployed "WETH" "$ROUTER_WETH" || ((FAILED+=1))
 verify_deployed "Factory" "$FACTORY_ADDRESS" || ((FAILED+=1))

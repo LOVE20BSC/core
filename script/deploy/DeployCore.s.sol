@@ -19,16 +19,21 @@ import {ISubmit} from "../../src/interfaces/ISubmit.sol";
 import {IVote} from "../../src/interfaces/IVote.sol";
 import {ILOVE20Token} from "../../src/interfaces/ILOVE20Token.sol";
 
-// 部署脚本只从 Router 读取根父币与 Factory 地址；Stake 实际调用的 Router 接口见 src/interfaces/UniswapV2/。
+// The deploy script reads only the root parent token and the Factory from the Router; the Router
+// interface Stake actually calls lives in src/interfaces/UniswapV2/.
 interface IUniswapV2RouterWeth {
     function WETH() external view returns (address);
     function factory() external view returns (address);
 }
 
 contract DeployCore is Script {
-    // Uniswap V2 池费率 0.30%，按 1e18 精度换算；手续费结算比例不得超过可提取的费率本身。
-    uint256 internal constant MAX_FEE_SETTLEMENT_RATIO = 3e15;
-    // 与 Launch.MAX_TOKEN_SYMBOL_LENGTH 同源：子币符号加 "Test" 前缀（4 字节）后仍不得超上限。
+    // The settlement ratio must not exceed the pool fee, so a single settlement moves the price by at
+    // most one fee and a round trip cannot beat two. Bound at 0.25%, below the pool fee. Precision is
+    // 1e18.
+    uint256 internal constant MAX_FEE_SETTLEMENT_RATIO = 2.5e15;
+    // Pre-broadcast copies of the same constants in Launch: a child symbol plus the "Test" prefix
+    // must still fit the symbol limit. _validateDeployment asserts both copies are equal afterwards,
+    // so a drift between the two contracts cannot pass unnoticed.
     uint256 internal constant MAX_TOKEN_SYMBOL_LENGTH = 32;
     uint256 internal constant TEST_PREFIX_BYTES = 4;
 
@@ -62,7 +67,7 @@ contract DeployCore is Script {
         uint256 launchRatio;
         uint256 maxLaunchCount;
         uint256 tokenSymbolLength;
-        uint256 initialSupply;
+        uint256 launchAmount;
         uint256 maxSupply;
         uint256 proposalRewardMinVoteRatio;
         uint256 roundRewardGovRatio;
@@ -106,11 +111,11 @@ contract DeployCore is Script {
         config.launchRatio = vm.envUint("LAUNCH_RATIO");
         config.maxLaunchCount = vm.envUint("MAX_LAUNCH_COUNT");
         config.tokenSymbolLength = vm.envUint("TOKEN_SYMBOL_LENGTH");
-        config.initialSupply = vm.envUint("INITIAL_SUPPLY");
+        config.launchAmount = vm.envUint("LAUNCH_AMOUNT");
         config.maxSupply = vm.envUint("MAX_SUPPLY");
         config.proposalRewardMinVoteRatio = vm.envUint("PROPOSAL_REWARD_MIN_VOTE_RATIO");
-        config.roundRewardGovRatio = vm.envUint("GOV_REWARD_RATIO");
-        config.roundRewardProposalRatio = vm.envUint("PROPOSAL_REWARD_RATIO");
+        config.roundRewardGovRatio = vm.envUint("ROUND_REWARD_GOV_RATIO");
+        config.roundRewardProposalRatio = vm.envUint("ROUND_REWARD_PROPOSAL_RATIO");
         config.maxBoostMultiplier = vm.envUint("MAX_BOOST_MULTIPLIER");
         config.submitMinRatio = vm.envUint("SUBMIT_MIN_RATIO");
         config.promisedWaitingPhasesMin = vm.envUint("PROMISED_WAITING_PHASES_MIN");
@@ -145,9 +150,7 @@ contract DeployCore is Script {
             config.tokenSymbolLength + TEST_PREFIX_BYTES <= MAX_TOKEN_SYMBOL_LENGTH,
             "Token symbol length leaves no room for the Test prefix"
         );
-        require(
-            config.initialSupply != 0 && config.initialSupply <= config.maxSupply, "Initial supply out of range"
-        );
+        require(config.launchAmount != 0 && config.launchAmount <= config.maxSupply, "Launch amount out of range");
 
         require(config.proposalRewardMinVoteRatio <= 1e18, "Proposal threshold exceeds 1e18");
         require(config.roundRewardGovRatio <= 1e18, "Round reward gov ratio exceeds 1e18");
@@ -167,18 +170,17 @@ contract DeployCore is Script {
             config.promisedWaitingPhasesMin <= config.promisedWaitingPhasesMax,
             "Promised waiting phases range is invalid"
         );
-        require(
-            config.feeSettlementRatio != 0 && config.feeSettlementRatio <= 1e18,
-            "Fee settlement ratio out of range"
-        );
+        require(config.feeSettlementRatio != 0, "Fee settlement ratio must be nonzero");
         require(
             config.feeSettlementRatio <= MAX_FEE_SETTLEMENT_RATIO,
-            "Fee settlement ratio exceeds the 0.30% pool fee"
+            "Fee settlement ratio exceeds MAX_FEE_SETTLEMENT_RATIO (0.25%)"
         );
 
-        // DEX 依赖必须是已部署合约且属于同一套部署。根父币从 Router.WETH() 读取，不在 core.params
-        // 重复登记；Factory 供 Launch/Stake 建池、Router 供提现兑换，三者配错时模拟阶段不会回滚，
-        // 会白广播 8 个合约（要到 21_check.sh 才拦下）。
+        // DEX dependencies must be deployed contracts from the same deployment. The root parent
+        // token is read from Router.WETH() and not registered again in core.params. The Factory is
+        // used by Launch/Stake to create pools and the Router by the withdrawal swap; a mismatch
+        // between them does not revert during simulation and would broadcast 8 contracts for
+        // nothing (21_check.sh would only catch it afterwards).
         require(config.factory.code.length != 0, "Factory must be a deployed contract");
         require(config.router.code.length != 0, "Router must be a deployed contract");
         require(
@@ -194,23 +196,23 @@ contract DeployCore is Script {
         internal
         returns (DeploymentAddresses memory addrs)
     {
-        // 部署 MemberNFT
+        // Deploy MemberNFT.
         addrs.memberNFT = address(_deployMemberNFT(config));
         console2.log("MemberNFT deployed at:", addrs.memberNFT);
 
-        // 部署 Phase
+        // Deploy Phase.
         addrs.phase = address(_deployPhase(config));
         console2.log("Phase deployed at:", addrs.phase);
 
-        // 部署 Mint（未初始化）
+        // Deploy Mint (not initialized yet).
         addrs.mint = address(new Mint());
         console2.log("Mint deployed at:", addrs.mint);
 
-        // 部署 Launch
+        // Deploy Launch.
         addrs.launch = address(new Launch());
         console2.log("Launch deployed at:", addrs.launch);
 
-        // 调用 Launch.init() 创建首个代币
+        // Call Launch.init() to create the first token.
         LaunchInitParams memory launchParams = LaunchInitParams({
             mintAddress: addrs.mint,
             memberNFTAddress: addrs.memberNFT,
@@ -219,7 +221,7 @@ contract DeployCore is Script {
             launchRatio: config.launchRatio,
             maxLaunchCount: config.maxLaunchCount,
             tokenSymbolLength: config.tokenSymbolLength,
-            launchAmount: config.initialSupply,
+            launchAmount: config.launchAmount,
             maxSupply: config.maxSupply,
             distributor: config.distributor,
             name: config.tokenName,
@@ -227,24 +229,24 @@ contract DeployCore is Script {
         });
         Launch(addrs.launch).init(launchParams);
 
-        // 从 Launch 获取首个代币地址
+        // Read the first token address from Launch.
         (address[] memory tokens,) = Launch(addrs.launch).tokens(0, 1, false);
         addrs.token = tokens[0];
         console2.log("First LOVE20Token created at:", addrs.token);
 
-        // 部署 Stake（未初始化）
+        // Deploy Stake (not initialized yet).
         addrs.stake = address(new Stake());
         console2.log("Stake deployed at:", addrs.stake);
 
-        // 部署 Submit（未初始化）
+        // Deploy Submit (not initialized yet).
         addrs.submit = address(new Submit());
         console2.log("Submit deployed at:", addrs.submit);
 
-        // 部署 Vote（未初始化）
+        // Deploy Vote (not initialized yet).
         addrs.vote = address(new Vote());
         console2.log("Vote deployed at:", addrs.vote);
 
-        // 初始化 Stake
+        // Initialize Stake.
         Stake(addrs.stake).init(
             addrs.phase,
             addrs.memberNFT,
@@ -258,15 +260,15 @@ contract DeployCore is Script {
         );
         console2.log("Stake initialized");
 
-        // 初始化 Submit
+        // Initialize Submit.
         Submit(addrs.submit).init(addrs.phase, addrs.stake, addrs.memberNFT, config.submitMinRatio);
         console2.log("Submit initialized");
 
-        // 初始化 Vote
+        // Initialize Vote.
         Vote(addrs.vote).init(addrs.phase, addrs.stake, addrs.submit, addrs.memberNFT);
         console2.log("Vote initialized");
 
-        // 初始化 Mint（需要所有合约地址）
+        // Initialize Mint (needs every contract address).
         Mint(addrs.mint).init(
             addrs.vote,
             addrs.submit,
@@ -306,9 +308,9 @@ contract DeployCore is Script {
         require(token.MAX_SUPPLY() == config.maxSupply, "Token max supply mismatch");
         require(token.MINTER() == addrs.mint, "Token minter mismatch");
         require(token.PARENT_TOKEN_ADDRESS() == rootParent, "Token parent mismatch");
-        require(token.totalSupply() == config.initialSupply, "Token initial supply mismatch");
+        require(token.totalSupply() == config.launchAmount, "Token launch amount mismatch");
         // forge-lint: disable-next-item(incorrect-strict-equality)
-        require(token.balanceOf(config.distributor) == config.initialSupply, "Token distributor balance mismatch");
+        require(token.balanceOf(config.distributor) == config.launchAmount, "Token distributor balance mismatch");
 
         IMemberNFT memberNFT = IMemberNFT(addrs.memberNFT);
         require(memberNFT.initialized(), "MemberNFT not initialized");
@@ -341,7 +343,12 @@ contract DeployCore is Script {
         require(launch.LAUNCH_RATIO() == config.launchRatio, "Launch ratio mismatch");
         require(launch.MAX_LAUNCH_COUNT() == config.maxLaunchCount, "Launch max count mismatch");
         require(launch.TOKEN_SYMBOL_LENGTH() == config.tokenSymbolLength, "Launch symbol length mismatch");
-        require(launch.LAUNCH_AMOUNT() == config.initialSupply, "Launch amount mismatch");
+        require(
+            launch.MAX_TOKEN_SYMBOL_LENGTH() == MAX_TOKEN_SYMBOL_LENGTH,
+            "Launch max token symbol length mismatch"
+        );
+        require(launch.TEST_PREFIX_BYTES() == TEST_PREFIX_BYTES, "Launch test prefix length mismatch");
+        require(launch.LAUNCH_AMOUNT() == config.launchAmount, "Launch amount mismatch");
         require(launch.MAX_SUPPLY() == config.maxSupply, "Launch max supply mismatch");
 
         IMint mint = IMint(addrs.mint);
