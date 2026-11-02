@@ -110,7 +110,7 @@ contract MintInvariantTest {
         return 100;
     }
 
-    function LAUNCH_RATIO() external pure returns (uint256) {
+    function LAUNCH_COUNT_THRESHOLD_RATIO() external pure returns (uint256) {
         return 1e17; // 10%
     }
 

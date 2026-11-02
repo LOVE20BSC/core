@@ -30,7 +30,7 @@ contract MintCoverageTest {
     uint256 minVoteRatio = 5e16;
     uint256 totalBoost;
     uint256 memberBoost;
-    uint256 public LAUNCH_RATIO = 1e16;
+    uint256 public LAUNCH_COUNT_THRESHOLD_RATIO = 1e16;
     uint256 public constant MAX_LAUNCH_COUNT = 1000;
     mapping(address => uint256) public issuedLaunchCount;
 

@@ -475,7 +475,7 @@ contract Mint is IMint {
         ILOVE20Token token = ILOVE20Token(tokenAddress);
         uint256 totalSupplyBeforeMint = token.totalSupply() - mintedAmount;
         uint256 threshold = Math.mulDiv(
-            token.MAX_SUPPLY() - totalSupplyBeforeMint, launch.LAUNCH_RATIO(), 1e18, Math.Rounding.Ceil
+            token.MAX_SUPPLY() - totalSupplyBeforeMint, launch.LAUNCH_COUNT_THRESHOLD_RATIO(), 1e18, Math.Rounding.Ceil
         );
         if (threshold == 0) {
             return;

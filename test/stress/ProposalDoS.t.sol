@@ -52,7 +52,7 @@ contract ProposalDoSTest is Test {
             rootParentTokenAddress: address(parent),
             pairFactoryAddress: address(factory),
             distributor: actor,
-            launchRatio: 1e18,
+            launchCountThresholdRatio: 1e18,
             maxLaunchCount: 1000,
             tokenSymbolLength: 4,
             launchAmount: 1e27,

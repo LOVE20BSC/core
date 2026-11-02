@@ -93,17 +93,17 @@ contract DeployCoreTest is Test {
         deployer.validateConfigForTest(config);
     }
 
-    function testRejectsLaunchRatioAbovePrecision() public {
+    function testRejectsLaunchCountThresholdRatioAbovePrecision() public {
         DeployCore.CoreConfig memory config = _validConfig();
-        config.launchRatio = 1e18 + 1;
-        vm.expectRevert("Launch ratio out of range");
+        config.launchCountThresholdRatio = 1e18 + 1;
+        vm.expectRevert("Launch count threshold ratio out of range");
         deployer.validateConfigForTest(config);
     }
 
-    function testRejectsZeroLaunchRatio() public {
+    function testRejectsZeroLaunchCountThresholdRatio() public {
         DeployCore.CoreConfig memory config = _validConfig();
-        config.launchRatio = 0;
-        vm.expectRevert("Launch ratio out of range");
+        config.launchCountThresholdRatio = 0;
+        vm.expectRevert("Launch count threshold ratio out of range");
         deployer.validateConfigForTest(config);
     }
 
@@ -327,7 +327,7 @@ contract DeployCoreTest is Test {
             phaseTargetSeconds: 300,
             phaseAdjustThreshold: 6e17,
             phaseSyncObservationLimit: 100,
-            launchRatio: 1e18,
+            launchCountThresholdRatio: 1e18,
             maxLaunchCount: 1000,
             tokenSymbolLength: 4,
             launchAmount: 1e27,

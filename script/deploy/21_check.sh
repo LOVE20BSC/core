@@ -223,8 +223,8 @@ verify_value "SYNC_OBSERVATION_LIMIT" "$PHASE_SYNC_OBSERVATION_LIMIT" "$ACTUAL_O
 print_contract_header "4" "Launch" "$LAUNCH_ADDRESS"
 verify_deployed "Launch" "$LAUNCH_ADDRESS" || ((FAILED+=1))
 
-ACTUAL_LAUNCH_RATIO=$(cast call "$LAUNCH_ADDRESS" "LAUNCH_RATIO()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "LAUNCH_RATIO" "$LAUNCH_RATIO" "$ACTUAL_LAUNCH_RATIO" || ((FAILED+=1))
+ACTUAL_LAUNCH_COUNT_THRESHOLD_RATIO=$(cast call "$LAUNCH_ADDRESS" "LAUNCH_COUNT_THRESHOLD_RATIO()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "LAUNCH_COUNT_THRESHOLD_RATIO" "$LAUNCH_COUNT_THRESHOLD_RATIO" "$ACTUAL_LAUNCH_COUNT_THRESHOLD_RATIO" || ((FAILED+=1))
 
 ACTUAL_MAX_LAUNCH_COUNT=$(cast call "$LAUNCH_ADDRESS" "MAX_LAUNCH_COUNT()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "MAX_LAUNCH_COUNT" "$MAX_LAUNCH_COUNT" "$ACTUAL_MAX_LAUNCH_COUNT" || ((FAILED+=1))
@@ -453,10 +453,10 @@ verify_positive() {
 echo -e "${GRAY}Checking PROPOSAL_REWARD_MIN_VOTE_RATIO...${NC}"
 verify_boundary "PROPOSAL_REWARD_MIN_VOTE_RATIO" "$ACTUAL_MIN_PROPOSAL" "1000000000000000000" || ((FAILED+=1))
 
-# 2. LAUNCH_RATIO <= 1e18 and nonzero.
-echo -e "${GRAY}Checking LAUNCH_RATIO...${NC}"
-verify_boundary "LAUNCH_RATIO" "$ACTUAL_LAUNCH_RATIO" "1000000000000000000" || ((FAILED+=1))
-verify_positive "LAUNCH_RATIO" "$ACTUAL_LAUNCH_RATIO" || ((FAILED+=1))
+# 2. LAUNCH_COUNT_THRESHOLD_RATIO <= 1e18 and nonzero.
+echo -e "${GRAY}Checking LAUNCH_COUNT_THRESHOLD_RATIO...${NC}"
+verify_boundary "LAUNCH_COUNT_THRESHOLD_RATIO" "$ACTUAL_LAUNCH_COUNT_THRESHOLD_RATIO" "1000000000000000000" || ((FAILED+=1))
+verify_positive "LAUNCH_COUNT_THRESHOLD_RATIO" "$ACTUAL_LAUNCH_COUNT_THRESHOLD_RATIO" || ((FAILED+=1))
 
 # 3. Every deployment-static parameter is nonzero and within range.
 echo -e "${GRAY}Checking deployment-static bounds...${NC}"

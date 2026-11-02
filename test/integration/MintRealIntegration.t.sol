@@ -121,7 +121,7 @@ contract MintRealIntegrationTest {
             rootParentTokenAddress: address(rootToken),
             pairFactoryAddress: address(factory),
             distributor: distributor,
-            launchRatio: 1e16,           // 1% for launch count
+            launchCountThresholdRatio: 1e16,           // 1% for launch count
             maxLaunchCount: 1000,
             tokenSymbolLength: 4,
             launchAmount: 50000,         // initial supply

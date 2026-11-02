@@ -91,7 +91,7 @@ PHASE_ADJUST_THRESHOLD=6e17                  # 60%
 PHASE_SYNC_OBSERVATION_LIMIT=100
 
 # Launch
-LAUNCH_RATIO=1e16                            # 1%，折算一次发射所需的未铸供应比例
+LAUNCH_COUNT_THRESHOLD_RATIO=1e17              # 10%，每累计未铸供应的这一比例折算 1 个发射次数
 MAX_LAUNCH_COUNT=1000
 TOKEN_SYMBOL_LENGTH=6                        # 子币符号 UTF-8 字节长度（首币不受此限；两个汉字或六个字母数字）
 
@@ -112,13 +112,13 @@ PROMISED_WAITING_PHASES_MAX=100
 FEE_SETTLEMENT_RATIO=25e14   # 0.25%，即上界 MAX_FEE_SETTLEMENT_RATIO（源码常量写作 2.5e15）；每次处理 floor(pairTotalSupply * 该值 / 1e18) 个手续费 LP 最小单位；手续费 LP 不足一个单位时不销毁
 ```
 
-上例取正式网络的部署值（同白皮书附录 A）。`script/network/anvil31337_dev/core.params` 是本地测试 profile，为了让 Phase 与发行节奏在几分钟内跑完，取值刻意不同（如 Phase 目标 300 秒、发射比例 10%），不要拿它当正式配置。
+上例取正式网络的部署值（同白皮书附录 A）。`script/network/anvil31337_dev/core.params` 是本地测试 profile，为了让 Phase 与发行节奏在几分钟内跑完，取值刻意不同（如 Phase 目标 300 秒、每社区次数上限 10000），不要拿它当正式配置。
 
 值可写成 `<整数>e<指数>`（`1e17` 即 10%）或带下划线的分组写法（`1_000_000`），由 `script/deploy/params.sh` 在载入时展开为十进制再导出。展开是纯词法的：没有键表，新增或删除参数都不需要改载入器；只对整体形如 `<整数>e<整数>` 的值生效，其余原样保留，写错的写法会留给 `vm.envUint` 在广播前报错。尾数必须是不带小数点的整数，`2.5e15` 不会被展开（写成 `25e14`）。行尾 `#` 注释在展开前丢弃。该机制只作用于 `*.params`，`.account` 仍直接 `source`（密码可能含 `#`）。
 
 本仓没有必填键断言：core 的部署参数没有「缺键即静默改变行为」的成员，缺键一律由 `vm.envUint` 在广播前失败；因此三个步骤只做 `params_unset_all`，不调用 `params_require_keys` / `params_require_values`。
 
-`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；全部部署期静态参数由 `DeployCore` 在广播前校验，部署后再由 `_validateDeployment` 逐项核对完整绑定图（含 `Launch.MAX_TOKEN_SYMBOL_LENGTH` 与广播前副本相等），`21_check.sh` 独立复核（含首币 `totalSupply`、`DISTRIBUTOR_ADDRESS` 余额，以及 `TOKEN_SYMBOL_LENGTH + TEST_PREFIX_BYTES <= MAX_TOKEN_SYMBOL_LENGTH` 的 Test 前缀余量，两者均从链上读取）：MemberNFT 四项非零、Phase 五项非零且 `ADJUST_THRESHOLD <= 1e18`、`0 < LAUNCH_RATIO <= 1e18`、`MAX_LAUNCH_COUNT/TOKEN_SYMBOL_LENGTH` 非零、`0 < LAUNCH_AMOUNT <= MAX_SUPPLY`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、两项激励比例之和 `<= 1e18`、`0 < MAX_BOOST_MULTIPLIER <= 1000`、`0 < SUBMIT_MIN_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN > 0` 且 `<= MAX`、`0 < FEE_SETTLEMENT_RATIO <= 0.25%`（`MAX_FEE_SETTLEMENT_RATIO`）。合约 `init` 只防重复初始化并保存配置。
+`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；全部部署期静态参数由 `DeployCore` 在广播前校验，部署后再由 `_validateDeployment` 逐项核对完整绑定图（含 `Launch.MAX_TOKEN_SYMBOL_LENGTH` 与广播前副本相等），`21_check.sh` 独立复核（含首币 `totalSupply`、`DISTRIBUTOR_ADDRESS` 余额，以及 `TOKEN_SYMBOL_LENGTH + TEST_PREFIX_BYTES <= MAX_TOKEN_SYMBOL_LENGTH` 的 Test 前缀余量，两者均从链上读取）：MemberNFT 四项非零、Phase 五项非零且 `ADJUST_THRESHOLD <= 1e18`、`0 < LAUNCH_COUNT_THRESHOLD_RATIO <= 1e18`、`MAX_LAUNCH_COUNT/TOKEN_SYMBOL_LENGTH` 非零、`0 < LAUNCH_AMOUNT <= MAX_SUPPLY`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、两项激励比例之和 `<= 1e18`、`0 < MAX_BOOST_MULTIPLIER <= 1000`、`0 < SUBMIT_MIN_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN > 0` 且 `<= MAX`、`0 < FEE_SETTLEMENT_RATIO <= 0.25%`（`MAX_FEE_SETTLEMENT_RATIO`）。合约 `init` 只防重复初始化并保存配置。
 
 **重要参数说明：**
 - `DISTRIBUTOR_ADDRESS`: 设置为部署钱包地址，接收首币的首批供应

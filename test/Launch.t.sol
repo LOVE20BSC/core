@@ -163,7 +163,7 @@ contract LaunchTest {
     uint256 private constant MULTIPLIER = 10;
     uint256 private constant MAX_NAME_LENGTH = 32;
 
-    uint256 private constant LAUNCH_RATIO = 1e16;
+    uint256 private constant LAUNCH_COUNT_THRESHOLD_RATIO = 1e16;
     uint256 private constant MAX_LAUNCH_COUNT = 100;
     uint256 private constant SYMBOL_LENGTH = 3;
     uint256 private constant LAUNCH_AMOUNT = 100 ether;
@@ -220,7 +220,10 @@ contract LaunchTest {
         require(launch.ROOT_PARENT_TOKEN_ADDRESS() == ROOT, "root parent");
         require(launch.FIRST_TOKEN_ADDRESS() == address(firstToken), "first token getter");
         require(launch.TOKEN_SYMBOL_LENGTH() == SYMBOL_LENGTH, "symbol length");
-        require(launch.LAUNCH_RATIO() == LAUNCH_RATIO, "launch ratio");
+        require(
+            launch.LAUNCH_COUNT_THRESHOLD_RATIO() == LAUNCH_COUNT_THRESHOLD_RATIO,
+            "launch count threshold ratio"
+        );
         require(launch.MAX_LAUNCH_COUNT() == MAX_LAUNCH_COUNT, "max launch count");
         require(launch.LAUNCH_AMOUNT() == LAUNCH_AMOUNT, "launch amount");
         require(launch.MAX_SUPPLY() == MAX_SUPPLY, "max supply");
@@ -1723,7 +1726,7 @@ contract LaunchTest {
             rootParentTokenAddress: ROOT,
             pairFactoryAddress: address(pairFactory),
             distributor: address(this),
-            launchRatio: LAUNCH_RATIO,
+            launchCountThresholdRatio: LAUNCH_COUNT_THRESHOLD_RATIO,
             maxLaunchCount: MAX_LAUNCH_COUNT,
             tokenSymbolLength: SYMBOL_LENGTH,
             launchAmount: launchAmount,

@@ -28,7 +28,7 @@ contract MintFuzzTest {
     uint256 public mockMemberBoost;
     uint256 public proposalCount = 1;
 
-    uint256 public constant LAUNCH_RATIO = 1e16;
+    uint256 public constant LAUNCH_COUNT_THRESHOLD_RATIO = 1e16;
     uint256 public constant MAX_LAUNCH_COUNT = 1000;
     mapping(address => uint256) public issuedLaunchCount;
 

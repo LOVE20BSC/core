@@ -19,7 +19,7 @@ contract Launch is ILaunch {
     address public PAIR_FACTORY_ADDRESS;
 
     uint256 public TOKEN_SYMBOL_LENGTH;
-    uint256 public LAUNCH_RATIO;
+    uint256 public LAUNCH_COUNT_THRESHOLD_RATIO;
     uint256 public MAX_LAUNCH_COUNT;
     uint256 public LAUNCH_AMOUNT;
     uint256 public MAX_SUPPLY;
@@ -59,7 +59,7 @@ contract Launch is ILaunch {
         MEMBER_NFT_ADDRESS = params.memberNFTAddress;
         ROOT_PARENT_TOKEN_ADDRESS = params.rootParentTokenAddress;
         PAIR_FACTORY_ADDRESS = params.pairFactoryAddress;
-        LAUNCH_RATIO = params.launchRatio;
+        LAUNCH_COUNT_THRESHOLD_RATIO = params.launchCountThresholdRatio;
         MAX_LAUNCH_COUNT = params.maxLaunchCount;
         TOKEN_SYMBOL_LENGTH = params.tokenSymbolLength;
         LAUNCH_AMOUNT = params.launchAmount;

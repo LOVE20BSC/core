@@ -95,7 +95,7 @@ contract MintEdgeCasesTest {
         return 1000;
     }
 
-    function LAUNCH_RATIO() external pure returns (uint256) {
+    function LAUNCH_COUNT_THRESHOLD_RATIO() external pure returns (uint256) {
         return 1e16;
     }
 

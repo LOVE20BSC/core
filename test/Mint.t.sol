@@ -32,7 +32,7 @@ contract MintTest {
     uint256 totalBoost;
     uint256 memberBoost;
     bool rejectProposalScan;
-    uint256 public LAUNCH_RATIO = 1e16;
+    uint256 public LAUNCH_COUNT_THRESHOLD_RATIO = 1e16;
     uint256 public constant MAX_LAUNCH_COUNT = 1000;
     mapping(address => uint256) public issuedLaunchCount;
 
@@ -162,7 +162,7 @@ contract MintTest {
     }
 
     function testLaunchCreditMustUseActualPreMintSupply() public {
-        LAUNCH_RATIO = 1e17;
+        LAUNCH_COUNT_THRESHOLD_RATIO = 1e17;
         setupMint(900, 1000, 1e18, 0);
         mint.mintGovReward(address(token), 1, 1, address(this));
         require(issuedLaunchCount[address(token)] == 5, "launch counts");
@@ -170,7 +170,7 @@ contract MintTest {
     }
 
     function testLaunchThresholdMustRoundUp() public {
-        LAUNCH_RATIO = 15e16;
+        LAUNCH_COUNT_THRESHOLD_RATIO = 15e16;
         setupMint(90, 100, 2e17, 0);
         mint.mintGovReward(address(token), 1, 1, address(this));
         require(issuedLaunchCount[address(token)] == 0, "must retain 1 credit below ceil threshold 2");
@@ -178,7 +178,7 @@ contract MintTest {
     }
 
     function testLaunchCapRetainsUnconvertedCredit() public {
-        LAUNCH_RATIO = 1e17;
+        LAUNCH_COUNT_THRESHOLD_RATIO = 1e17;
         setupMint(900, 1000, 1e18, 0);
         issuedLaunchCount[address(token)] = MAX_LAUNCH_COUNT - 1;
         mint.mintGovReward(address(token), 1, 1, address(this));

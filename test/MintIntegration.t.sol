@@ -280,7 +280,7 @@ contract MintIntegrationTest {
 
 
         // Calculate launch credit: mintAmount / threshold
-        // threshold = (maxSupply - currentSupply) * LAUNCH_RATIO / 1e18
+        // threshold = (maxSupply - currentSupply) * LAUNCH_COUNT_THRESHOLD_RATIO / 1e18
         // = (1000000 - 10000) * 1e16 / 1e18 = 9900
         // With govReward = 99000 and member gets 100%, mintAmount = 99000
         // count = 99000 / 9900 = 10
@@ -590,7 +590,7 @@ contract MintIntegrationTest {
         return 1000;
     }
 
-    function LAUNCH_RATIO() external pure returns (uint256) {
+    function LAUNCH_COUNT_THRESHOLD_RATIO() external pure returns (uint256) {
         return 1e16;
     }
 }
@@ -725,7 +725,7 @@ contract MockLaunch {
         return 1000;
     }
 
-    function LAUNCH_RATIO() external pure returns (uint256) {
+    function LAUNCH_COUNT_THRESHOLD_RATIO() external pure returns (uint256) {
         return 1e16;
     }
 }

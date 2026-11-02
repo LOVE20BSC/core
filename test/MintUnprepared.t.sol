@@ -21,7 +21,7 @@ contract MintUnpreparedTest {
     uint256 proposalVoteAmount = 20;
     uint256 totalBoost = 50;
     uint256 memberBoost = 5;
-    uint256 public LAUNCH_RATIO = 1e16;
+    uint256 public LAUNCH_COUNT_THRESHOLD_RATIO = 1e16;
     uint256 public constant MAX_LAUNCH_COUNT = 1000;
     mapping(address => uint256) public issuedLaunchCount;
 

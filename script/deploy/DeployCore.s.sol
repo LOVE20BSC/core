@@ -64,7 +64,7 @@ contract DeployCore is Script {
         uint256 phaseTargetSeconds;
         uint256 phaseAdjustThreshold;
         uint256 phaseSyncObservationLimit;
-        uint256 launchRatio;
+        uint256 launchCountThresholdRatio;
         uint256 maxLaunchCount;
         uint256 tokenSymbolLength;
         uint256 launchAmount;
@@ -108,7 +108,7 @@ contract DeployCore is Script {
         config.phaseTargetSeconds = vm.envUint("PHASE_TARGET_SECONDS");
         config.phaseAdjustThreshold = vm.envUint("PHASE_ADJUST_THRESHOLD");
         config.phaseSyncObservationLimit = vm.envUint("PHASE_SYNC_OBSERVATION_LIMIT");
-        config.launchRatio = vm.envUint("LAUNCH_RATIO");
+        config.launchCountThresholdRatio = vm.envUint("LAUNCH_COUNT_THRESHOLD_RATIO");
         config.maxLaunchCount = vm.envUint("MAX_LAUNCH_COUNT");
         config.tokenSymbolLength = vm.envUint("TOKEN_SYMBOL_LENGTH");
         config.launchAmount = vm.envUint("LAUNCH_AMOUNT");
@@ -143,7 +143,10 @@ contract DeployCore is Script {
         require(config.distributor != address(0), "Distributor must be nonzero");
         require(bytes(config.tokenName).length != 0, "Token name must be nonempty");
         require(bytes(config.tokenSymbol).length != 0, "Token symbol must be nonempty");
-        require(config.launchRatio != 0 && config.launchRatio <= 1e18, "Launch ratio out of range");
+        require(
+            config.launchCountThresholdRatio != 0 && config.launchCountThresholdRatio <= 1e18,
+            "Launch count threshold ratio out of range"
+        );
         require(config.maxLaunchCount != 0, "Max launch count must be nonzero");
         require(config.tokenSymbolLength != 0, "Token symbol length must be nonzero");
         require(
@@ -218,7 +221,7 @@ contract DeployCore is Script {
             memberNFTAddress: addrs.memberNFT,
             rootParentTokenAddress: rootParent,
             pairFactoryAddress: config.factory,
-            launchRatio: config.launchRatio,
+            launchCountThresholdRatio: config.launchCountThresholdRatio,
             maxLaunchCount: config.maxLaunchCount,
             tokenSymbolLength: config.tokenSymbolLength,
             launchAmount: config.launchAmount,
@@ -340,7 +343,10 @@ contract DeployCore is Script {
         require(launch.ROOT_PARENT_TOKEN_ADDRESS() == rootParent, "Launch root parent mismatch");
         require(launch.FIRST_TOKEN_ADDRESS() == addrs.token, "Launch first token mismatch");
         require(launch.PAIR_FACTORY_ADDRESS() == config.factory, "Launch pair factory mismatch");
-        require(launch.LAUNCH_RATIO() == config.launchRatio, "Launch ratio mismatch");
+        require(
+            launch.LAUNCH_COUNT_THRESHOLD_RATIO() == config.launchCountThresholdRatio,
+            "Launch count threshold ratio mismatch"
+        );
         require(launch.MAX_LAUNCH_COUNT() == config.maxLaunchCount, "Launch max count mismatch");
         require(launch.TOKEN_SYMBOL_LENGTH() == config.tokenSymbolLength, "Launch symbol length mismatch");
         require(
