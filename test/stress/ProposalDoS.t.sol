@@ -12,7 +12,8 @@ import {Launch} from "../../src/Launch.sol";
 import {LOVE20Token} from "../../src/LOVE20Token.sol";
 import {LaunchInitParams} from "../../src/interfaces/ILaunch.sol";
 import {ProposalBody, TargetMode} from "../../src/interfaces/ISubmit.sol";
-import {MockPair, MockPairFactory, MockRouter} from "../Stake.t.sol";
+import {MockPair, MockRouter} from "../Stake.t.sol";
+import {MockPairFactory} from "../utils/StakeMocks.sol";
 
 contract StressPairFactory is MockPairFactory {
     function createPair(address tokenA, address tokenB) external returns (address pair) {

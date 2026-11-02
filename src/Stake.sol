@@ -17,8 +17,6 @@ import {IVote} from "./interfaces/IVote.sol";
 import {IStake, MemberStake, TotalStake} from "./interfaces/IStake.sol";
 
 struct AddedLiquidity {
-    uint256 tokenAmountDesired;
-    uint256 parentTokenAmountDesired;
     uint256 tokenAmount;
     uint256 parentTokenAmount;
     uint256 lpMinted;
@@ -35,6 +33,12 @@ struct MergedStake {
     uint256 targetBoostShares;
     uint256 targetPromisedWaitingPhases;
     uint256 totalValidGovVotes;
+}
+
+struct PairSnapshot {
+    uint256 reserveToken;
+    uint256 reserveParent;
+    uint256 pairTotalSupply;
 }
 
 contract Stake is IStake {
@@ -95,7 +99,7 @@ contract Stake is IStake {
 
     function settleFees(address tokenAddress) external {
         _checkToken(tokenAddress);
-        _settleFees(tokenAddress, _pairFor(tokenAddress));
+        _settleFees(tokenAddress, _pairFor(tokenAddress), _currentRound());
     }
 
     modifier onlyMemberOwner(uint256 memberId) {
@@ -124,7 +128,8 @@ contract Stake is IStake {
             revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, member.promisedWaitingPhases);
         }
 
-        AddedLiquidity memory added = _addLiquidity(tokenAddress, pair, tokenAmount, parentTokenAmount, slippage);
+        AddedLiquidity memory added =
+            _addLiquidity(tokenAddress, pair, round, tokenAmount, parentTokenAmount, slippage);
         return _creditLiquidity(tokenAddress, pair, round, memberId, promisedWaitingPhases, added);
     }
 
@@ -236,8 +241,12 @@ contract Stake is IStake {
             revert InsufficientWaitingPhases(round, member.unlockRequestPhase + promisedWaitingPhases);
         }
 
-        (uint256 tokenAmountForLiquidity, uint256 parentTokenAmountForLiquidity, uint256 lpBurned, uint256 lpToMember) =
-            _withdrawLiquidity(tokenAddress, pair, liquidityShares);
+        (
+            uint256 tokenAmountForLiquidity,
+            uint256 parentTokenAmountForLiquidity,
+            uint256 withdrawableLpBurned,
+            uint256 withdrawableLpToMember
+        ) = _withdrawLiquidity(tokenAddress, pair, round, liquidityShares);
 
         // Only the asset and the community share total move here: the boost history was already reduced
         // when the unlock was requested.
@@ -259,10 +268,11 @@ contract Stake is IStake {
             tokenAmountForLiquidity: tokenAmountForLiquidity,
             parentTokenAmountForLiquidity: parentTokenAmountForLiquidity,
             boostShares: boostShares,
-            lpBurned: lpBurned,
-            lpToMember: lpToMember,
+            withdrawableLpBurned: withdrawableLpBurned,
+            withdrawableLpToMember: withdrawableLpToMember,
             totalLiquidityShares: totals.totalLiquidityShares,
-            totalBoostShares: totals.totalBoostShares
+            totalBoostShares: totals.totalBoostShares,
+            totalWithdrawableLp: totals.lastWithdrawableLp
         });
     }
 
@@ -367,16 +377,16 @@ contract Stake is IStake {
         TotalStake storage totals = _totalStake[tokenAddress];
         address pair = _pairAddressByTokenAddress[tokenAddress];
         if (pair != address(0) && totals.totalLiquidityShares != 0) {
-            (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
-            (, uint256 withdrawableLp, ) = _reclassify(totals, reserveToken, reserveParent, pairTotalSupply);
+            PairSnapshot memory snapshot = _pairSnapshot(pair, tokenAddress);
+            (, uint256 withdrawableLp, ) = _previewReclassification(totals, snapshot);
             uint256 lpAmount = (liquidityShares * withdrawableLp) / totals.totalLiquidityShares;
-            if (pairTotalSupply != 0) {
+            if (snapshot.pairTotalSupply != 0) {
                 // The share is converted in two steps on purpose: `lpAmount` is the value the spec defines
                 // and folding both divisions into one expression would round a different quantity.
                 // forge-lint: disable-next-line(divide-before-multiply)
-                tokenAmountForLiquidity = (lpAmount * reserveToken) / pairTotalSupply;
+                tokenAmountForLiquidity = (lpAmount * snapshot.reserveToken) / snapshot.pairTotalSupply;
                 // forge-lint: disable-next-line(divide-before-multiply)
-                parentTokenAmountForLiquidity = (lpAmount * reserveParent) / pairTotalSupply;
+                parentTokenAmountForLiquidity = (lpAmount * snapshot.reserveParent) / snapshot.pairTotalSupply;
             }
         }
     }
@@ -402,11 +412,11 @@ contract Stake is IStake {
         address pair = _pairAddressByTokenAddress[tokenAddress];
         if (pair == address(0)) return (totalLiquidityShares, totalLp, 0, 0, totalBoostShares, 0, 0);
 
-        (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
-        (feeLp, withdrawableLp, ) = _reclassify(totals, reserveToken, reserveParent, pairTotalSupply);
-        if (pairTotalSupply != 0) {
-            tokenAmountForLiquidity = (withdrawableLp * reserveToken) / pairTotalSupply;
-            parentTokenAmountForLiquidity = (withdrawableLp * reserveParent) / pairTotalSupply;
+        PairSnapshot memory snapshot = _pairSnapshot(pair, tokenAddress);
+        (feeLp, withdrawableLp, ) = _previewReclassification(totals, snapshot);
+        if (snapshot.pairTotalSupply != 0) {
+            tokenAmountForLiquidity = (withdrawableLp * snapshot.reserveToken) / snapshot.pairTotalSupply;
+            parentTokenAmountForLiquidity = (withdrawableLp * snapshot.reserveParent) / snapshot.pairTotalSupply;
         }
     }
 
@@ -603,44 +613,40 @@ contract Stake is IStake {
         _updateSqrtKBaseline(totals, pair, tokenAddress);
 
         uint256 govVotesTotal = _totalValidGovVotesAt(tokenAddress, round);
-
         // forge-lint: disable-next-item(reentrancy-events)
         emit LiquidityStaked({
             tokenAddress: tokenAddress,
             round: round,
             memberId: memberId,
-            tokenAmountDesired: added.tokenAmountDesired,
-            parentTokenAmountDesired: added.parentTokenAmountDesired,
             tokenAmount: added.tokenAmount,
             parentTokenAmount: added.parentTokenAmount,
-            promisedWaitingPhases: promisedWaitingPhases,
+            promisedWaitingPhases: member.promisedWaitingPhases,
             govVotesAdded: govVotesAdded,
             govVotes: _govVotesOf(member),
             liquiditySharesAdded: liquiditySharesAdded,
             liquidityShares: member.liquidityShares,
             totalLiquidityShares: totals.totalLiquidityShares,
-            totalValidGovVotes: govVotesTotal
+            totalValidGovVotes: govVotesTotal,
+            totalWithdrawableLp: totals.lastWithdrawableLp
         });
     }
 
     function _addLiquidity(
         address tokenAddress,
         address pair,
+        uint256 round,
         uint256 tokenAmount,
         uint256 parentTokenAmount,
         uint256 slippage
     ) private returns (AddedLiquidity memory added) {
         TotalStake storage totals = _totalStake[tokenAddress];
-        added.tokenAmountDesired = tokenAmount;
-        added.parentTokenAmountDesired = parentTokenAmount;
 
-        (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
-        (totals.lastFeeLp, totals.lastWithdrawableLp, totals.lastSqrtKOfLp) =
-            _reclassify(totals, reserveToken, reserveParent, pairTotalSupply);
+        PairSnapshot memory snapshot = _pairSnapshot(pair, tokenAddress);
+        _applyReclassification(tokenAddress, round, totals, snapshot);
         added.withdrawableLpBefore = totals.lastWithdrawableLp;
 
         (added.tokenAmount, added.parentTokenAmount) =
-            _optimalAmounts(tokenAmount, parentTokenAmount, reserveToken, reserveParent, slippage);
+            _optimalAmounts(tokenAmount, parentTokenAmount, snapshot.reserveToken, snapshot.reserveParent, slippage);
 
         address parentTokenAddress = ILOVE20Token(tokenAddress).PARENT_TOKEN_ADDRESS();
         _pull(tokenAddress, msg.sender, added.tokenAmount);
@@ -652,23 +658,21 @@ contract Stake is IStake {
         if (added.lpMinted == 0) revert ZeroLiquidityMinted();
     }
 
-    function _reserves(address pair, address tokenAddress)
-        private
-        view
-        returns (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply)
-    {
+    function _pairSnapshot(address pair, address tokenAddress) private view returns (PairSnapshot memory snapshot) {
         IUniswapV2Pair pairContract = IUniswapV2Pair(pair);
         // forge-lint: disable-next-line(unused-return)
         (uint112 reserve0, uint112 reserve1, ) = pairContract.getReserves();
-        pairTotalSupply = pairContract.totalSupply();
+        snapshot.pairTotalSupply = pairContract.totalSupply();
         if (tokenAddress == pairContract.token0()) {
-            (reserveToken, reserveParent) = (uint256(reserve0), uint256(reserve1));
+            snapshot.reserveToken = uint256(reserve0);
+            snapshot.reserveParent = uint256(reserve1);
         } else {
-            (reserveToken, reserveParent) = (uint256(reserve1), uint256(reserve0));
+            snapshot.reserveToken = uint256(reserve1);
+            snapshot.reserveParent = uint256(reserve0);
         }
     }
 
-    function _reclassify(TotalStake storage totals, uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply)
+    function _previewReclassification(TotalStake storage totals, PairSnapshot memory snapshot)
         private
         view
         returns (uint256 feeLp, uint256 withdrawableLp, uint256 sqrtKOfLp)
@@ -677,11 +681,13 @@ contract Stake is IStake {
         uint256 lastWithdrawableLp = totals.lastWithdrawableLp;
         uint256 lastSqrtKOfLp = totals.lastSqrtKOfLp;
 
-        if (lastFeeLp + lastWithdrawableLp == 0 || lastSqrtKOfLp == 0 || pairTotalSupply == 0) {
+        if (lastFeeLp + lastWithdrawableLp == 0 || lastSqrtKOfLp == 0 || snapshot.pairTotalSupply == 0) {
             return (lastFeeLp, lastWithdrawableLp, lastSqrtKOfLp);
         }
 
-        uint256 currentSqrtKOfLp = (Math.sqrt(reserveToken * reserveParent) * (lastFeeLp + lastWithdrawableLp)) / pairTotalSupply;
+        uint256 currentSqrtKOfLp =
+            (Math.sqrt(snapshot.reserveToken * snapshot.reserveParent) * (lastFeeLp + lastWithdrawableLp))
+                / snapshot.pairTotalSupply;
         if (currentSqrtKOfLp == 0 || currentSqrtKOfLp <= lastSqrtKOfLp) {
             return (lastFeeLp, lastWithdrawableLp, lastSqrtKOfLp);
         }
@@ -689,6 +695,36 @@ contract Stake is IStake {
         withdrawableLp = (lastWithdrawableLp * lastSqrtKOfLp) / currentSqrtKOfLp;
         feeLp = lastFeeLp + lastWithdrawableLp - withdrawableLp;
         sqrtKOfLp = currentSqrtKOfLp;
+    }
+
+    function _applyReclassification(
+        address tokenAddress,
+        uint256 round,
+        TotalStake storage totals,
+        PairSnapshot memory snapshot
+    ) private {
+        uint256 previousFeeLp = totals.lastFeeLp;
+        uint256 previousWithdrawableLp = totals.lastWithdrawableLp;
+        uint256 previousSqrtKOfLp = totals.lastSqrtKOfLp;
+
+        (uint256 feeLp, uint256 withdrawableLp, uint256 sqrtKOfLp) = _previewReclassification(totals, snapshot);
+
+        totals.lastFeeLp = feeLp;
+        totals.lastWithdrawableLp = withdrawableLp;
+        totals.lastSqrtKOfLp = sqrtKOfLp;
+
+        if (sqrtKOfLp > previousSqrtKOfLp) {
+            emit FeeReclassified({
+                tokenAddress: tokenAddress,
+                round: round,
+                feeLpAdded: feeLp - previousFeeLp,
+                withdrawableLpRemoved: previousWithdrawableLp - withdrawableLp,
+                totalFeeLp: feeLp,
+                totalWithdrawableLp: withdrawableLp,
+                sqrtKOfLp: sqrtKOfLp,
+                pairTotalSupply: snapshot.pairTotalSupply
+            });
+        }
     }
 
     function _optimalAmounts(
@@ -725,34 +761,39 @@ contract Stake is IStake {
     // The accounted LP total is always `lastFeeLp + lastWithdrawableLp`: LP transferred to this
     // contract from outside is claimable by nobody, so it must not shift the fee baseline.
     function _updateSqrtKBaseline(TotalStake storage totals, address pair, address tokenAddress) private {
-        (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
-        if (pairTotalSupply == 0) {
+        PairSnapshot memory snapshot = _pairSnapshot(pair, tokenAddress);
+        if (snapshot.pairTotalSupply == 0) {
             totals.lastSqrtKOfLp = 0;
             return;
         }
         uint256 totalLp = totals.lastFeeLp + totals.lastWithdrawableLp;
-        totals.lastSqrtKOfLp = (Math.sqrt(reserveToken * reserveParent) * totalLp) / pairTotalSupply;
+        totals.lastSqrtKOfLp = (Math.sqrt(snapshot.reserveToken * snapshot.reserveParent) * totalLp) / snapshot.pairTotalSupply;
     }
 
-    function _withdrawLiquidity(address tokenAddress, address pair, uint256 liquidityShares)
+    function _withdrawLiquidity(address tokenAddress, address pair, uint256 round, uint256 liquidityShares)
         private
-        returns (uint256 tokenAmount, uint256 parentTokenAmount, uint256 lpBurned, uint256 lpToMember)
+        returns (
+            uint256 tokenAmount,
+            uint256 parentTokenAmount,
+            uint256 withdrawableLpBurned,
+            uint256 withdrawableLpToMember
+        )
     {
         TotalStake storage totals = _totalStake[tokenAddress];
-        _settleFees(tokenAddress, pair);
+        _settleFees(tokenAddress, pair, round);
 
         uint256 lpAmount = (liquidityShares * totals.lastWithdrawableLp) / totals.totalLiquidityShares;
         totals.lastWithdrawableLp -= lpAmount;
         totals.totalLiquidityShares -= liquidityShares;
 
         if (lpAmount > 0) {
-            (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
-            if (_canBurn(lpAmount, reserveToken, reserveParent, pairTotalSupply)) {
-                lpBurned = lpAmount;
+            PairSnapshot memory snapshot = _pairSnapshot(pair, tokenAddress);
+            if (_canBurn(lpAmount, snapshot)) {
+                withdrawableLpBurned = lpAmount;
                 _push(pair, pair, lpAmount);
                 (tokenAmount, parentTokenAmount) = _burnLp(IUniswapV2Pair(pair), tokenAddress, msg.sender);
             } else {
-                lpToMember = lpAmount;
+                withdrawableLpToMember = lpAmount;
                 _push(pair, msg.sender, lpAmount);
             }
         }
@@ -772,26 +813,21 @@ contract Stake is IStake {
         return (amount1, amount0);
     }
 
-    function _settleFees(address tokenAddress, address pair) private {
+    function _settleFees(address tokenAddress, address pair, uint256 round) private {
         TotalStake storage totals = _totalStake[tokenAddress];
 
-        (uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply) = _reserves(pair, tokenAddress);
-        (uint256 feeLp, uint256 withdrawableLp, uint256 sqrtKOfLp) =
-            _reclassify(totals, reserveToken, reserveParent, pairTotalSupply);
+        PairSnapshot memory snapshot = _pairSnapshot(pair, tokenAddress);
+        _applyReclassification(tokenAddress, round, totals, snapshot);
+        uint256 feeLp = totals.lastFeeLp;
 
-        totals.lastFeeLp = feeLp;
-        totals.lastWithdrawableLp = withdrawableLp;
-        totals.lastSqrtKOfLp = sqrtKOfLp;
-
-        uint256 settlementUnit = Math.mulDiv(withdrawableLp, FEE_SETTLEMENT_RATIO, 1e18);
+        uint256 settlementUnit = Math.mulDiv(snapshot.pairTotalSupply, FEE_SETTLEMENT_RATIO, 1e18);
         if (feeLp < settlementUnit) {
             return;
         }
-        uint256 round = _currentRound();
         if (_lastSettlePhase[tokenAddress] == round) {
             return;
         }
-        if (!_canBurn(settlementUnit, reserveToken, reserveParent, pairTotalSupply)) {
+        if (!_canBurn(settlementUnit, snapshot)) {
             return;
         }
 
@@ -801,12 +837,9 @@ contract Stake is IStake {
     // `pair.burn` reverts when either side of the proportional payout floors to zero, so a unit too
     // small to move both reserves is skipped instead of failing the settlement. `lp * reserve >=
     // totalSupply` is the exact integer form of `lp * reserve / totalSupply > 0`.
-    function _canBurn(uint256 lpAmount, uint256 reserveToken, uint256 reserveParent, uint256 pairTotalSupply)
-        private
-        pure
-        returns (bool)
-    {
-        return lpAmount * reserveToken >= pairTotalSupply && lpAmount * reserveParent >= pairTotalSupply;
+    function _canBurn(uint256 lpAmount, PairSnapshot memory snapshot) private pure returns (bool) {
+        return lpAmount * snapshot.reserveToken >= snapshot.pairTotalSupply
+            && lpAmount * snapshot.reserveParent >= snapshot.pairTotalSupply;
     }
 
     function _realizeFees(address tokenAddress, address pair, uint256 processedFeeLp, uint256 round) private {
@@ -842,11 +875,12 @@ contract Stake is IStake {
         emit FeesSettled({
             tokenAddress: tokenAddress,
             round: round,
-            feeLp: processedFeeLp,
+            feeLpBurned: processedFeeLp,
             tokenBurned: totalTokenBurned,
             parentTokenBurned: parentTokenBurned,
             totalBurnedToken: burnedTokenTotal,
-            totalParentTokenBurned: parentTokenBurnedTotal
+            totalParentTokenBurned: parentTokenBurnedTotal,
+            totalFeeLp: totals.lastFeeLp
         });
     }
 

@@ -19,6 +19,7 @@ BoostStaked core.stake
 Unstaked core.stake
 StakeWithdrawn core.stake
 FeesSettled core.stake
+FeeReclassified core.stake
 StakesMerged core.stake
 ProposalCreated core.proposal
 ProposalSubmitted core.proposal

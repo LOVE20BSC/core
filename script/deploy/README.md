@@ -108,8 +108,8 @@ SUBMIT_MIN_RATIO=3e15                            # 推举门槛（0.3%）
 PROMISED_WAITING_PHASES_MIN=1
 PROMISED_WAITING_PHASES_MAX=100
 
-# 单笔手续费结算占可提取 LP 的比例（1e18 = 100%），同时是结算阈值
-FEE_SETTLEMENT_RATIO=25e14   # 0.25%，即上界 MAX_FEE_SETTLEMENT_RATIO（源码常量写作 2.5e15）；每次处理 floor(withdrawableLp * 该值 / 1e18) 个手续费 LP 最小单位
+# 单笔手续费结算占 Pair LP 总供应的比例（1e18 = 100%），同时是结算阈值
+FEE_SETTLEMENT_RATIO=25e14   # 0.25%，即上界 MAX_FEE_SETTLEMENT_RATIO（源码常量写作 2.5e15）；每次处理 floor(pairTotalSupply * 该值 / 1e18) 个手续费 LP 最小单位；手续费 LP 不足一个单位时不销毁
 ```
 
 上例取正式网络的部署值（同白皮书附录 A）。`script/network/anvil31337_dev/core.params` 是本地测试 profile，为了让 Phase 与发行节奏在几分钟内跑完，取值刻意不同（如 Phase 目标 300 秒、发射比例 10%），不要拿它当正式配置。
@@ -145,7 +145,7 @@ cd core
 
 DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2，Factory 的 `feeTo` 与 `feeToSetter` 均为零。地址应来自该仓库同网络的部署及验收结果，不使用旧 PancakeSwap 配置。
 
-`FEE_SETTLEMENT_RATIO` 是单笔手续费结算占可提取 LP 的比例，同时决定触发阈值和单次处理量，不是交易费率。它以 `1e18` 表示 100%；`21_check.sh` 中的 `ACTUAL_FEE_RATIO` 只是链上读取结果，用于与这个配置值比对。上界是编译期常量 `MAX_FEE_SETTLEMENT_RATIO = 2.5e15`（0.25%，低于池费率），配置值取 `25e14`（0.25%，与白皮书附录 A 一致）。单次价格移动不超过一个池费，一次往返的夹子成本仍为两个池费。该值必须不大于目标池费率，否则单笔结算的价格移动会盖过池费、放大夹子敞口。每社区每 Phase 至多实际结算一次，且单次处理量须足够让 Pair 两侧产出非零数量。
+`FEE_SETTLEMENT_RATIO` 是单笔手续费结算占 Pair 的 LP 总供应的比例，同时决定触发阈值和单次处理量，不是交易费率。它以 `1e18` 表示 100%；`21_check.sh` 中的 `ACTUAL_FEE_RATIO` 只是链上读取结果，用于与这个配置值比对。上界是编译期常量 `MAX_FEE_SETTLEMENT_RATIO = 2.5e15`（0.25%，低于池费率），配置值取 `25e14`（0.25%，与白皮书附录 A 一致）。单笔销毁占 Pair LP 总供应的比例恰为该值；卖出量占父币储备的比例相同，成交价相对结算前偏离恰为该值，现货价移动约为其两倍；夹子往返成本为两倍池费，因此只要该值不大于目标池费率，成交价偏离低于一个池费、现货价移动不超过两倍池费，往返无利可图。该值必须不大于目标池费率，否则单笔结算的现货价移动会盖过往返成本、放大夹子敞口。每社区每 Phase 至多实际结算一次，且单次处理量须足够让 Pair 两侧产出非零数量。手续费 LP 恒不超过社区记账 LP，因此社区质押 LP 占全池比例低于该值时，手续费 LP 通常达不到一个单位，`settleFees` 不实际销毁；这部分手续费仍作为池中 LP 留在合约里，直到社区质押增长。取整边界是例外：`feeLp == floor(pairTotalSupply × 该值 / 1e18)` 时，即使份额低于该比例仍会结算。
 
 ### 分步部署
 

@@ -178,7 +178,7 @@ stake.init(
     address(factory),
     1,    // promisedWaitingPhasesMin
     100,  // promisedWaitingPhasesMax
-    2.5e15 // feeSettlementRatio: 0.25% of the withdrawable basis per settlement
+    2.5e15 // feeSettlementRatio: 0.25% of the pair LP supply per settlement
 );
 
 // 4. 初始化 Vote（依赖 Phase, Stake, Submit, MemberNFT, Mint）

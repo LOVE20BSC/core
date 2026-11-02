@@ -79,8 +79,6 @@ interface IStakeEvents {
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 indexed memberId,
-        uint256 tokenAmountDesired,
-        uint256 parentTokenAmountDesired,
         uint256 tokenAmount,
         uint256 parentTokenAmount,
         uint256 promisedWaitingPhases,
@@ -89,7 +87,8 @@ interface IStakeEvents {
         uint256 liquiditySharesAdded,
         uint256 liquidityShares,
         uint256 totalLiquidityShares,
-        uint256 totalValidGovVotes
+        uint256 totalValidGovVotes,
+        uint256 totalWithdrawableLp
     );
     event BoostStaked(
         address indexed tokenAddress,
@@ -124,19 +123,31 @@ interface IStakeEvents {
         uint256 tokenAmountForLiquidity,
         uint256 parentTokenAmountForLiquidity,
         uint256 boostShares,
-        uint256 lpBurned,
-        uint256 lpToMember,
+        uint256 withdrawableLpBurned,
+        uint256 withdrawableLpToMember,
         uint256 totalLiquidityShares,
-        uint256 totalBoostShares
+        uint256 totalBoostShares,
+        uint256 totalWithdrawableLp
     );
     event FeesSettled(
         address indexed tokenAddress,
         uint256 indexed round,
-        uint256 feeLp,
+        uint256 feeLpBurned,
         uint256 tokenBurned,
         uint256 parentTokenBurned,
         uint256 totalBurnedToken,
-        uint256 totalParentTokenBurned
+        uint256 totalParentTokenBurned,
+        uint256 totalFeeLp
+    );
+    event FeeReclassified(
+        address indexed tokenAddress,
+        uint256 indexed round,
+        uint256 feeLpAdded,
+        uint256 withdrawableLpRemoved,
+        uint256 totalFeeLp,
+        uint256 totalWithdrawableLp,
+        uint256 sqrtKOfLp,
+        uint256 pairTotalSupply
     );
     event StakesMerged(
         address indexed tokenAddress,

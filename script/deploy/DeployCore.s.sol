@@ -27,9 +27,9 @@ interface IUniswapV2RouterWeth {
 }
 
 contract DeployCore is Script {
-    // The settlement ratio must not exceed the pool fee, so a single settlement moves the price by at
-    // most one fee and a round trip cannot beat two. Bound at 0.25%, below the pool fee. Precision is
-    // 1e18.
+    // The settlement ratio must not exceed the pool fee, so a single settlement's execution price is
+    // at most one fee worse (the spot price moves about twice that) and a round trip cannot beat two.
+    // Bound at 0.25%, below the pool fee. Precision is 1e18.
     uint256 internal constant MAX_FEE_SETTLEMENT_RATIO = 2.5e15;
     // Pre-broadcast copies of the same constants in Launch: a child symbol plus the "Test" prefix
     // must still fit the symbol limit. _validateDeployment asserts both copies are equal afterwards,

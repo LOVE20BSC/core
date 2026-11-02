@@ -7,71 +7,9 @@ import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.s
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {MemberNFT} from "../src/MemberNFT.sol";
+import {MockLaunch, MockPairFactory, MockPhase, MockSubmit, MockVote} from "./utils/StakeMocks.sol";
 
 /// @notice Mock contracts for testing
-
-/// Mock Phase contract
-contract MockPhase {
-    uint256 private _currentPhase;
-
-    function currentPhase() external view returns (uint256) {
-        return _currentPhase;
-    }
-
-    function setPhase(uint256 phase) external {
-        _currentPhase = phase;
-    }
-
-    function sync(address, uint256) external {}
-}
-
-/// Mock Vote contract
-contract MockVote {
-    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) private _voteAmounts;
-    address public SUBMIT_ADDRESS;
-
-    function setSubmitAddress(address submitAddress) external {
-        SUBMIT_ADDRESS = submitAddress;
-    }
-
-    function voteAmountByMemberId(address tokenAddress, uint256 round, uint256 memberId)
-        external
-        view
-        returns (uint256)
-    {
-        return _voteAmounts[tokenAddress][round][memberId];
-    }
-
-    function setVoteAmount(address tokenAddress, uint256 round, uint256 memberId, uint256 voteAmount) external {
-        _voteAmounts[tokenAddress][round][memberId] = voteAmount;
-    }
-}
-
-contract MockLaunch {
-    mapping(address => bool) public isLOVE20Token;
-
-    function register(address token) external {
-        isLOVE20Token[token] = true;
-    }
-}
-
-contract MockSubmit {
-    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) private _proposalIdBySubmitterId;
-
-    function proposalIdBySubmitterId(address tokenAddress, uint256 round, uint256 submitterId)
-        external
-        view
-        returns (uint256)
-    {
-        return _proposalIdBySubmitterId[tokenAddress][round][submitterId];
-    }
-
-    function setProposalIdBySubmitter(address tokenAddress, uint256 round, uint256 submitterId, uint256 proposalId)
-        external
-    {
-        _proposalIdBySubmitterId[tokenAddress][round][submitterId] = proposalId;
-    }
-}
 
 /// Mock Router for swapping
 contract MockRouter {
@@ -203,21 +141,6 @@ contract MockPair {
         return a < b ? a : b;
     }
 }
-
-/// Mock Pair Factory
-contract MockPairFactory {
-    mapping(address => mapping(address => address)) private _pairs;
-
-    function getPair(address tokenA, address tokenB) external view returns (address) {
-        return _pairs[tokenA][tokenB];
-    }
-
-    function setPair(address tokenA, address tokenB, address pair) external {
-        _pairs[tokenA][tokenB] = pair;
-        _pairs[tokenB][tokenA] = pair;
-    }
-}
-
 
 contract StakeTest {
     // Constants
@@ -378,11 +301,44 @@ contract StakeTest {
         return stake.totalValidGovVotes(tokenAddress, phase.currentPhase());
     }
 
-    /// @dev `StakeWithdrawn` payload order: promisedWaitingPhases, liquidityShares, the two token
-    ///      amounts, boostShares, lpBurned, lpToMember, totalLiquidityShares, totalBoostShares.
-    function _withdrawnLp(bytes memory data) internal pure returns (uint256 lpBurned, uint256 lpToMember) {
-        (,,,,, lpBurned, lpToMember, , ) =
-            abi.decode(data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
+    struct StakeWithdrawnEventData {
+        uint256 promisedWaitingPhases;
+        uint256 liquidityShares;
+        uint256 tokenAmountForLiquidity;
+        uint256 parentTokenAmountForLiquidity;
+        uint256 boostShares;
+        uint256 withdrawableLpBurned;
+        uint256 withdrawableLpToMember;
+        uint256 totalLiquidityShares;
+        uint256 totalBoostShares;
+        uint256 totalWithdrawableLp;
+    }
+
+    function _decodeStakeWithdrawn(bytes memory data)
+        internal
+        pure
+        returns (StakeWithdrawnEventData memory eventData)
+    {
+        uint256[10] memory values = abi.decode(data, (uint256[10]));
+        eventData.promisedWaitingPhases = values[0];
+        eventData.liquidityShares = values[1];
+        eventData.tokenAmountForLiquidity = values[2];
+        eventData.parentTokenAmountForLiquidity = values[3];
+        eventData.boostShares = values[4];
+        eventData.withdrawableLpBurned = values[5];
+        eventData.withdrawableLpToMember = values[6];
+        eventData.totalLiquidityShares = values[7];
+        eventData.totalBoostShares = values[8];
+        eventData.totalWithdrawableLp = values[9];
+    }
+
+    function _withdrawnLp(bytes memory data)
+        internal
+        pure
+        returns (uint256 withdrawableLpBurned, uint256 withdrawableLpToMember)
+    {
+        StakeWithdrawnEventData memory eventData = _decodeStakeWithdrawn(data);
+        return (eventData.withdrawableLpBurned, eventData.withdrawableLpToMember);
     }
 
     function _expectRevertData(
@@ -846,16 +802,16 @@ contract StakeTest {
         // The same branch seen from the event: nothing burned, the whole converted LP handed over.
         Vm.Log[] memory logs = vm().getRecordedLogs();
         bytes32 topic = keccak256(
-            "StakeWithdrawn(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+            "StakeWithdrawn(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
         );
         bool found;
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(stake) || logs[i].topics.length == 0) continue;
             if (logs[i].topics[0] != topic) continue;
             require(logs[i].topics[3] == bytes32(memberId3), "event member");
-            (uint256 lpBurned, uint256 lpToMember) = _withdrawnLp(logs[i].data);
-            require(lpBurned == 0, "the handover branch burns nothing");
-            require(lpToMember == lpAmount, "the whole converted LP goes to the member");
+            (uint256 withdrawableLpBurned, uint256 withdrawableLpToMember) = _withdrawnLp(logs[i].data);
+            require(withdrawableLpBurned == 0, "the handover branch burns nothing");
+            require(withdrawableLpToMember == lpAmount, "the whole converted LP goes to the member");
             found = true;
         }
         require(found, "missing StakeWithdrawn");
@@ -1727,29 +1683,6 @@ contract StakeTest {
         require(feeLpAfter > 0, "Should have remaining fee LP");
     }
 
-    function testSettleFeesLimitedToOncePerPhase() external {
-        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
-
-        // Simulate fees
-        childToken.transfer(address(pair), 100e18);
-        parentToken.transfer(address(pair), 100e18);
-        pair.setReserves(101100e18, 101100e18);
-
-        // First settlement in phase 1
-        vm().prank(owner1);
-        stake.settleFees(address(childToken));
-
-        (, , , uint256 feeLpAfterFirst, , , ) = stake.totalStake(address(childToken));
-
-        // Second settlement in same phase (should have no effect on feeLp)
-        vm().prank(owner1);
-        stake.settleFees(address(childToken));
-
-        (, , , uint256 feeLpAfterSecond, , , ) = stake.totalStake(address(childToken));
-        require(feeLpAfterSecond == feeLpAfterFirst, "Second settlement should not change feeLp in same phase");
-    }
-
-
     function testSettleFeesSkipsWhenBelowThreshold() external {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 
@@ -2145,16 +2078,18 @@ contract StakeTest {
     function testStakeLiquidityEmitsCorrectEvent() external {
         // A second member keeps `liquidityShares` and `totalLiquidityShares` apart.
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+        (, , uint256 withdrawableBefore, , , , ) = stake.totalStake(address(childToken));
         vm().recordLogs();
         (uint256 govVotes, uint256 shares) = stakeAsOwner(owner2, memberId2, 1000e18, 1000e18, 10);
         require(govVotes > 0, "Should add gov votes");
         require(shares > 0, "Should add shares");
 
-        (uint256 totalLiquidityShares, , , , , , ) = stake.totalStake(address(childToken));
+        (uint256 totalLiquidityShares, , uint256 withdrawableAfter, , , , ) = stake.totalStake(address(childToken));
+        require(withdrawableAfter > withdrawableBefore, "withdrawable must grow");
         uint256 totalValidGovVotes = _totalValidGovVotes(address(childToken));
         Vm.Log[] memory logs = vm().getRecordedLogs();
         bytes32 topic = keccak256(
-            "LiquidityStaked(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+            "LiquidityStaked(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
         );
         bool found;
         for (uint256 i; i < logs.length; ++i) {
@@ -2164,16 +2099,18 @@ contract StakeTest {
             require(logs[i].topics[1] == bytes32(uint256(uint160(address(childToken)))), "event token");
             require(logs[i].topics[2] == bytes32(uint256(1)), "event round");
             require(logs[i].topics[3] == bytes32(memberId2), "event member");
-            (,,,,
+            (,,
                 uint256 promisedWaitingPhases,,,,
                 uint256 liquidityShares,
                 uint256 totalLiquidityShares_,
-                uint256 totalValidGovVotes_
-            ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
+                uint256 totalValidGovVotes_,
+                uint256 totalWithdrawableLp_
+            ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
             require(promisedWaitingPhases == 10, "event promised phases");
             require(liquidityShares == shares, "event member shares");
             require(totalLiquidityShares_ == totalLiquidityShares, "event global shares");
             require(totalValidGovVotes_ == totalValidGovVotes, "event global votes");
+            require(totalWithdrawableLp_ == withdrawableAfter, "event total withdrawable");
             found = true;
         }
         require(found, "missing LiquidityStaked");
@@ -2187,12 +2124,14 @@ contract StakeTest {
         parentToken.transfer(address(pair), 5000e18);
         pair.setReserves(115000e18, 115000e18);
 
+        uint256 settlementUnit = pair.totalSupply() * FEE_SETTLEMENT_RATIO / 1e18;
         vm().recordLogs();
         vm().prank(owner1);
         stake.settleFees(address(childToken));
 
+        (, , , uint256 totalFeeLpAfter, , , ) = stake.totalStake(address(childToken));
         Vm.Log[] memory logs = vm().getRecordedLogs();
-        bytes32 topic = keccak256("FeesSettled(address,uint256,uint256,uint256,uint256,uint256,uint256)");
+        bytes32 topic = keccak256("FeesSettled(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256)");
         bool found;
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(stake) || logs[i].topics.length == 0) continue;
@@ -2200,14 +2139,17 @@ contract StakeTest {
             require(logs[i].topics.length == 3, "two indexed arguments");
             require(logs[i].topics[1] == bytes32(uint256(uint160(address(childToken)))), "event token");
             require(uint256(logs[i].topics[2]) == 1, "event round");
-            (uint256 feeLp, uint256 tokenBurned, , uint256 burnedTotal, uint256 parentBurnedTotal) =
-                abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256));
-            require(feeLp > 0 || tokenBurned > 0, "event fee or burn");
+            (uint256 feeLpBurned, uint256 tokenBurned, , uint256 burnedTotal, uint256 parentBurnedTotal, uint256 totalFeeLp_) =
+                abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256));
+            require(feeLpBurned == settlementUnit, "event fee burned equals one unit");
+            require(tokenBurned > 0, "event token burn");
             require(burnedTotal == stake.totalBurnedToken(address(childToken)), "event burned total");
             require(
                 parentBurnedTotal == stake.totalParentTokenBurned(address(childToken)),
                 "event parent burned total"
             );
+            require(totalFeeLp_ == totalFeeLpAfter, "event total fee");
+            require(totalFeeLp_ != feeLpBurned, "total and burned must be distinguishable");
             found = true;
         }
         require(found, "missing FeesSettled");
@@ -2372,7 +2314,7 @@ contract StakeTest {
 
         Vm.Log[] memory logs = vm().getRecordedLogs();
         bytes32 topic = keccak256(
-            "StakeWithdrawn(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+            "StakeWithdrawn(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
         );
         bool found;
         for (uint256 i; i < logs.length; ++i) {
@@ -2381,22 +2323,15 @@ contract StakeTest {
             require(logs[i].topics.length == 4, "three indexed arguments");
             require(logs[i].topics[2] == bytes32(uint256(12)), "event round");
             require(logs[i].topics[3] == bytes32(memberId2), "event member");
-            (
-                uint256 promisedWaitingPhases,
-                uint256 liquidityShares,,,
-                uint256 boostShares,
-                uint256 lpBurned,
-                uint256 lpToMember,
-                uint256 totalLiquidityShares,
-                uint256 totalBoostShares
-            ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
-            require(promisedWaitingPhases == 10, "event promised phases");
-            require(liquidityShares == sharesBefore, "event liquidity shares");
-            require(boostShares == 500e18, "event boost shares");
-            require(lpBurned == expectedLp, "lp burned equals the converted share");
-            require(lpToMember == 0, "the burn branch hands nothing to the member");
-            require(totalLiquidityShares == 0, "event global liquidity shares");
-            require(totalBoostShares == 0, "event global boost shares");
+            StakeWithdrawnEventData memory eventData = _decodeStakeWithdrawn(logs[i].data);
+            require(eventData.promisedWaitingPhases == 10, "event promised phases");
+            require(eventData.liquidityShares == sharesBefore, "event liquidity shares");
+            require(eventData.boostShares == 500e18, "event boost shares");
+            require(eventData.withdrawableLpBurned == expectedLp, "burned LP equals the converted share");
+            require(eventData.withdrawableLpToMember == 0, "the burn branch hands nothing to the member");
+            require(eventData.totalLiquidityShares == 0, "event global liquidity shares");
+            require(eventData.totalBoostShares == 0, "event global boost shares");
+            require(eventData.totalWithdrawableLp == 0, "event total withdrawable");
             found = true;
         }
         require(found, "missing StakeWithdrawn");
@@ -2419,9 +2354,9 @@ contract StakeTest {
         stake.withdraw(address(childToken), memberId1);
 
         Vm.Log[] memory logs = vm().getRecordedLogs();
-        bytes32 feesTopic = keccak256("FeesSettled(address,uint256,uint256,uint256,uint256,uint256,uint256)");
+        bytes32 feesTopic = keccak256("FeesSettled(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256)");
         bytes32 withdrawnTopic = keccak256(
-            "StakeWithdrawn(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+            "StakeWithdrawn(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
         );
         uint256 feesIndex = type(uint256).max;
         uint256 withdrawnIndex = type(uint256).max;
