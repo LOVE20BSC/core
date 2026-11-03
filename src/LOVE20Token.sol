@@ -6,8 +6,8 @@ import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
 
 contract LOVE20Token is ERC20, ILOVE20Token {
     uint256 public immutable MAX_SUPPLY;
-    address public MINTER;
-    address public PARENT_TOKEN_ADDRESS;
+    address public immutable MINTER;
+    address public immutable PARENT_TOKEN_ADDRESS;
 
     constructor(
         string memory name,

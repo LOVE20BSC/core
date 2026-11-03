@@ -236,7 +236,7 @@ contract Mint is IMint {
         uint256 round,
         uint256 memberId,
         address recipient
-    ) public onlyMemberOwner(memberId) returns (uint256 voteReward, uint256 boostReward, uint256 burnReward) {
+    ) external onlyMemberOwner(memberId) returns (uint256 voteReward, uint256 boostReward, uint256 burnReward) {
         return _mintGovReward(tokenAddress, round, memberId, recipient);
     }
 
