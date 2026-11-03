@@ -141,6 +141,7 @@ contract Stake is IStake {
         if (boostAmount == 0) revert ZeroBoostAmount();
         _checkPromisedWaitingPhases(promisedWaitingPhases);
         _checkToken(tokenAddress);
+        uint256 round = _checkActiveRound();
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
         _checkNoUnstakeRequest(member, tokenAddress, memberId);
@@ -149,7 +150,6 @@ contract Stake is IStake {
             revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, member.promisedWaitingPhases);
         }
 
-        uint256 round = _currentRound();
         _pull(tokenAddress, msg.sender, boostAmount);
 
         TotalStake storage totals = _totalStake[tokenAddress];
@@ -241,6 +241,8 @@ contract Stake is IStake {
             revert InsufficientWaitingPhases(round, member.unlockRequestPhase + promisedWaitingPhases);
         }
 
+        delete _memberStake[tokenAddress][memberId];
+
         (
             uint256 tokenAmountForLiquidity,
             uint256 parentTokenAmountForLiquidity,
@@ -254,8 +256,6 @@ contract Stake is IStake {
             _push(tokenAddress, msg.sender, boostShares);
             _totalStake[tokenAddress].totalBoostShares -= boostShares;
         }
-
-        delete _memberStake[tokenAddress][memberId];
 
         TotalStake storage totals = _totalStake[tokenAddress];
         // forge-lint: disable-next-item(reentrancy-events)

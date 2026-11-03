@@ -479,6 +479,18 @@ contract StakeTest {
         );
     }
 
+    function testStakeBoostRevertsAtRoundZero() external {
+        phase.setPhase(0);
+
+        vm().prank(owner1);
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 10, memberId1),
+            abi.encodeWithSelector(IStakeErrors.NotAllowedToStakeAtRoundZero.selector),
+            "Should revert at round zero"
+        );
+    }
+
     function testStakeLiquidityRevertsWithInvalidPromisedPhases() external {
         // Too low
         vm().prank(owner1);
