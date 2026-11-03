@@ -96,8 +96,8 @@ contract MintCoverageTest {
         return memberBoost;
     }
 
-    function proposalTarget(address, uint256 id) external view returns (address, TargetMode) {
-        if (id == 0 || id > proposalCount) revert ISubmitErrors.ProposalNotFound(id);
+    function proposalTarget(address tokenAddress, uint256 id) external view returns (address, TargetMode) {
+        if (id == 0 || id > proposalCount) revert ISubmitErrors.ProposalNotFound(tokenAddress, id);
         return (TARGET, TargetMode.NoCallback);
     }
 

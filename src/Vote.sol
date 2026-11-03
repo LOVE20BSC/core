@@ -73,11 +73,6 @@ contract Vote is IVote {
         uint256[] calldata voteAmounts,
         bytes[][] calldata targetData
     ) external onlyMemberOwner(memberId) {
-        uint256 round = currentRound();
-        uint256 voteLimit = _maxVoteAmount(tokenAddress, round, memberId);
-        if (voteLimit == 0) {
-            revert NoVotingPower(tokenAddress, memberId);
-        }
         if (proposalIds.length == 0) {
             revert ProposalIdsEmpty();
         }
@@ -86,6 +81,11 @@ contract Vote is IVote {
         }
         if (targetData.length != 0 && targetData.length != proposalIds.length) {
             revert TargetDataLengthMismatch(proposalIds.length, targetData.length);
+        }
+        uint256 round = currentRound();
+        uint256 voteLimit = _maxVoteAmount(tokenAddress, round, memberId);
+        if (voteLimit == 0) {
+            revert NoVotingPower(tokenAddress, memberId);
         }
 
         bytes[] memory noTargetData = new bytes[](0);
@@ -218,15 +218,15 @@ contract Vote is IVote {
         uint256 voteLimit,
         bytes[] memory targetData
     ) internal {
-        // forge-lint: disable-next-item(calls-loop)
+        if (voteAmount == 0) {
+            // forge-lint: disable-next-line(require-revert-in-loop)
+            revert ZeroVoteAmount(tokenAddress, round, proposalId);
+        }
+
+        (address target, TargetMode targetMode) = ISubmit(SUBMIT_ADDRESS).proposalTarget(tokenAddress, proposalId);
         if (!ISubmit(SUBMIT_ADDRESS).isSubmitted(tokenAddress, round, proposalId)) {
             // forge-lint: disable-next-line(require-revert-in-loop)
             revert ProposalNotSubmitted(tokenAddress, round, proposalId);
-        }
-
-        if (voteAmount == 0) {
-            // forge-lint: disable-next-line(require-revert-in-loop)
-            revert ZeroVoteAmount(proposalId);
         }
 
         {
@@ -268,9 +268,6 @@ contract Vote is IVote {
         }
 
         _emitVoteCast(tokenAddress, round, memberId, proposalId, voteAmount);
-
-        // forge-lint: disable-next-item(calls-loop, reentrancy-events)
-        (address target, TargetMode targetMode) = ISubmit(SUBMIT_ADDRESS).proposalTarget(tokenAddress, proposalId);
 
         if (targetMode == TargetMode.Callback && target != address(0)) {
             // forge-lint: disable-next-item(calls-loop, reentrancy-events)

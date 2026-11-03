@@ -78,8 +78,8 @@ contract MintEdgeCasesTest {
         return 1000;
     }
 
-    function proposalTarget(address, uint256 id) external pure returns (address, TargetMode) {
-        if (id == 0 || id > 1) revert ISubmitErrors.ProposalNotFound(id);
+    function proposalTarget(address tokenAddress, uint256 id) external pure returns (address, TargetMode) {
+        if (id == 0 || id > 1) revert ISubmitErrors.ProposalNotFound(tokenAddress, id);
         return (TARGET, TargetMode.NoCallback);
     }
 
@@ -179,7 +179,7 @@ contract MintEdgeCasesTest {
     function testProposalMintUnknownProposalReverts() public {
         setupMint(1000, 10000);
         vm.prank(TARGET);
-        vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, 2));
+        vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, address(token), 2));
         mint.mintProposalReward(address(token), 1, 2, TARGET);
     }
 }

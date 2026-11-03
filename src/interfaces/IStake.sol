@@ -18,7 +18,7 @@ struct TotalStake {
 
 interface IStakeErrors {
     error AlreadyInitialized();
-    error NotAllowedToStakeAtRoundZero();
+    error StakeNotStarted();
     error ZeroTokenAmount();
     error ZeroParentTokenAmount();
     error ZeroBoostAmount();
@@ -43,7 +43,7 @@ interface IStakeErrors {
         address tokenAddress,
         uint256 memberId
     );
-    error InsufficientWaitingPhases(
+    error UnlockRoundNotReached(
         uint256 currentRound,
         uint256 unlockRound
     );
@@ -57,10 +57,7 @@ interface IStakeErrors {
         uint256 actualDeviation,
         uint256 maxDeviation
     );
-    error SourceAndTargetMemberIdsMustBeDifferent(
-        uint256 sourceMemberId,
-        uint256 targetMemberId
-    );
+    error SourceEqualsTarget(uint256 sourceMemberId);
     error TargetPromisedWaitingPhasesTooShort(
         uint256 targetPhases,
         uint256 sourcePhases

@@ -85,8 +85,8 @@ contract MintUnpreparedTest {
         return memberBoost;
     }
 
-    function proposalTarget(address, uint256 id) external pure returns (address, TargetMode) {
-        if (id == 0 || id > 1) revert ISubmitErrors.ProposalNotFound(id);
+    function proposalTarget(address tokenAddress, uint256 id) external pure returns (address, TargetMode) {
+        if (id == 0 || id > 1) revert ISubmitErrors.ProposalNotFound(tokenAddress, id);
         return (address(0xBEEF), TargetMode.NoCallback);
     }
 

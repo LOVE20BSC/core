@@ -270,7 +270,7 @@ contract Submit is ISubmit {
     function _checkExistingProposal(address tokenAddress, uint256 proposalId) internal view {
         if (proposalId == 0 || proposalId > _proposals[tokenAddress].length) {
             // forge-lint: disable-next-line(require-revert-in-loop)
-            revert ProposalNotFound(proposalId);
+            revert ProposalNotFound(tokenAddress, proposalId);
         }
     }
 

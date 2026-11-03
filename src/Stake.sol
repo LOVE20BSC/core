@@ -238,7 +238,7 @@ contract Stake is IStake {
         uint256 liquidityShares = member.liquidityShares;
         uint256 boostShares = member.boostShares;
         if (round <= member.unlockRequestPhase + promisedWaitingPhases) {
-            revert InsufficientWaitingPhases(round, member.unlockRequestPhase + promisedWaitingPhases);
+            revert UnlockRoundNotReached(round, member.unlockRequestPhase + promisedWaitingPhases);
         }
 
         delete _memberStake[tokenAddress][memberId];
@@ -281,7 +281,7 @@ contract Stake is IStake {
         onlyMemberOwner(sourceMemberId)
     {
         if (sourceMemberId == targetMemberId) {
-            revert SourceAndTargetMemberIdsMustBeDifferent(sourceMemberId, targetMemberId);
+            revert SourceEqualsTarget(sourceMemberId);
         }
         _checkToken(tokenAddress);
         IMemberNFT(MEMBER_NFT_ADDRESS).ownerOf(targetMemberId);
@@ -471,7 +471,7 @@ contract Stake is IStake {
 
     function _checkActiveRound() private view returns (uint256 round) {
         round = _currentRound();
-        if (round == 0) revert NotAllowedToStakeAtRoundZero();
+        if (round == 0) revert StakeNotStarted();
     }
 
     function _checkPromisedWaitingPhases(uint256 promisedWaitingPhases) private view {

@@ -49,7 +49,10 @@ interface ISubmitErrors {
     error CallbackTargetNotContract(address target);
     error NotMemberOwner(uint256 memberId);
     error NoGovVotes(address tokenAddress);
-    error ProposalNotFound(uint256 proposalId);
+    error ProposalNotFound(
+        address tokenAddress,
+        uint256 proposalId
+    );
     error InsufficientSubmitPower(
         address tokenAddress,
         uint256 memberId,

@@ -696,11 +696,11 @@ contract MockSubmit {
     mapping(uint256 => address) public targets;
     mapping(uint256 => TargetMode) public modes;
 
-    function proposalTarget(address, uint256 proposalId)
+    function proposalTarget(address tokenAddress, uint256 proposalId)
         external view returns (address, TargetMode)
     {
         if (targets[proposalId] == address(0)) {
-            revert ISubmitErrors.ProposalNotFound(proposalId);
+            revert ISubmitErrors.ProposalNotFound(tokenAddress, proposalId);
         }
         return (targets[proposalId], modes[proposalId]);
     }

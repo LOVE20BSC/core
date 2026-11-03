@@ -18,8 +18,8 @@ interface ILOVE20TokenEvents {
 
 interface ILOVE20TokenErrors {
     error ZeroInitialSupply();
-    error InvalidInitialSupply(
-        uint256 value,
+    error MaxSupplyBelowInitialSupply(
+        uint256 initialSupply,
         uint256 maxSupply
     );
     error ZeroDistributorAddress();

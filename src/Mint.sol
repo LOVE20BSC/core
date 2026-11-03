@@ -202,7 +202,15 @@ contract Mint is IMint {
 
         (amount, ) = _proposalRewardCalculation(tokenAddress, round, proposalId);
         if (amount == 0) {
-            revert ProposalRewardUnavailable(tokenAddress, round, proposalId);
+            (uint256 voteAmount, , uint256 minVoteAmount) =
+                _proposalVoteTally(tokenAddress, round, proposalId);
+            if (voteAmount < minVoteAmount) {
+                revert ProposalBelowThreshold(tokenAddress, round, proposalId, voteAmount, minVoteAmount);
+            }
+            if (_proposalReward[tokenAddress][round] == 0) {
+                revert ProposalPoolEmpty(tokenAddress, round);
+            }
+            revert ProposalRewardRoundedToZero(tokenAddress, round, proposalId);
         }
 
         _proposalMinted[tokenAddress][round][proposalId] = true;
@@ -310,14 +318,13 @@ contract Mint is IMint {
     ) internal view returns (uint256 amount, bool minted) {
         minted = _proposalMinted[tokenAddress][round][proposalId];
 
-        uint256 proposalVoteAmount = IVote(VOTE_ADDRESS).voteAmountByProposalId(tokenAddress, round, proposalId);
-        uint256 totalVoteAmount = IVote(VOTE_ADDRESS).totalVoteAmount(tokenAddress, round);
+        (uint256 proposalVoteAmount, uint256 totalVoteAmount, uint256 minVoteAmount) =
+            _proposalVoteTally(tokenAddress, round, proposalId);
 
         if (totalVoteAmount == 0 || proposalVoteAmount == 0) {
             return (0, minted);
         }
 
-        uint256 minVoteAmount = _minProposalVoteAmount(totalVoteAmount);
         if (proposalVoteAmount < minVoteAmount) {
             return (0, minted);
         }
@@ -440,11 +447,20 @@ contract Mint is IMint {
             }
         }
 
-        uint256 proposalVoteAmount = IVote(VOTE_ADDRESS).voteAmountByProposalId(tokenAddress, round, proposalId);
-        uint256 totalVoteAmount = IVote(VOTE_ADDRESS).totalVoteAmount(tokenAddress, round);
-        uint256 minVoteAmount = _minProposalVoteAmount(totalVoteAmount);
+        (uint256 proposalVoteAmount, , uint256 minVoteAmount) =
+            _proposalVoteTally(tokenAddress, round, proposalId);
 
         return proposalVoteAmount > 0 && proposalVoteAmount >= minVoteAmount;
+    }
+
+    function _proposalVoteTally(
+        address tokenAddress,
+        uint256 round,
+        uint256 proposalId
+    ) private view returns (uint256 voteAmount, uint256 totalVoteAmount, uint256 minVoteAmount) {
+        voteAmount = IVote(VOTE_ADDRESS).voteAmountByProposalId(tokenAddress, round, proposalId);
+        totalVoteAmount = IVote(VOTE_ADDRESS).totalVoteAmount(tokenAddress, round);
+        minVoteAmount = _minProposalVoteAmount(totalVoteAmount);
     }
 
     function _minProposalVoteAmount(uint256 totalVoteAmount) internal view returns (uint256) {
@@ -518,7 +534,13 @@ contract Mint is IMint {
         (voteReward, boostReward, burnReward, ) = _govRewardCalculation(tokenAddress, round, memberId);
 
         if (voteReward + boostReward + burnReward == 0) {
-            revert MemberRewardUnavailable(tokenAddress, round, memberId);
+            if (IVote(VOTE_ADDRESS).voteAmountByMemberId(tokenAddress, round, memberId) == 0) {
+                revert MemberHasNoVote(tokenAddress, round, memberId);
+            }
+            if (_govReward[tokenAddress][round] == 0) {
+                revert MemberRewardPoolEmpty(tokenAddress, round);
+            }
+            revert MemberRewardRoundedToZero(tokenAddress, round, memberId);
         }
 
         // forge-lint: disable-next-line(missing-events-access-control)

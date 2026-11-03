@@ -139,7 +139,7 @@ contract LOVE20TokenTest {
             _revertEquals(
                 _deployRevert(_tokenCode(101 ether, 100 ether, address(this), address(this), PARENT)),
                 abi.encodeWithSelector(
-                    ILOVE20TokenErrors.InvalidInitialSupply.selector, 101 ether, 100 ether
+                    ILOVE20TokenErrors.MaxSupplyBelowInitialSupply.selector, 101 ether, 100 ether
                 )
             ),
             "above max supply"

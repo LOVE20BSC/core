@@ -97,8 +97,8 @@ contract MintInvariantTest {
         return 500;
     }
 
-    function proposalTarget(address, uint256 id) external view returns (address, TargetMode) {
-        if (id == 0 || id > 5) revert ISubmitErrors.ProposalNotFound(id);
+    function proposalTarget(address tokenAddress, uint256 id) external view returns (address, TargetMode) {
+        if (id == 0 || id > 5) revert ISubmitErrors.ProposalNotFound(tokenAddress, id);
         return (address(this), TargetMode.NoCallback);
     }
 
@@ -261,7 +261,7 @@ contract MintInvariantTest {
         try mint.mintGovReward(address(token), round, memberId, address(this)) {
             settledGovRewards++;
         } catch {
-            // Ignore expected reverts (MemberRewardAlreadyMinted, MemberRewardUnavailable, etc.)
+            // Ignore expected reverts (MemberRewardAlreadyMinted, the Member* zero-amount errors, etc.)
         }
     }
 
@@ -272,7 +272,7 @@ contract MintInvariantTest {
         try mint.mintProposalReward(address(token), round, proposalId, address(this)) {
             settledProposalRewards++;
         } catch {
-            // Ignore expected reverts (NotProposalTarget, ProposalRewardAlreadyMinted, ProposalRewardUnavailable, etc.)
+            // Ignore expected reverts (NotProposalTarget, ProposalRewardAlreadyMinted, the Proposal* zero-amount errors, etc.)
         }
     }
 

@@ -315,7 +315,7 @@ contract SubmitTest {
 
         vm.roll(200);
         stake.setValidGovVotes(TOKEN, 1, 9);
-        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, uint256(999));
+        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, TOKEN, uint256(999));
         (bool ok, bytes memory data) = address(submit).call(
             abi.encodeCall(submit.submit, (TOKEN, 1, 999))
         );
@@ -360,7 +360,7 @@ contract SubmitTest {
         ids = new uint256[](1);
         for (uint256 i = 0; i < 3; i++) {
             ids[0] = i == 0 ? 0 : (i == 1 ? 3 : type(uint256).max);
-            bytes32 expected = keccak256(abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, ids[0]));
+            bytes32 expected = keccak256(abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, TOKEN, ids[0]));
             (bool ok, bytes memory data) = address(submit).call(abi.encodeCall(submit.proposalInfosByProposalIds, (TOKEN, ids)));
             require(!ok && keccak256(data) == expected, "missing detail");
             (ok, data) = address(submit).call(abi.encodeCall(submit.submit, (TOKEN, 1, ids[0])));
@@ -400,7 +400,7 @@ contract SubmitTest {
         missing[1] = 3;
         missing[2] = type(uint256).max;
         for (uint256 i = 0; i < missing.length; i++) {
-            bytes32 expected = keccak256(abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, missing[i]));
+            bytes32 expected = keccak256(abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, TOKEN, missing[i]));
             (bool ok, bytes memory data) = address(submit).call(abi.encodeCall(submit.proposalTarget, (TOKEN, missing[i])));
             require(!ok && keccak256(data) == expected, "missing target");
         }
@@ -468,7 +468,7 @@ contract SubmitTest {
     }
 
     function testSubmitRejectsNonExistentProposal() external {
-        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, 999);
+        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, TOKEN, 999);
         (bool ok, bytes memory data) = address(submit).call(
             abi.encodeCall(submit.submit, (TOKEN, 1, 999))
         );

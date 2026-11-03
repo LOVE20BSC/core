@@ -46,14 +46,11 @@ interface ILaunchErrors {
     error DistributorNotContract(address distributor);
     error InsufficientLaunchCount(
         uint256 memberId,
-        uint256 available,
-        uint256 required
+        uint256 required,
+        uint256 available
     );
     error ZeroCount();
-    error SourceAndTargetMemberIdsMustBeDifferent(
-        uint256 sourceMemberId,
-        uint256 targetMemberId
-    );
+    error SourceEqualsTarget(uint256 sourceMemberId);
     error NotMemberOwner(uint256 memberId);
     error NotMintContract(address caller);
     error LaunchCountLimitExceeded(

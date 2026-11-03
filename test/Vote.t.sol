@@ -729,17 +729,31 @@ contract VoteTest {
         );
     }
 
-    function testEligibilityIsCheckedBeforeLengths() external {
+    function testLengthsAreCheckedBeforeEligibility() external {
         uint256 memberId = _memberIds[0];
+        uint256 proposalId = _proposeNoCallback(TOKEN);
         stake.setValidGovVotes(TOKEN, memberId, 0);
-        bytes memory expected = abi.encodeWithSelector(IVoteErrors.NoVotingPower.selector, TOKEN, memberId);
 
-        // No proposal exists and the batch is empty, yet the missing voting power is what surfaces.
+        // Shape errors surface before the voting-power lookup.
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, new uint256[](0), new uint256[](0), new bytes[][](0))),
-            expected,
-            "eligibility before lengths"
+            abi.encodeWithSelector(IVoteErrors.ProposalIdsEmpty.selector),
+            "empty ids before eligibility"
+        );
+        _expectRevertAs(
+            memberId,
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), new uint256[](0), new bytes[][](0))),
+            abi.encodeWithSelector(IVoteErrors.ProposalVoteAmountsLengthMismatch.selector, 1, 0),
+            "length mismatch before eligibility"
+        );
+
+        // A well-formed batch still reports the missing voting power.
+        _expectRevertAs(
+            memberId,
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(1), new bytes[][](0))),
+            abi.encodeWithSelector(IVoteErrors.NoVotingPower.selector, TOKEN, memberId),
+            "eligibility after shape"
         );
     }
 
@@ -762,14 +776,14 @@ contract VoteTest {
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(999), _singleton(1), new bytes[][](0))),
-            abi.encodeWithSelector(IVoteErrors.ProposalNotSubmitted.selector, TOKEN, 1, uint256(999)),
-            "submission before snapshot"
+            abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, TOKEN, uint256(999)),
+            "existence before snapshot"
         );
 
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(0), new bytes[][](0))),
-            abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, proposalId),
+            abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, TOKEN, 1, proposalId),
             "amount before snapshot"
         );
     }
@@ -893,13 +907,13 @@ contract VoteTest {
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(999), _singleton(1), new bytes[][](0))),
-            abi.encodeWithSelector(IVoteErrors.ProposalNotSubmitted.selector, TOKEN, 1, uint256(999)),
+            abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, TOKEN, uint256(999)),
             "never created"
         );
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(0), _singleton(1), new bytes[][](0))),
-            abi.encodeWithSelector(IVoteErrors.ProposalNotSubmitted.selector, TOKEN, 1, uint256(0)),
+            abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, TOKEN, uint256(0)),
             "zero proposal id"
         );
         _assertAllVoteStateEmpty(TOKEN, vote.currentRound(), memberId);
@@ -932,7 +946,7 @@ contract VoteTest {
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(ids[0]), _singleton(0), new bytes[][](0))),
-            abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, ids[0]),
+            abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, TOKEN, 1, ids[0]),
             "zero on a single proposal"
         );
 
@@ -941,11 +955,24 @@ contract VoteTest {
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, ids, votes, new bytes[][](0))),
-            abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, ids[1]),
+            abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, TOKEN, 1, ids[1]),
             "zero later in the batch localizes the proposal"
         );
         _assertAllVoteStateEmpty(TOKEN, vote.currentRound(), memberId);
     }
+
+    function testVoteRejectsZeroAmountBeforeCheckingExistence() external {
+        uint256 memberId = _memberIds[0];
+
+        _expectRevertAs(
+            memberId,
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(999), _singleton(0), new bytes[][](0))),
+            abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, TOKEN, 1, uint256(999)),
+            "an unallocated id still reports the zero amount first"
+        );
+        _assertAllVoteStateEmpty(TOKEN, vote.currentRound(), memberId);
+    }
+
     // ============ vote: vote allowance ============
 
     function testVoteAccumulatesAcrossCallsUntilTheCap() external {
@@ -1451,7 +1478,7 @@ contract VoteTest {
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _singleton(0), new bytes[][](0))),
-            abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, ids[0]),
+            abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, TOKEN, 1, ids[0]),
             "zero amount"
         );
         require(_voteCastLogs().length == 0, "a reverted call leaves no event behind");

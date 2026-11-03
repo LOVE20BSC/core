@@ -92,8 +92,8 @@ contract MintFuzzTest {
         return mockMemberBoost;
     }
 
-    function proposalTarget(address, uint256 id) external pure returns (address, TargetMode) {
-        if (id == 0 || id > 1) revert ISubmitErrors.ProposalNotFound(id);
+    function proposalTarget(address tokenAddress, uint256 id) external pure returns (address, TargetMode) {
+        if (id == 0 || id > 1) revert ISubmitErrors.ProposalNotFound(tokenAddress, id);
         return (TARGET, TargetMode.NoCallback);
     }
 
@@ -183,7 +183,7 @@ contract MintFuzzTest {
         (uint256 expectedVote, uint256 expectedBoost, uint256 expectedBurn,) =
             mint.govRewardByMemberId(address(token), 1, 1);
 
-        // Skip if vote reward is zero (would cause MemberRewardUnavailable)
+        // Skip if vote reward is zero (would revert with a Member* zero-amount error)
         if (expectedVote == 0 && expectedBoost == 0) return;
 
         mint.mintGovReward(address(token), 1, 1, address(this));

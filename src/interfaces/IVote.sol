@@ -22,7 +22,11 @@ interface IVoteErrors {
         uint256 round,
         uint256 proposalId
     );
-    error ZeroVoteAmount(uint256 proposalId);
+    error ZeroVoteAmount(
+        address tokenAddress,
+        uint256 round,
+        uint256 proposalId
+    );
     error VoteLimitExceeded(
         address tokenAddress,
         uint256 round,

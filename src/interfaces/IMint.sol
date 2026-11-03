@@ -61,12 +61,32 @@ interface IMintErrors {
         uint256 round,
         uint256 memberId
     );
-    error ProposalRewardUnavailable(
+    error ProposalBelowThreshold(
+        address tokenAddress,
+        uint256 round,
+        uint256 proposalId,
+        uint256 voteAmount,
+        uint256 minVoteAmount
+    );
+    error ProposalPoolEmpty(
+        address tokenAddress,
+        uint256 round
+    );
+    error ProposalRewardRoundedToZero(
         address tokenAddress,
         uint256 round,
         uint256 proposalId
     );
-    error MemberRewardUnavailable(
+    error MemberHasNoVote(
+        address tokenAddress,
+        uint256 round,
+        uint256 memberId
+    );
+    error MemberRewardPoolEmpty(
+        address tokenAddress,
+        uint256 round
+    );
+    error MemberRewardRoundedToZero(
         address tokenAddress,
         uint256 round,
         uint256 memberId

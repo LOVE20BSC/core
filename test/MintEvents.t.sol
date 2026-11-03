@@ -144,8 +144,8 @@ contract MintEventsTest {
         return 1500;
     }
 
-    function proposalTarget(address, uint256 id) external pure returns (address, TargetMode) {
-        if (id == 0 || id > 3) revert ISubmitErrors.ProposalNotFound(id);
+    function proposalTarget(address tokenAddress, uint256 id) external pure returns (address, TargetMode) {
+        if (id == 0 || id > 3) revert ISubmitErrors.ProposalNotFound(tokenAddress, id);
         return (TARGET, TargetMode.NoCallback);
     }
 

@@ -937,7 +937,7 @@ contract LaunchTest {
         require(!ok, "empty ledger must revert");
         _expectData(
             data,
-            abi.encodeWithSelector(ILaunchErrors.InsufficientLaunchCount.selector, aliceMemberId, 0, 1),
+            abi.encodeWithSelector(ILaunchErrors.InsufficientLaunchCount.selector, aliceMemberId, 1, 0),
             "count selector"
         );
 
@@ -948,7 +948,7 @@ contract LaunchTest {
         require(!ok, "consumed count must revert");
         _expectData(
             data,
-            abi.encodeWithSelector(ILaunchErrors.InsufficientLaunchCount.selector, aliceMemberId, 0, 1),
+            abi.encodeWithSelector(ILaunchErrors.InsufficientLaunchCount.selector, aliceMemberId, 1, 0),
             "consumed selector"
         );
         require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 0, "ledger drained");
@@ -1128,7 +1128,7 @@ contract LaunchTest {
         _expectData(
             data,
             abi.encodeWithSelector(
-                ILaunchErrors.SourceAndTargetMemberIdsMustBeDifferent.selector, aliceMemberId, aliceMemberId
+                ILaunchErrors.SourceEqualsTarget.selector, aliceMemberId
             ),
             "same member selector"
         );
@@ -1209,7 +1209,7 @@ contract LaunchTest {
         require(!ok, "insufficient count must revert");
         _expectData(
             data,
-            abi.encodeWithSelector(ILaunchErrors.InsufficientLaunchCount.selector, aliceMemberId, 2, 3),
+            abi.encodeWithSelector(ILaunchErrors.InsufficientLaunchCount.selector, aliceMemberId, 3, 2),
             "count selector"
         );
         require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 2, "source untouched");
@@ -1235,7 +1235,7 @@ contract LaunchTest {
         _expectData(
             data,
             abi.encodeWithSelector(
-                ILaunchErrors.SourceAndTargetMemberIdsMustBeDifferent.selector, aliceMemberId, aliceMemberId
+                ILaunchErrors.SourceEqualsTarget.selector, aliceMemberId
             ),
             "same before count"
         );
@@ -1599,7 +1599,7 @@ contract LaunchTest {
         require(!ok, "no root count must revert");
         _expectData(
             data,
-            abi.encodeWithSelector(ILaunchErrors.InsufficientLaunchCount.selector, memberId, 0, 1),
+            abi.encodeWithSelector(ILaunchErrors.InsufficientLaunchCount.selector, memberId, 1, 0),
             "count selector"
         );
     }

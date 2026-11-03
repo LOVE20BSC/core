@@ -97,8 +97,8 @@ contract MintTest {
         return memberBoost;
     }
 
-    function proposalTarget(address, uint256 id) external view returns (address, TargetMode) {
-        if (id == 0 || id > proposalCount) revert ISubmitErrors.ProposalNotFound(id);
+    function proposalTarget(address tokenAddress, uint256 id) external view returns (address, TargetMode) {
+        if (id == 0 || id > proposalCount) revert ISubmitErrors.ProposalNotFound(tokenAddress, id);
         return (address(this), TargetMode.NoCallback);
     }
 
@@ -201,7 +201,7 @@ contract MintTest {
         (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
         require(amount == 0, "ineligible query");
         vm.expectRevert(
-            abi.encodeWithSelector(IMintErrors.ProposalRewardUnavailable.selector, address(token), 1, 1)
+            abi.encodeWithSelector(IMintErrors.ProposalBelowThreshold.selector, address(token), 1, 1, 1, 2)
         );
         mint.mintProposalReward(address(token), 1, 1, address(this));
         bool minted;
@@ -222,17 +222,51 @@ contract MintTest {
     function testZeroProposalRewardMustRevert() public {
         setupMint(999, 1000, 0, 1e15);
         vm.expectRevert(
-            abi.encodeWithSelector(IMintErrors.ProposalRewardUnavailable.selector, address(token), 1, 1)
+            abi.encodeWithSelector(IMintErrors.ProposalPoolEmpty.selector, address(token), 1)
         );
         mint.mintProposalReward(address(token), 1, 1, address(this));
         (, bool minted) = mint.proposalRewardByProposalId(address(token), 1, 1);
         require(!minted && mint.totalRewardMinted(address(token)) == 0, "zero reward consumed state");
     }
 
+    function testBelowThresholdOutranksTheCancelledPool() public {
+        totalVoteAmountValue = 100;
+        firstVotes = 1;
+        secondVotes = 1;
+        proposalCount = 2;
+        setupMint(1000, 10000, 0, 1e18);
+        // Nothing clears the 5% bar, so prepare cancels the whole round pool: both the proposal
+        // condition and the round condition hold, and the per-proposal one has to win.
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.ProposalBelowThreshold.selector, address(token), 1, 1, 1, 5)
+        );
+        mint.mintProposalReward(address(token), 1, 1, address(this));
+    }
+
+    function testProposalRewardRoundedToZeroMustRevert() public {
+        totalVoteAmountValue = 1000;
+        firstVotes = 50;
+        secondVotes = 950;
+        proposalCount = 2;
+        setupMint(999, 1000, 0, 1e18);
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.ProposalRewardRoundedToZero.selector, address(token), 1, 1)
+        );
+        mint.mintProposalReward(address(token), 1, 1, address(this));
+    }
+
+    function testMemberRewardRoundedToZeroMustRevert() public {
+        setupMint(999, 1000, 1e18, 0);
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.MemberRewardRoundedToZero.selector, address(token), 1, 1)
+        );
+        mint.mintGovReward(address(token), 1, 1, address(this));
+    }
+
     function testZeroGovRewardMustRevert() public {
         setupMint(999, 1000, 1e15, 0);
         vm.expectRevert(
-            abi.encodeWithSelector(IMintErrors.MemberRewardUnavailable.selector, address(token), 1, 1)
+            abi.encodeWithSelector(IMintErrors.MemberRewardPoolEmpty.selector, address(token), 1)
         );
         mint.mintGovReward(address(token), 1, 1, address(this));
         (,,, bool minted) = mint.govRewardByMemberId(address(token), 1, 1);
@@ -247,7 +281,7 @@ contract MintTest {
         vm.recordLogs();
         // Trigger auto-prepare by attempting to mint
         vm.expectRevert(
-            abi.encodeWithSelector(IMintErrors.MemberRewardUnavailable.selector, address(token), 2, 1)
+            abi.encodeWithSelector(IMintErrors.MemberHasNoVote.selector, address(token), 2, 1)
         );
         mint.mintGovReward(address(token), 2, 1, address(this));
         MintVm.Log[] memory logs = vm.getRecordedLogs();
@@ -265,7 +299,7 @@ contract MintTest {
         // A second call will emit the event again because the flag is still false
         vm.recordLogs();
         vm.expectRevert(
-            abi.encodeWithSelector(IMintErrors.MemberRewardUnavailable.selector, address(token), 2, 1)
+            abi.encodeWithSelector(IMintErrors.MemberHasNoVote.selector, address(token), 2, 1)
         );
         mint.mintGovReward(address(token), 2, 1, address(this));
         logs = vm.getRecordedLogs();
@@ -284,11 +318,11 @@ contract MintTest {
         memberVoteAmount = 0;
         firstVotes = 0;
         vm.expectRevert(
-            abi.encodeWithSelector(IMintErrors.MemberRewardUnavailable.selector, address(token), 2, 1)
+            abi.encodeWithSelector(IMintErrors.MemberHasNoVote.selector, address(token), 2, 1)
         );
         mint.mintGovReward(address(token), 2, 1, address(this));
         vm.expectRevert(
-            abi.encodeWithSelector(IMintErrors.ProposalRewardUnavailable.selector, address(token), 2, 1)
+            abi.encodeWithSelector(IMintErrors.ProposalPoolEmpty.selector, address(token), 2)
         );
         mint.mintProposalReward(address(token), 2, 1, address(this));
         require(mint.totalRewardMinted(address(token)) == 0, "zero-vote settlement mutated state");
@@ -299,7 +333,7 @@ contract MintTest {
         for (uint256 round = 1; round <= 2; round++) {
             vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 999));
             mint.govRewardByMemberId(address(token), round, 999);
-            vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, 999));
+            vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, address(token), 999));
             mint.proposalRewardByProposalId(address(token), round, 999);
         }
         (uint256 amount, bool minted) = mint.proposalRewardByProposalId(address(token), 2, 1);
@@ -409,7 +443,7 @@ contract MintTest {
         (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
         require(amount == 0, "ineligible projection");
         vm.expectRevert(
-            abi.encodeWithSelector(IMintErrors.ProposalRewardUnavailable.selector, address(token), 1, 1)
+            abi.encodeWithSelector(IMintErrors.ProposalBelowThreshold.selector, address(token), 1, 1, 1, 2)
         );
         mint.mintProposalReward(address(token), 1, 1, address(this));
     }

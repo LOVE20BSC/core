@@ -105,7 +105,7 @@ contract Launch is ILaunch {
         }
 
         uint256 availableCount = _remainingLaunchCount[parentTokenAddress][memberId];
-        if (availableCount == 0) revert InsufficientLaunchCount(memberId, availableCount, 1);
+        if (availableCount == 0) revert InsufficientLaunchCount(memberId, 1, availableCount);
 
         {
             uint256 remainingCount = availableCount - 1;
@@ -156,7 +156,7 @@ contract Launch is ILaunch {
         onlyMemberOwner(sourceMemberId)
     {
         if (sourceMemberId == targetMemberId) {
-            revert SourceAndTargetMemberIdsMustBeDifferent(sourceMemberId, targetMemberId);
+            revert SourceEqualsTarget(sourceMemberId);
         }
         if (count == 0) revert ZeroCount();
 
@@ -167,7 +167,7 @@ contract Launch is ILaunch {
         _ownerOf(targetMemberId);
 
         uint256 sourceCount = _remainingLaunchCount[tokenAddress][sourceMemberId];
-        if (sourceCount < count) revert InsufficientLaunchCount(sourceMemberId, sourceCount, count);
+        if (sourceCount < count) revert InsufficientLaunchCount(sourceMemberId, count, sourceCount);
 
         uint256 sourceRemaining = sourceCount - count;
         uint256 targetRemaining = _remainingLaunchCount[tokenAddress][targetMemberId] + count;

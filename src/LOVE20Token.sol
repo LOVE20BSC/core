@@ -19,7 +19,7 @@ contract LOVE20Token is ERC20, ILOVE20Token {
         address parentTokenAddress
     ) ERC20(name, symbol) {
         if (initialSupply == 0) revert ZeroInitialSupply();
-        if (maxSupply < initialSupply) revert InvalidInitialSupply(initialSupply, maxSupply);
+        if (maxSupply < initialSupply) revert MaxSupplyBelowInitialSupply(initialSupply, maxSupply);
         if (distributor == address(0)) revert ZeroDistributorAddress();
         if (minter.code.length == 0) revert DependencyNotContract(minter);
         if (parentTokenAddress.code.length == 0) revert DependencyNotContract(parentTokenAddress);

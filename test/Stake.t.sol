@@ -474,7 +474,7 @@ contract StakeTest {
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
             ),
-            abi.encodeWithSelector(IStakeErrors.NotAllowedToStakeAtRoundZero.selector),
+            abi.encodeWithSelector(IStakeErrors.StakeNotStarted.selector),
             "Should revert at round zero"
         );
     }
@@ -486,7 +486,7 @@ contract StakeTest {
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 10, memberId1),
-            abi.encodeWithSelector(IStakeErrors.NotAllowedToStakeAtRoundZero.selector),
+            abi.encodeWithSelector(IStakeErrors.StakeNotStarted.selector),
             "Should revert at round zero"
         );
     }
@@ -726,7 +726,7 @@ contract StakeTest {
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1),
-            abi.encodeWithSelector(IStakeErrors.InsufficientWaitingPhases.selector, 1, 11),
+            abi.encodeWithSelector(IStakeErrors.UnlockRoundNotReached.selector, 1, 11),
             "Should revert before waiting period"
         );
     }
@@ -746,7 +746,7 @@ contract StakeTest {
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1),
-            abi.encodeWithSelector(IStakeErrors.InsufficientWaitingPhases.selector, 11, 11),
+            abi.encodeWithSelector(IStakeErrors.UnlockRoundNotReached.selector, 11, 11),
             "Should revert at exact waiting period boundary"
         );
     }
@@ -1893,7 +1893,7 @@ contract StakeTest {
         vm().prank(owner1);
         vm().expectRevert(
             abi.encodeWithSelector(
-                IStakeErrors.SourceAndTargetMemberIdsMustBeDifferent.selector, memberId1, memberId1
+                IStakeErrors.SourceEqualsTarget.selector, memberId1
             )
         );
         stake.mergeStake(address(childToken), memberId1, memberId1);
