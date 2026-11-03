@@ -120,9 +120,9 @@ contract MintInvariantTest {
 
     /// @notice Invariant: reserved always covers minted + burned
     function invariant_ReservedCoversSettled() public view {
-        uint256 reserved = mint.rewardReserved(address(token));
-        uint256 minted = mint.rewardMinted(address(token));
-        uint256 burned = mint.rewardBurned(address(token));
+        uint256 reserved = mint.totalRewardReserved(address(token));
+        uint256 minted = mint.totalRewardMinted(address(token));
+        uint256 burned = mint.totalRewardBurned(address(token));
 
         assert(reserved >= minted + burned);
     }
@@ -130,9 +130,9 @@ contract MintInvariantTest {
     /// @notice Invariant: available + reserved + supply = maxSupply
     function invariant_TotalSupplyAccountingClosed() public view {
         uint256 available = mint.rewardAvailable(address(token));
-        uint256 reserved = mint.rewardReserved(address(token));
-        uint256 minted = mint.rewardMinted(address(token));
-        uint256 burned = mint.rewardBurned(address(token));
+        uint256 reserved = mint.totalRewardReserved(address(token));
+        uint256 minted = mint.totalRewardMinted(address(token));
+        uint256 burned = mint.totalRewardBurned(address(token));
         uint256 supply = token.totalSupply();
         uint256 maxSupply = token.MAX_SUPPLY();
 
@@ -143,16 +143,16 @@ contract MintInvariantTest {
         assert(available + supply + reservedAvailable == maxSupply);
     }
 
-    /// @notice Invariant: rewardMinted never decreases
+    /// @notice Invariant: totalRewardMinted never decreases
     function invariant_MintedMonotonic() public view {
-        uint256 minted = mint.rewardMinted(address(token));
+        uint256 minted = mint.totalRewardMinted(address(token));
         assert(minted >= settledGovRewards + settledProposalRewards);
     }
 
-    /// @notice Invariant: rewardReserved never decreases after first prepare
+    /// @notice Invariant: totalRewardReserved never decreases after first prepare
     function invariant_ReservedMonotonicAfterFirstPrepare() public view {
         if (preparedRounds > 0) {
-            uint256 reserved = mint.rewardReserved(address(token));
+            uint256 reserved = mint.totalRewardReserved(address(token));
             assert(reserved > 0);
         }
     }
@@ -163,7 +163,7 @@ contract MintInvariantTest {
             if (mint.isRewardPrepared(address(token), i)) {
                 uint256 govReward = mint.govReward(address(token), i);
                 uint256 proposalReward = mint.proposalReward(address(token), i);
-                uint256 reserved = mint.rewardReserved(address(token));
+                uint256 reserved = mint.totalRewardReserved(address(token));
 
                 assert(govReward + proposalReward <= reserved);
             }

@@ -132,12 +132,12 @@ contract MintEdgeCasesTest {
         mint.mintProposalReward(address(token), 1, 1, TARGET);
     }
 
-    function testRewardReservedGetter() public {
+    function testTotalRewardReservedGetter() public {
         setupMint(1000, 10000);
-        require(mint.rewardReserved(address(token)) == 0, "initial reserved");
+        require(mint.totalRewardReserved(address(token)) == 0, "initial reserved");
         vm.prank(TARGET);
         mint.mintProposalReward(address(token), 1, 1, TARGET);
-        require(mint.rewardReserved(address(token)) > 0, "reserved after prepare");
+        require(mint.totalRewardReserved(address(token)) > 0, "reserved after prepare");
     }
 
     function testGovRewardGetter() public {

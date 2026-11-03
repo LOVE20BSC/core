@@ -299,6 +299,12 @@ contract LaunchTest {
             found = true;
         }
         require(found, "missing GenesisTokenCreated");
+        // E1：登记 → 绑定 MemberNFT → 创建事件，创建事件是 `init` 的最后一条日志
+        require(
+            logs[logs.length - 1].emitter == address(freshLaunch)
+                && logs[logs.length - 1].topics[0] == eventSelector,
+            "GenesisTokenCreated must be the last log of init"
+        );
         require(
             _countLogs(logs, address(freshLaunch), keccak256("TokenLaunched(address,address,uint256,address,uint8,string,string)")) == 0,
             "init must not emit TokenLaunched"
@@ -1255,18 +1261,23 @@ contract LaunchTest {
     // ============ addLaunchCount ============
 
     function testAddLaunchCountUpdatesBothLedgersAndEmits() public {
+        // A second holder keeps the ledger total and the member balance apart in the payload.
+        mintAccount.addLaunchCount(launch, address(firstToken), bobMemberId, 2);
+
         vm.recordLogs();
         mintAccount.addLaunchCount(launch, address(firstToken), aliceMemberId, 4);
 
         require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 4, "launch count");
-        require(launch.issuedLaunchCount(address(firstToken)) == 4, "issued count");
+        require(launch.issuedLaunchCount(address(firstToken)) == 6, "issued count");
 
         // 首币次数 1:1 伴生到根父币维度：同一笔交易、同一 count、各发一条 LaunchCountAdded
         require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 4, "root count mirrored");
-        require(launch.issuedLaunchCount(ROOT) == 4, "root issued mirrored");
+        require(launch.issuedLaunchCount(ROOT) == 6, "root issued mirrored");
 
         bool foundFirst;
         bool foundRoot;
+        uint256 firstIndex = type(uint256).max;
+        uint256 rootIndex = type(uint256).max;
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 eventSelector = keccak256("LaunchCountAdded(address,uint256,uint256,uint256,uint256)");
         for (uint256 i; i < logs.length; ++i) {
@@ -1274,21 +1285,26 @@ contract LaunchTest {
             if (logs[i].topics[0] != eventSelector) continue;
             (uint256 count, uint256 issuedCount, uint256 memberRemaining) =
                 abi.decode(logs[i].data, (uint256, uint256, uint256));
+            require(issuedCount != memberRemaining, "ledger total and member balance must be tellable apart");
             if (logs[i].topics[1] == bytes32(uint256(uint160(address(firstToken))))) {
                 require(logs[i].topics[2] == bytes32(aliceMemberId), "event member");
                 require(count == 4, "event count");
-                require(issuedCount == 4, "event issued count");
+                require(issuedCount == 6, "event issued count");
                 require(memberRemaining == 4, "event member remaining");
+                firstIndex = i;
                 foundFirst = true;
             } else if (logs[i].topics[1] == bytes32(uint256(uint160(ROOT)))) {
                 require(logs[i].topics[2] == bytes32(aliceMemberId), "root event member");
                 require(count == 4, "root event count");
-                require(issuedCount == 4, "root event issued count");
+                require(issuedCount == 6, "root event issued count");
                 require(memberRemaining == 4, "root event member remaining");
+                rootIndex = i;
                 foundRoot = true;
             }
         }
         require(foundFirst && foundRoot, "missing LaunchCountAdded");
+        // 伴生顺序固定：首币维度先发，根父币维度后发
+        require(firstIndex < rootIndex, "the first token ledger must precede the root mirror");
         // 反向断言：首币与根父币各一条 LaunchCountAdded，且不产生其它 Launch 事件
         require(_countLogs(logs, address(launch), eventSelector) == 2, "two LaunchCountAdded");
         require(
@@ -1303,9 +1319,9 @@ contract LaunchTest {
         // 累加而不是覆盖
         mintAccount.addLaunchCount(launch, address(firstToken), aliceMemberId, 1);
         require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 5, "accumulated");
-        require(launch.issuedLaunchCount(address(firstToken)) == 5, "issued accumulated");
+        require(launch.issuedLaunchCount(address(firstToken)) == 7, "issued accumulated");
         require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 5, "root accumulated");
-        require(launch.issuedLaunchCount(ROOT) == 5, "root issued accumulated");
+        require(launch.issuedLaunchCount(ROOT) == 7, "root issued accumulated");
     }
 
     function testAddLaunchCountIssuedCountMatchesFold() public {

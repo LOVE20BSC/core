@@ -137,10 +137,10 @@ contract ProposalDoSTest is Test {
         assertEq(mint.govReward(address(token), 1), available / 10);
         assertGt(govReward, 0);
 
-        uint256 reserved = mint.rewardReserved(address(token));
+        uint256 reserved = mint.totalRewardReserved(address(token));
         vm.prank(actor);
         uint256 reward = mint.mintProposalReward(address(token), 1, 1, actor);
         assertEq(reward, (available / 10) * count * 1e18 / eligibleVoteAmount);
-        assertEq(mint.rewardReserved(address(token)), reserved, "prepared twice");
+        assertEq(mint.totalRewardReserved(address(token)), reserved, "prepared twice");
     }
 }

@@ -1190,7 +1190,7 @@ contract MintRealIntegrationTest {
         settled = mint.mintProposalReward(address(token), data.round1, data.proposalId1, data.proposalTarget1);
         assertTrue(settled > 0, "Settled amount must be positive");
         assertEq(token.totalSupply(), totalSupplyBefore + settled, "Settlement mints to the recipient");
-        assertEq(mint.rewardMinted(address(token)), settled, "Minted ledger");
+        assertEq(mint.totalRewardMinted(address(token)), settled, "Minted ledger");
         assertTrue(mint.isRewardPrepared(address(token), data.round1), "Round must be prepared");
         assertTrue(vote.totalVoterBoost(address(token), data.round1) > 0, "Boost snapshot recorded");
 
@@ -1244,8 +1244,8 @@ contract MintRealIntegrationTest {
         assertEq(token.balanceOf(data.proposalTarget2) - balanceBefore, expectedSibling, "Sibling exact transfer");
 
         // The destroyed proposal settled before its tokens were burned, so its share stays in the
-        // minted ledger: the reservation is released through `rewardMinted`, not `rewardBurned`.
-        assertEq(mint.rewardMinted(address(token)), destroyedShare + expectedSibling, "Minted ledger");
+        // minted ledger: the reservation is released through `totalRewardMinted`, not `totalRewardBurned`.
+        assertEq(mint.totalRewardMinted(address(token)), destroyedShare + expectedSibling, "Minted ledger");
         assertEq(
             mint.reservedAvailable(address(token)),
             mint.govReward(address(token), data.round1),

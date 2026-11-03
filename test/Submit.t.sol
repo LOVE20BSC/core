@@ -406,6 +406,34 @@ contract SubmitTest {
         }
     }
 
+    /// §3.4.4：本轮首笔推举先发 `ProposalSubmitted`，之后 `Phase.sync()` 才发 `PhaseSynchronized`。
+    function testFirstSubmitPrecedesPhaseSync() external {
+        ProposalBody memory body = ProposalBody({
+            title: "Test",
+            details: "Details",
+            target: address(0x1),
+            targetMode: TargetMode.NoCallback,
+            targetData: new bytes[](0)
+        });
+
+        vm.recordLogs();
+        submit.submitNewProposal(TOKEN, 1, body);
+        SubmitVm.Log[] memory logs = vm.getRecordedLogs();
+
+        bytes32 submittedTopic = keccak256("ProposalSubmitted(address,uint256,uint256,uint256)");
+        bytes32 syncedTopic = keccak256("PhaseSynchronized(uint256,uint256,uint256)");
+        uint256 submittedIndex = type(uint256).max;
+        uint256 syncedIndex = type(uint256).max;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics.length == 0) continue;
+            if (logs[i].emitter == address(submit) && logs[i].topics[0] == submittedTopic) submittedIndex = i;
+            if (logs[i].emitter == address(phase) && logs[i].topics[0] == syncedTopic) syncedIndex = i;
+        }
+        require(submittedIndex != type(uint256).max, "missing ProposalSubmitted");
+        require(syncedIndex != type(uint256).max, "missing PhaseSynchronized");
+        require(submittedIndex < syncedIndex, "the submit fact must precede the phase sync");
+    }
+
     function testSubmitExistingProposal() external {
         ProposalBody memory body = ProposalBody({
             title: "Test",

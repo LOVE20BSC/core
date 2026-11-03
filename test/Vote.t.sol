@@ -1352,26 +1352,94 @@ contract VoteTest {
 
     function testVoteCastEventCarriesTheExactPayload() external {
         // A member id that differs from the round keeps `voterId` and `round` distinguishable.
+        uint256 warmVoter = _memberIds[0];
         uint256 memberId = _memberIds[1];
         uint256[] memory ids = _proposeBatch(TOKEN, 2);
-        stake.setBoost(TOKEN, 1, memberId, 50);
+        // Two boosters keep the member snapshot and the round total apart, and 40 keeps the
+        // snapshot distinguishable from the 30-vote amount.
+        stake.setBoost(TOKEN, 1, warmVoter, 50);
+        stake.setBoost(TOKEN, 1, memberId, 40);
+
+        // Both members vote once before the measured call, so the increment, the member's
+        // post-state and the round's post-state all differ.
+        _voteWithoutData(TOKEN, warmVoter, _singleton(ids[0]), _singleton(10));
+        _voteWithoutData(TOKEN, memberId, _singleton(ids[0]), _singleton(5));
 
         vm.recordLogs();
-        _voteWithoutData(TOKEN, memberId, ids, _filled(2, 30));
+        _voteWithoutData(TOKEN, memberId, _singleton(ids[1]), _singleton(30));
         VoteVm.Log[] memory events = _voteCastLogs();
 
-        require(events.length == 2, "one event per proposal");
+        require(events.length == 1, "one event per proposal");
+        require(events[0].topics.length == 4, "three indexed arguments plus the signature");
+        require(events[0].topics[1] == bytes32(uint256(uint160(TOKEN))), "tokenAddress");
+        require(events[0].topics[2] == bytes32(memberId), "voterId");
+        require(events[0].topics[3] == bytes32(ids[1]), "proposalId");
+        (
+            uint256 round,
+            uint256 voteAmount,
+            uint256 voteAmountTotal,
+            uint256 totalVoteAmount,
+            uint256 voterBoost,
+            uint256 totalVoterBoost
+        ) = abi.decode(events[0].data, (uint256, uint256, uint256, uint256, uint256, uint256));
+        require(round == 1, "round is part of the payload");
+        require(voteAmount == 30, "voteAmount is this proposal's increment");
+        require(voteAmountTotal == 35, "voteAmountTotal is the member's post-state");
+        require(totalVoteAmount == 45, "totalVoteAmount is the round's post-state");
+        require(voterBoost == 40, "voter boost snapshot");
+        require(totalVoterBoost == 90, "global voter boost snapshot");
+    }
+
+    /// @notice 逐条折叠 `VoteCast`：成员后置累计与轮后置总量必须等于折叠结果
+    function testVoteCastCumulativeAnchorsMatchTheFold() external {
+        uint256 firstVoter = _memberIds[0];
+        uint256 secondVoter = _memberIds[1];
+        uint256[] memory ids = _proposeBatch(TOKEN, 3);
+
+        vm.recordLogs();
+        _voteWithoutData(TOKEN, firstVoter, _singleton(ids[0]), _singleton(7));
+        _voteWithoutData(TOKEN, secondVoter, _singleton(ids[0]), _singleton(11));
+        _voteWithoutData(TOKEN, firstVoter, _singleton(ids[1]), _singleton(13));
+        _voteWithoutData(TOKEN, secondVoter, _singleton(ids[2]), _singleton(17));
+
+        VoteVm.Log[] memory events = _voteCastLogs();
+        require(events.length == 4, "one event per vote");
+
+        (uint256 foldedFirst, uint256 foldedSecond, uint256 foldedTotal) =
+            _foldVoteCast(events, firstVoter, secondVoter);
+
+        require(foldedFirst != foldedSecond, "the two members must fold to different totals");
+        require(foldedFirst + foldedSecond == foldedTotal, "the round total is the sum of the member totals");
+        require(foldedTotal == vote.totalVoteAmount(TOKEN, 1), "the round total matches the ledger");
+        require(foldedFirst == vote.voteAmountByMemberId(TOKEN, 1, firstVoter), "first member anchor");
+        require(foldedSecond == vote.voteAmountByMemberId(TOKEN, 1, secondVoter), "second member anchor");
+    }
+
+    function _foldVoteCast(VoteVm.Log[] memory events, uint256 firstVoter, uint256 secondVoter)
+        private
+        pure
+        returns (uint256 foldedFirst, uint256 foldedSecond, uint256 foldedTotal)
+    {
         for (uint256 i = 0; i < events.length; i++) {
             require(events[i].topics.length == 4, "three indexed arguments plus the signature");
-            require(events[i].topics[1] == bytes32(uint256(uint160(TOKEN))), "tokenAddress");
-            require(events[i].topics[2] == bytes32(memberId), "voterId");
-            require(events[i].topics[3] == bytes32(ids[i]), "proposalId follows the batch order");
-            (uint256 round, uint256 votes, uint256 voterBoost, uint256 totalVoterBoost) =
-                abi.decode(events[i].data, (uint256, uint256, uint256, uint256));
-            require(round == 1, "round is part of the payload");
-            require(votes == 30, "votes is the amount for this proposal");
-            require(voterBoost == 50, "voter boost snapshot");
-            require(totalVoterBoost == 50, "global voter boost snapshot");
+            uint256 voterId = uint256(events[i].topics[2]);
+            uint256 voteAmount;
+            uint256 voteAmountTotal;
+            uint256 totalVoteAmount;
+            (, voteAmount, voteAmountTotal, totalVoteAmount,,) =
+                abi.decode(events[i].data, (uint256, uint256, uint256, uint256, uint256, uint256));
+
+            if (voterId == firstVoter) {
+                foldedFirst += voteAmount;
+                require(voteAmountTotal == foldedFirst, "member total equals the member's folded votes");
+            } else {
+                require(voterId == secondVoter, "unexpected voter");
+                foldedSecond += voteAmount;
+                require(voteAmountTotal == foldedSecond, "member total equals the member's folded votes");
+            }
+
+            foldedTotal += voteAmount;
+            require(totalVoteAmount == foldedTotal, "round total equals the round's folded votes");
         }
     }
 

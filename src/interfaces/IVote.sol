@@ -39,6 +39,8 @@ interface IVoteEvents {
         uint256 indexed voterId,
         uint256 indexed proposalId,
         uint256 voteAmount,
+        uint256 voteAmountTotal,
+        uint256 totalVoteAmount,
         uint256 voterBoost,
         uint256 totalVoterBoost
     );

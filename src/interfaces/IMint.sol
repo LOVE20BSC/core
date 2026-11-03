@@ -14,8 +14,8 @@ interface IMintEvents {
         uint256 govReward,
         uint256 proposalReward,
         uint256 eligibleProposalVoteAmount,
-        uint256 rewardReserved,
-        uint256 rewardBurned
+        uint256 totalRewardReserved,
+        uint256 totalRewardBurned
     );
     event GovRewardMinted(
         address indexed tokenAddress,
@@ -23,19 +23,22 @@ interface IMintEvents {
         uint256 indexed memberId,
         uint256 voteReward,
         uint256 boostReward,
-        uint256 burnReward
+        uint256 burnReward,
+        uint256 totalRewardMinted
     );
     event ProposalRewardMinted(
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 indexed proposalId,
         address recipient,
-        uint256 amount
+        uint256 amount,
+        uint256 totalRewardMinted
     );
     event RewardBurned(
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 amount,
+        uint256 totalRewardBurned,
         BurnReason reason
     );
 }
@@ -113,9 +116,9 @@ interface IMint is IMintEvents, IMintErrors {
             uint256[] memory boostRewards,
             uint256[] memory burnRewards
         );
-    function rewardReserved(address tokenAddress) external view returns (uint256);
-    function rewardMinted(address tokenAddress) external view returns (uint256);
-    function rewardBurned(address tokenAddress) external view returns (uint256);
+    function totalRewardReserved(address tokenAddress) external view returns (uint256);
+    function totalRewardMinted(address tokenAddress) external view returns (uint256);
+    function totalRewardBurned(address tokenAddress) external view returns (uint256);
     function govReward(address tokenAddress, uint256 round) external view returns (uint256);
     function proposalReward(address tokenAddress, uint256 round) external view returns (uint256);
     function eligibleProposalVoteAmount(address tokenAddress, uint256 round)

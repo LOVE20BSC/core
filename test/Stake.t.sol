@@ -314,6 +314,37 @@ contract StakeTest {
         uint256 totalWithdrawableLp;
     }
 
+    struct LiquidityStakedEventData {
+        uint256 tokenAmount;
+        uint256 parentTokenAmount;
+        uint256 promisedWaitingPhases;
+        uint256 govVotesAdded;
+        uint256 govVotes;
+        uint256 liquiditySharesAdded;
+        uint256 liquidityShares;
+        uint256 totalLiquidityShares;
+        uint256 totalValidGovVotes;
+        uint256 totalWithdrawableLp;
+    }
+
+    function _decodeLiquidityStaked(bytes memory data)
+        internal
+        pure
+        returns (LiquidityStakedEventData memory eventData)
+    {
+        uint256[10] memory values = abi.decode(data, (uint256[10]));
+        eventData.tokenAmount = values[0];
+        eventData.parentTokenAmount = values[1];
+        eventData.promisedWaitingPhases = values[2];
+        eventData.govVotesAdded = values[3];
+        eventData.govVotes = values[4];
+        eventData.liquiditySharesAdded = values[5];
+        eventData.liquidityShares = values[6];
+        eventData.totalLiquidityShares = values[7];
+        eventData.totalValidGovVotes = values[8];
+        eventData.totalWithdrawableLp = values[9];
+    }
+
     function _decodeStakeWithdrawn(bytes memory data)
         internal
         pure
@@ -2076,16 +2107,21 @@ contract StakeTest {
     // ============ Advanced Coverage Tests ============
 
     function testStakeLiquidityEmitsCorrectEvent() external {
-        // A second member keeps `liquidityShares` and `totalLiquidityShares` apart.
-        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
-        (, , uint256 withdrawableBefore, , , , ) = stake.totalStake(address(childToken));
+        // A 2:1 pool makes the two deposited amounts differ, so swapping them in the payload is observable.
+        childToken.transfer(address(pair), 100000e18);
+        pair.setReserves(200000e18, 100000e18);
+
+        stakeAsOwner(owner1, memberId1, 2000e18, 1000e18, 10);
+        // A first stake at a lower promised phase gives the measured call a vote delta below the total.
+        stakeAsOwner(owner2, memberId2, 2000e18, 1000e18, 5);
+
+        (uint256 memberSharesBefore,,,,,) = stake.memberStake(address(childToken), memberId2);
         vm().recordLogs();
-        (uint256 govVotes, uint256 shares) = stakeAsOwner(owner2, memberId2, 1000e18, 1000e18, 10);
+        (uint256 govVotes, uint256 shares) = stakeAsOwner(owner2, memberId2, 2000e18, 1000e18, 10);
         require(govVotes > 0, "Should add gov votes");
         require(shares > 0, "Should add shares");
 
         (uint256 totalLiquidityShares, , uint256 withdrawableAfter, , , , ) = stake.totalStake(address(childToken));
-        require(withdrawableAfter > withdrawableBefore, "withdrawable must grow");
         uint256 totalValidGovVotes = _totalValidGovVotes(address(childToken));
         Vm.Log[] memory logs = vm().getRecordedLogs();
         bytes32 topic = keccak256(
@@ -2099,18 +2135,23 @@ contract StakeTest {
             require(logs[i].topics[1] == bytes32(uint256(uint160(address(childToken)))), "event token");
             require(logs[i].topics[2] == bytes32(uint256(1)), "event round");
             require(logs[i].topics[3] == bytes32(memberId2), "event member");
-            (,,
-                uint256 promisedWaitingPhases,,,,
-                uint256 liquidityShares,
-                uint256 totalLiquidityShares_,
-                uint256 totalValidGovVotes_,
-                uint256 totalWithdrawableLp_
-            ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
-            require(promisedWaitingPhases == 10, "event promised phases");
-            require(liquidityShares == shares, "event member shares");
-            require(totalLiquidityShares_ == totalLiquidityShares, "event global shares");
-            require(totalValidGovVotes_ == totalValidGovVotes, "event global votes");
-            require(totalWithdrawableLp_ == withdrawableAfter, "event total withdrawable");
+            LiquidityStakedEventData memory eventData = _decodeLiquidityStaked(logs[i].data);
+            require(eventData.tokenAmount == 2000e18, "event token amount");
+            require(eventData.parentTokenAmount == 1000e18, "event parent amount");
+            require(eventData.tokenAmount != eventData.parentTokenAmount, "the two deposit amounts must be tellable apart");
+            require(eventData.promisedWaitingPhases == 10, "event promised phases");
+            require(eventData.govVotesAdded == govVotes, "event vote delta matches the return value");
+            require(
+                eventData.govVotesAdded == (memberSharesBefore + shares) * 10 - memberSharesBefore * 5,
+                "event vote delta"
+            );
+            require(eventData.govVotes == (memberSharesBefore + shares) * 10, "event member votes");
+            require(eventData.govVotes != eventData.govVotesAdded, "the delta and the total must be tellable apart");
+            require(eventData.liquiditySharesAdded == shares, "event shares added");
+            require(eventData.liquidityShares == memberSharesBefore + shares, "event member shares");
+            require(eventData.totalLiquidityShares == totalLiquidityShares, "event global shares");
+            require(eventData.totalValidGovVotes == totalValidGovVotes, "event global votes");
+            require(eventData.totalWithdrawableLp == withdrawableAfter, "event total withdrawable");
             found = true;
         }
         require(found, "missing LiquidityStaked");
@@ -2122,9 +2163,14 @@ contract StakeTest {
         parentToken.transfer(address(stake), 10000e18);
         childToken.transfer(address(pair), 5000e18);
         parentToken.transfer(address(pair), 5000e18);
-        pair.setReserves(115000e18, 115000e18);
+        // Asymmetric reserves make the burn's two sides differ, so the parent side cannot be swapped with
+        // the token side without the payload changing.
+        childToken.transfer(address(pair), 35000e18);
+        pair.setReserves(150000e18, 100000e18);
 
         uint256 settlementUnit = pair.totalSupply() * FEE_SETTLEMENT_RATIO / 1e18;
+        // `pair.burn` pays both sides pro rata; the expectation comes from the reserves directly.
+        uint256 expectedParentBurned = settlementUnit * 100000e18 / pair.totalSupply();
         vm().recordLogs();
         vm().prank(owner1);
         stake.settleFees(address(childToken));
@@ -2139,10 +2185,12 @@ contract StakeTest {
             require(logs[i].topics.length == 3, "two indexed arguments");
             require(logs[i].topics[1] == bytes32(uint256(uint160(address(childToken)))), "event token");
             require(uint256(logs[i].topics[2]) == 1, "event round");
-            (uint256 feeLpBurned, uint256 tokenBurned, , uint256 burnedTotal, uint256 parentBurnedTotal, uint256 totalFeeLp_) =
+            (uint256 feeLpBurned, uint256 tokenBurned, uint256 parentTokenBurned, uint256 burnedTotal, uint256 parentBurnedTotal, uint256 totalFeeLp_) =
                 abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256));
             require(feeLpBurned == settlementUnit, "event fee burned equals one unit");
             require(tokenBurned > 0, "event token burn");
+            require(parentTokenBurned == expectedParentBurned, "event parent burn matches the pair payout");
+            require(tokenBurned != parentTokenBurned, "the two burned amounts must be tellable apart");
             require(burnedTotal == stake.totalBurnedToken(address(childToken)), "event burned total");
             require(
                 parentBurnedTotal == stake.totalParentTokenBurned(address(childToken)),
@@ -2156,7 +2204,7 @@ contract StakeTest {
     }
 
     function testStakeBoostEmitsCorrectEvent() external {
-        stakeAsOwner(owner2, memberId2, 1000e18, 1000e18, 10);
+        (, uint256 memberShares) = stakeAsOwner(owner2, memberId2, 1000e18, 1000e18, 10);
         vm().prank(owner2);
         childToken.approve(address(stake), 1000e18);
 
@@ -2194,6 +2242,7 @@ contract StakeTest {
             if (logs[i].emitter != address(stake) || logs[i].topics.length == 0) continue;
             if (logs[i].topics[0] != topic) continue;
             require(logs[i].topics.length == 4, "three indexed arguments");
+            require(logs[i].topics[1] == bytes32(uint256(uint160(address(childToken)))), "event token");
             require(logs[i].topics[2] == bytes32(uint256(1)), "event round");
             require(logs[i].topics[3] == bytes32(memberId2), "event member");
             (
@@ -2208,7 +2257,9 @@ contract StakeTest {
             ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
             require(boostAmount == 500e18, "event boost amount");
             require(promisedWaitingPhases == 12, "event promised waiting phases");
-            require(govVotesAdded > 0 && govVotes > govVotesAdded, "event vote delta and total");
+            require(govVotesAdded == memberShares * 2, "event vote delta");
+            require(govVotes == memberShares * 12, "event member votes");
+            require(govVotes != govVotesAdded, "the delta and the total must be tellable apart");
             require(boostShares == 750e18, "event member boost");
             require(totalBoostShares == 2150e18, "event global boost");
             (, , , , uint256 balanceBoostTotal, , ) = stake.totalStake(address(childToken));
@@ -2261,6 +2312,7 @@ contract StakeTest {
             if (logs[i].emitter != address(stake) || logs[i].topics.length == 0) continue;
             if (logs[i].topics[0] != topic) continue;
             require(logs[i].topics.length == 4, "three indexed arguments");
+            require(logs[i].topics[1] == bytes32(uint256(uint160(address(childToken)))), "event token");
             require(logs[i].topics[2] == bytes32(uint256(1)), "event round");
             require(logs[i].topics[3] == bytes32(memberId2), "event member");
             (

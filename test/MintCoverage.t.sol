@@ -155,9 +155,9 @@ contract MintCoverageTest {
         vm.prank(TARGET);
         uint256 settled = mint.mintProposalReward(address(token), 1, 1, TARGET);
         require(settled > 0, "settled amount");
-        require(mint.rewardMinted(address(token)) == settled, "minted ledger");
+        require(mint.totalRewardMinted(address(token)) == settled, "minted ledger");
 
-        // Destroying the tokens releases the reservation through `rewardMinted`, so the budget
+        // Destroying the tokens releases the reservation through `totalRewardMinted`, so the budget
         // effect matches the settle-by-burn path while supply returns to where it started.
         uint256 availableAfterSettle = mint.rewardAvailable(address(token));
         vm.prank(TARGET);
@@ -174,11 +174,11 @@ contract MintCoverageTest {
         proposalCount = 1;
         minVoteRatio = 5e16;
         setupMint(1000, 10000, 1e17, 1e17);
-        uint256 burnedBefore = mint.rewardBurned(address(token));
+        uint256 burnedBefore = mint.totalRewardBurned(address(token));
         vm.recordLogs();
         mint.mintGovReward(address(token), 1, 1, address(this));
         MintVm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,uint8)");
+        bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,uint256,uint8)");
         uint256 burnedCount;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].emitter == address(mint) && logs[i].topics[0] == burnedSig) {
@@ -186,7 +186,7 @@ contract MintCoverageTest {
             }
         }
         require(burnedCount == 2, "both pools burned");
-        require(mint.rewardBurned(address(token)) > burnedBefore, "burned increased");
+        require(mint.totalRewardBurned(address(token)) > burnedBefore, "burned increased");
     }
 
     function testPrepareSkipsZeroAmountBurnEvents() public {
@@ -194,10 +194,10 @@ contract MintCoverageTest {
         firstVotes = 100;
         proposalCount = 1;
         setupMint(999, 1000, 1e15, 1e15);
-        uint256 burnedBefore = mint.rewardBurned(address(token));
+        uint256 burnedBefore = mint.totalRewardBurned(address(token));
         vm.recordLogs();
         MintVm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,uint8)");
+        bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,uint256,uint8)");
         uint256 burnedCount;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].emitter == address(mint) && logs[i].topics[0] == burnedSig) {
@@ -205,7 +205,7 @@ contract MintCoverageTest {
             }
         }
         require(burnedCount == 0, "zero amounts not emitted");
-        require(mint.rewardBurned(address(token)) == burnedBefore, "burned unchanged");
+        require(mint.totalRewardBurned(address(token)) == burnedBefore, "burned unchanged");
     }
 
     function testPrepareSkipsZeroProposalPoolBurnEvent() public {
@@ -214,10 +214,10 @@ contract MintCoverageTest {
         proposalCount = 1;
         minVoteRatio = 999e15;
         setupMint(999, 1000, 1e15, 1e15);
-        uint256 burnedBefore = mint.rewardBurned(address(token));
+        uint256 burnedBefore = mint.totalRewardBurned(address(token));
         vm.recordLogs();
         MintVm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,uint8)");
+        bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,uint256,uint8)");
         uint256 burnedCount;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].emitter == address(mint) && logs[i].topics[0] == burnedSig) {
@@ -225,7 +225,7 @@ contract MintCoverageTest {
             }
         }
         require(burnedCount == 0, "zero proposal pool not emitted");
-        require(mint.rewardBurned(address(token)) == burnedBefore, "burned unchanged");
+        require(mint.totalRewardBurned(address(token)) == burnedBefore, "burned unchanged");
     }
 
     function testPrepareRoundNotReady() public {

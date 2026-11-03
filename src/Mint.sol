@@ -11,9 +11,9 @@ import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
 import {IMint, BurnReason} from "./interfaces/IMint.sol";
 
 contract Mint is IMint {
-    mapping(address => uint256) internal _rewardReserved;
-    mapping(address => uint256) internal _rewardMinted;
-    mapping(address => uint256) internal _rewardBurned;
+    mapping(address => uint256) internal _totalRewardReserved;
+    mapping(address => uint256) internal _totalRewardMinted;
+    mapping(address => uint256) internal _totalRewardBurned;
 
     mapping(address => mapping(uint256 => uint256)) internal _govReward;
     mapping(address => mapping(uint256 => uint256)) internal _proposalReward;
@@ -36,16 +36,16 @@ contract Mint is IMint {
     uint256 public ROUND_REWARD_PROPOSAL_RATIO;
     uint256 public MAX_GOV_BOOST_REWARD_MULTIPLIER;
 
-    function rewardReserved(address tokenAddress) external view returns (uint256) {
-        return _rewardReserved[tokenAddress];
+    function totalRewardReserved(address tokenAddress) external view returns (uint256) {
+        return _totalRewardReserved[tokenAddress];
     }
 
-    function rewardMinted(address tokenAddress) external view returns (uint256) {
-        return _rewardMinted[tokenAddress];
+    function totalRewardMinted(address tokenAddress) external view returns (uint256) {
+        return _totalRewardMinted[tokenAddress];
     }
 
-    function rewardBurned(address tokenAddress) external view returns (uint256) {
-        return _rewardBurned[tokenAddress];
+    function totalRewardBurned(address tokenAddress) external view returns (uint256) {
+        return _totalRewardBurned[tokenAddress];
     }
 
     function govReward(address tokenAddress, uint256 round) external view returns (uint256) {
@@ -127,7 +127,7 @@ contract Mint is IMint {
             govRewardAmount = Math.mulDiv(available, ROUND_REWARD_GOV_RATIO, 1e18);
             proposalRewardAmount = Math.mulDiv(available, ROUND_REWARD_PROPOSAL_RATIO, 1e18);
 
-            _rewardReserved[tokenAddress] += govRewardAmount + proposalRewardAmount;
+            _totalRewardReserved[tokenAddress] += govRewardAmount + proposalRewardAmount;
 
             // forge-lint: disable-next-line(calls-loop)
             uint256 totalVoterBoost = IVote(VOTE_ADDRESS).totalVoterBoost(tokenAddress, round);
@@ -155,19 +155,20 @@ contract Mint is IMint {
             govReward: govRewardAmount,
             proposalReward: proposalRewardAmount,
             eligibleProposalVoteAmount: eligibleVoteAmount,
-            rewardReserved: _rewardReserved[tokenAddress],
-            rewardBurned: _rewardBurned[tokenAddress]
+            totalRewardReserved: _totalRewardReserved[tokenAddress],
+            totalRewardBurned: _totalRewardBurned[tokenAddress]
         });
     }
 
     function _burnCancelledPool(address tokenAddress, uint256 round, uint256 amount, BurnReason reason) private {
         if (amount == 0) return;
-        _rewardBurned[tokenAddress] += amount;
+        _totalRewardBurned[tokenAddress] += amount;
         // slither-disable-next-line reentrancy-events
         emit RewardBurned({
             tokenAddress: tokenAddress,
             round: round,
             amount: amount,
+            totalRewardBurned: _totalRewardBurned[tokenAddress],
             reason: reason
         });
     }
@@ -205,7 +206,7 @@ contract Mint is IMint {
         }
 
         _proposalMinted[tokenAddress][round][proposalId] = true;
-        _rewardMinted[tokenAddress] += amount;
+        _totalRewardMinted[tokenAddress] += amount;
 
         ILOVE20Token(tokenAddress).mint(recipient, amount);
 
@@ -215,7 +216,8 @@ contract Mint is IMint {
             round: round,
             proposalId: proposalId,
             recipient: recipient,
-            amount: amount
+            amount: amount,
+            totalRewardMinted: _totalRewardMinted[tokenAddress]
         });
 
         return amount;
@@ -456,7 +458,7 @@ contract Mint is IMint {
     }
 
     function reservedAvailable(address tokenAddress) public view returns (uint256) {
-        return _rewardReserved[tokenAddress] - _rewardMinted[tokenAddress] - _rewardBurned[tokenAddress];
+        return _totalRewardReserved[tokenAddress] - _totalRewardMinted[tokenAddress] - _totalRewardBurned[tokenAddress];
     }
 
     // forge-lint: disable-next-item(calls-loop)
@@ -523,9 +525,9 @@ contract Mint is IMint {
         _govMinted[tokenAddress][round][memberId] = true;
 
         uint256 mintAmount = voteReward + boostReward;
-        _rewardMinted[tokenAddress] += mintAmount;
+        _totalRewardMinted[tokenAddress] += mintAmount;
         // forge-lint: disable-next-line(missing-events-access-control)
-        _rewardBurned[tokenAddress] += burnReward;
+        _totalRewardBurned[tokenAddress] += burnReward;
 
         if (mintAmount > 0) {
             ILOVE20Token(tokenAddress).mint(recipient, mintAmount);
@@ -538,20 +540,32 @@ contract Mint is IMint {
                 tokenAddress: tokenAddress,
                 round: round,
                 amount: burnReward,
+                totalRewardBurned: _totalRewardBurned[tokenAddress],
                 reason: BurnReason.BoostOverflow
             });
         }
 
-        // forge-lint: disable-next-line(reentrancy-events)
+        _emitGovRewardMinted(tokenAddress, round, memberId, voteReward, boostReward, burnReward);
+
+        return (voteReward, boostReward, burnReward);
+    }
+
+    function _emitGovRewardMinted(
+        address tokenAddress,
+        uint256 round,
+        uint256 memberId,
+        uint256 voteReward,
+        uint256 boostReward,
+        uint256 burnReward
+    ) private {
         emit GovRewardMinted({
             tokenAddress: tokenAddress,
             round: round,
             memberId: memberId,
             voteReward: voteReward,
             boostReward: boostReward,
-            burnReward: burnReward
+            burnReward: burnReward,
+            totalRewardMinted: _totalRewardMinted[tokenAddress]
         });
-
-        return (voteReward, boostReward, burnReward);
     }
 }

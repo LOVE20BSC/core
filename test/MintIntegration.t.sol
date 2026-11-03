@@ -140,32 +140,34 @@ contract MintIntegrationTest {
             "the three amounts must be tellable apart, otherwise swapping them is invisible"
         );
 
-        uint256 burnedBefore = mint.rewardBurned(address(token));
+        uint256 burnedBefore = mint.totalRewardBurned(address(token));
 
         vm.recordLogs();
         vm.prank(member1);
         mint.mintGovReward(address(token), 1, 1, member1);
         MintVm.Log[] memory logs = vm.getRecordedLogs();
 
-        bytes32 mintedTopic = keccak256("GovRewardMinted(address,uint256,uint256,uint256,uint256,uint256)");
-        bytes32 burnedTopic = keccak256("RewardBurned(address,uint256,uint256,uint8)");
+        bytes32 mintedTopic = keccak256("GovRewardMinted(address,uint256,uint256,uint256,uint256,uint256,uint256)");
+        bytes32 burnedTopic = keccak256("RewardBurned(address,uint256,uint256,uint256,uint8)");
         uint256 burnedSum;
         bool seen;
         bool mintedSeen;
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].topics[0] == mintedTopic) {
-                (uint256 emittedVote, uint256 emittedBoost, uint256 emittedBurn) =
-                    abi.decode(logs[i].data, (uint256, uint256, uint256));
+                (uint256 emittedVote, uint256 emittedBoost, uint256 emittedBurn, uint256 emittedMinted) =
+                    abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
                 require(emittedVote == voteReward, "the event reports the vote half");
                 require(emittedBoost == boostReward, "the event reports the boost half");
                 // The overflow the member caused is only attributable here: `RewardBurned` carries no
                 // member id, and a settlement that mints nothing but burns everything is reachable.
                 require(emittedBurn == burnReward, "the event reports the overflow as burnReward");
+                require(emittedMinted == mint.totalRewardMinted(address(token)), "the event carries the minted total");
                 mintedSeen = true;
             }
             if (logs[i].topics[0] != burnedTopic) continue;
-            (uint256 amount, uint8 reason) = abi.decode(logs[i].data, (uint256, uint8));
+            (uint256 amount, uint256 burnedPost, uint8 reason) = abi.decode(logs[i].data, (uint256, uint256, uint8));
             burnedSum += amount;
+            require(burnedPost == burnedBefore + burnedSum, "the event carries the burned total");
             // Preparation may burn a cancelled pool first; only the overflow burn is this test's subject.
             if (reason != uint8(BurnReason.BoostOverflow)) continue;
             require(logs[i].topics.length == 3, "token and round are indexed");
@@ -176,7 +178,7 @@ contract MintIntegrationTest {
         }
         require(seen, "missing the overflow RewardBurned");
         require(mintedSeen, "missing GovRewardMinted");
-        require(mint.rewardBurned(address(token)) == burnedBefore + burnedSum, "burned folds every event");
+        require(mint.totalRewardBurned(address(token)) == burnedBefore + burnedSum, "burned folds every event");
     }
 
     function testIntegration_MultiTokenMinting() public {
@@ -224,8 +226,8 @@ contract MintIntegrationTest {
         assertTrue(token2.balanceOf(member1) > 0, "Token2 balance increased");
 
         // Independent accounting
-        uint256 minted1 = mint.rewardMinted(address(token));
-        uint256 minted2 = mint.rewardMinted(address(token2));
+        uint256 minted1 = mint.totalRewardMinted(address(token));
+        uint256 minted2 = mint.totalRewardMinted(address(token2));
         assertTrue(minted1 > 0 && minted2 > 0, "Both have minted rewards");
         assertTrue(minted1 != minted2, "Different amounts minted");
     }
@@ -345,7 +347,7 @@ contract MintIntegrationTest {
         assertTrue(mint.isRewardPrepared(address(token2), 1), "Token2 should be prepared");
 
         // Verify independent accounting
-        assertTrue(mint.rewardMinted(address(token)) != mint.rewardMinted(address(token2)),
+        assertTrue(mint.totalRewardMinted(address(token)) != mint.totalRewardMinted(address(token2)),
                    "Different minted amounts per token");
     }
 
@@ -544,17 +546,17 @@ contract MintIntegrationTest {
         vm.prank(member1);
         mint.mintGovReward(address(token), 1, 1, member1);
 
-        uint256 reserved1 = mint.rewardReserved(address(token));
+        uint256 reserved1 = mint.totalRewardReserved(address(token));
         uint256 govReward1 = mint.govReward(address(token), 1);
         uint256 proposalReward1 = mint.proposalReward(address(token), 1);
 
         // Query again (prepare should be idempotent)
-        uint256 reserved2 = mint.rewardReserved(address(token));
+        uint256 reserved2 = mint.totalRewardReserved(address(token));
         uint256 govReward2 = mint.govReward(address(token), 1);
         uint256 proposalReward2 = mint.proposalReward(address(token), 1);
 
         // Query a third time (still idempotent)
-        uint256 reserved3 = mint.rewardReserved(address(token));
+        uint256 reserved3 = mint.totalRewardReserved(address(token));
         uint256 govReward3 = mint.govReward(address(token), 1);
         uint256 proposalReward3 = mint.proposalReward(address(token), 1);
 

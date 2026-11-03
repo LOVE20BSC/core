@@ -9,6 +9,7 @@ interface IMemberNFTEvents {
         uint256 indexed memberId,
         address indexed owner,
         uint256 cost,
+        uint256 totalBurnedForMint,
         string name,
         string normalizedName
     );

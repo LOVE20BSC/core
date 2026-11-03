@@ -267,16 +267,7 @@ contract Vote is IVote {
             }
         }
 
-        // forge-lint: disable-next-item(reentrancy-events)
-        emit VoteCast({
-            tokenAddress: tokenAddress,
-            round: round,
-            voterId: memberId,
-            proposalId: proposalId,
-            voteAmount: voteAmount,
-            voterBoost: _voterBoostByMemberId[tokenAddress][round][memberId],
-            totalVoterBoost: _totalVoterBoostByRound[tokenAddress][round]
-        });
+        _emitVoteCast(tokenAddress, round, memberId, proposalId, voteAmount);
 
         // forge-lint: disable-next-item(calls-loop, reentrancy-events)
         (address target, TargetMode targetMode) = ISubmit(SUBMIT_ADDRESS).proposalTarget(tokenAddress, proposalId);
@@ -289,5 +280,25 @@ contract Vote is IVote {
 
     function _maxVoteAmount(address tokenAddress, uint256 round, uint256 memberId) internal view returns (uint256) {
         return IStake(STAKE_ADDRESS).validGovVotes(tokenAddress, round, memberId);
+    }
+
+    function _emitVoteCast(
+        address tokenAddress,
+        uint256 round,
+        uint256 memberId,
+        uint256 proposalId,
+        uint256 voteAmount
+    ) private {
+        emit VoteCast({
+            tokenAddress: tokenAddress,
+            round: round,
+            voterId: memberId,
+            proposalId: proposalId,
+            voteAmount: voteAmount,
+            voteAmountTotal: _voteAmountByMemberId[tokenAddress][round][memberId],
+            totalVoteAmount: _totalVoteAmountByRound[tokenAddress][round],
+            voterBoost: _voterBoostByMemberId[tokenAddress][round][memberId],
+            totalVoterBoost: _totalVoterBoostByRound[tokenAddress][round]
+        });
     }
 }

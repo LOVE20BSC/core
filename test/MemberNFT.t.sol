@@ -560,12 +560,12 @@ contract MemberNFTTest {
     }
 
     function testMemberMintedAndTransferEvents() public {
-        bob.mint(nft, "ccc");
+        (, uint256 burnedBefore) = bob.mint(nft, "ccc");
 
         vm.recordLogs();
         (uint256 id, uint256 cost) = alice.mint(nft, "Alice");
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 mintTopic = keccak256("MemberMinted(uint256,address,uint256,string,string)");
+        bytes32 mintTopic = keccak256("MemberMinted(uint256,address,uint256,uint256,string,string)");
         bytes32 transferTopic = keccak256("Transfer(address,address,uint256)");
         bool minted;
         bool mintTransfer;
@@ -574,13 +574,16 @@ contract MemberNFTTest {
             if (logs[i].topics[0] == mintTopic) {
                 require(logs[i].topics[1] == bytes32(id), "mint id");
                 require(logs[i].topics[2] == bytes32(uint256(uint160(address(alice)))), "mint owner");
-                (uint256 eventCost, string memory name, string memory normalized) = abi.decode(
+                (uint256 eventCost, uint256 eventTotal, string memory name, string memory normalized) = abi.decode(
                     logs[i].data,
-                    (uint256, string, string)
+                    (uint256, uint256, string, string)
                 );
                 require(keccak256(bytes(name)) == keccak256("Alice"), "mint name");
                 require(keccak256(bytes(normalized)) == keccak256("alice"), "mint normalized name");
                 require(eventCost == cost, "mint cost");
+                require(eventCost != eventTotal, "cost and cumulative total must be distinguishable");
+                require(eventTotal == burnedBefore + cost, "mint cumulative burned");
+                require(eventTotal == nft.totalBurnedForMint(), "mint cumulative matches the ledger");
                 minted = true;
             } else if (
                 logs[i].topics[0] == transferTopic && logs[i].topics[1] == bytes32(0)
@@ -638,11 +641,12 @@ contract MemberNFTTest {
         require(nft.ownerOf(outerId) == address(minter), "outer owner");
         require(nft.ownerOf(innerId) == address(minter), "inner owner");
 
-        bytes32 mintTopic = keccak256("MemberMinted(uint256,address,uint256,string,string)");
+        bytes32 mintTopic = keccak256("MemberMinted(uint256,address,uint256,uint256,string,string)");
         uint256 firstIdSeen;
         uint256 secondIdSeen;
         uint256 mintedCount;
         uint256 burnedSum;
+        uint256 lastCumulative;
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(nft) || logs[i].topics.length == 0) continue;
             if (logs[i].topics[0] != mintTopic) continue;
@@ -651,14 +655,16 @@ contract MemberNFTTest {
             require(
                 logs[i].topics[2] == bytes32(uint256(uint160(address(minter)))), "mint recipient is the minter"
             );
-            (uint256 eventCost,,) = abi.decode(logs[i].data, (uint256, string, string));
+            (uint256 eventCost, uint256 eventTotal,,) = abi.decode(logs[i].data, (uint256, uint256, string, string));
             burnedSum += eventCost;
+            lastCumulative = eventTotal;
             ++mintedCount;
         }
 
         require(mintedCount == 2, "two mint facts");
         require(firstIdSeen == innerId && secondIdSeen == outerId, "inner mint fact logged first");
         require(burnedSum == nft.totalBurnedForMint(), "burned total folds");
+        require(lastCumulative == nft.totalBurnedForMint(), "the last fact carries the post-state total");
         require(outerCost > 0, "outer cost");
     }
 

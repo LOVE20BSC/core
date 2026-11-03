@@ -93,6 +93,7 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
             memberId: tokenId,
             owner: memberOwner,
             cost: mintCost,
+            totalBurnedForMint: totalBurnedForMint,
             name: name,
             normalizedName: normalizedName
         });

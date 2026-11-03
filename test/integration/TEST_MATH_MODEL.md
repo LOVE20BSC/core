@@ -16,16 +16,16 @@ MAX_GOV_BOOST_REWARD_MULTIPLIER = 2           // Boost 倍数上限: 2x
 ```
 MAX_SUPPLY = token.MAX_SUPPLY()
 currentSupply = token.totalSupply()
-rewardReserved = 已预留的奖励总额
-rewardMinted = 已铸造的奖励总额
-rewardBurned = 已销毁的奖励总额
+totalRewardReserved = 已预留的奖励总额
+totalRewardMinted = 已铸造的奖励总额
+totalRewardBurned = 已销毁的奖励总额
 ```
 
 ## 2. 可用奖励计算
 
 ### 2.1 预留可用额
 ```
-reservedAvailable = rewardReserved - rewardMinted - rewardBurned
+reservedAvailable = totalRewardReserved - totalRewardMinted - totalRewardBurned
 ```
 
 ### 2.2 总可用奖励
@@ -51,7 +51,7 @@ proposalRewardAmount = rewardAvailable × (ROUND_REWARD_PROPOSAL_RATIO / 1e18)
 
 ### 3.3 更新预留总额
 ```
-rewardReserved += govRewardAmount + proposalRewardAmount
+totalRewardReserved += govRewardAmount + proposalRewardAmount
 ```
 
 ## 4. 治理奖励计算（成员奖励）
@@ -109,7 +109,7 @@ burnReward = theoreticalBoost - boostReward
 **池取消规则**:
 - 如果 `totalBoost == 0`，则 `boostPoolAmount` 全部销毁：
   ```
-  rewardBurned += boostPoolAmount
+  totalRewardBurned += boostPoolAmount
   ```
 
 ### 4.5 成员总奖励
@@ -147,7 +147,7 @@ proposalReward = (proposalRewardAmount × proposalVotes) / eligibleProposalVoteA
 **池取消规则**:
 - 如果 `eligibleProposalVoteAmount == 0`，则 `proposalRewardAmount` 全部销毁：
   ```
-  rewardBurned += proposalRewardAmount
+  totalRewardBurned += proposalRewardAmount
   ```
 
 ## 6. 投票权重计算（来自 Stake 合约）
@@ -176,9 +176,9 @@ memberBoost = stakedBoostOfVotersByMemberId[tokenAddress][round][memberId]
 ```
 MAX_SUPPLY = 1,000,000
 currentSupply = 50,000
-rewardReserved = 0
-rewardMinted = 0
-rewardBurned = 0
+totalRewardReserved = 0
+totalRewardMinted = 0
+totalRewardBurned = 0
 ```
 
 **计算**:
@@ -306,7 +306,7 @@ totalBurned = 35,000
 当 `totalBoost == 0` 时：
 ```
 boostPoolCancelled = boostPoolAmount
-rewardBurned += boostPoolAmount
+totalRewardBurned += boostPoolAmount
 所有成员: boostReward = 0, burnReward = 0
 ```
 
@@ -314,7 +314,7 @@ rewardBurned += boostPoolAmount
 当 `eligibleProposalVoteAmount == 0` 时（无合格提案）：
 ```
 proposalPoolCancelled = proposalRewardAmount
-rewardBurned += proposalRewardAmount
+totalRewardBurned += proposalRewardAmount
 所有提案: proposalReward = 0
 ```
 

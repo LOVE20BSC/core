@@ -148,7 +148,7 @@ contract MintFuzzTest {
         assertEq(mint.govReward(address(token), 1), expectedGov);
         assertEq(mint.proposalReward(address(token), 1), expectedProposal);
         assertEq(
-            mint.rewardReserved(address(token)),
+            mint.totalRewardReserved(address(token)),
             expectedGov + expectedProposal
         );
     }
@@ -192,7 +192,7 @@ contract MintFuzzTest {
         uint256 calculatedVote = (votePool * memberVoteAmount_) / totalVoteAmount_;
 
         assertEq(expectedVote, calculatedVote);
-        assertEq(mint.rewardMinted(address(token)), expectedVote + expectedBoost);
+        assertEq(mint.totalRewardMinted(address(token)), expectedVote + expectedBoost);
 
         // Boost must not exceed multiplier cap
         if (totalBoost_ > 0) {
@@ -293,7 +293,7 @@ contract MintFuzzTest {
 
         assertLe(govPool + propPool, nearMax);
 
-        uint256 reserved = mint.rewardReserved(address(token));
+        uint256 reserved = mint.totalRewardReserved(address(token));
         uint256 available = mint.rewardAvailable(address(token));
 
         assertEq(reserved, govPool + propPool);
