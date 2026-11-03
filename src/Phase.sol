@@ -119,11 +119,6 @@ contract Phase is IPhase {
                 if (deviation > ADJUST_THRESHOLD) {
                     newPhaseBlocks = observed == 0 ? 1 : observed;
                     _recordNextSegment(phase, phaseBlocks, newPhaseBlocks);
-                    emit PhaseAdjusted({
-                        effectivePhase: phase + 1,
-                        oldPhaseBlocks: phaseBlocks,
-                        newPhaseBlocks: newPhaseBlocks
-                    });
                     adjusted = true;
                 }
             }
@@ -131,7 +126,8 @@ contract Phase is IPhase {
         if (!adjusted) newPhaseBlocks = phaseBlocks;
         emit PhaseSynchronized({
             phase: phase,
-            phaseBlocks: newPhaseBlocks
+            currentPhaseBlocks: phaseBlocks,
+            nextPhaseBlocks: newPhaseBlocks
         });
     }
 

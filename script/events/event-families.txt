@@ -13,7 +13,6 @@ GovRewardMinted core.round
 ProposalRewardMinted core.round
 RewardBurned core.round
 PhaseSynchronized core.phase
-PhaseAdjusted core.phase
 LiquidityStaked core.stake
 BoostStaked core.stake
 Unstaked core.stake

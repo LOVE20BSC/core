@@ -67,19 +67,14 @@ contract PhaseTest {
         (adjusted, length) = phase.sync();
         require(adjusted && length > PHASE_BLOCKS);
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 adjustedTopic = keccak256("PhaseAdjusted(uint256,uint256,uint256)");
-        bool foundAdjusted;
-        for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].emitter != address(phase) || logs[i].topics.length == 0) continue;
-            if (logs[i].topics[0] != adjustedTopic) continue;
-            require(logs[i].topics.length == 2, "one indexed argument");
-            require(logs[i].topics[1] == bytes32(uint256(3)), "effective phase");
-            (uint256 oldPhaseBlocks, uint256 newPhaseBlocks) = abi.decode(logs[i].data, (uint256, uint256));
-            require(oldPhaseBlocks == PHASE_BLOCKS, "old phase blocks");
-            require(newPhaseBlocks == length, "new phase blocks");
-            foundAdjusted = true;
-        }
-        require(foundAdjusted, "missing PhaseAdjusted");
+        require(logs.length == 1, "one snapshot per synchronization");
+        require(logs[0].topics.length == 2, "only phase is indexed");
+        require(logs[0].topics[0] == keccak256("PhaseSynchronized(uint256,uint256,uint256)"), "event signature");
+        require(logs[0].topics[1] == bytes32(uint256(2)), "event phase");
+        (uint256 currentBlocks, uint256 nextBlocks) = abi.decode(logs[0].data, (uint256, uint256));
+        require(currentBlocks == PHASE_BLOCKS, "current segment");
+        require(nextBlocks == 8726, "next segment");
+        require(nextBlocks == length, "event matches return value");
         require(_observationsCount(phase) == 2);
         require(phase.phaseAtBlock(origin + PHASE_BLOCKS) == 2);
         (uint256 start, uint256 phaseLength) = phase.phaseInfo(2);
@@ -185,7 +180,7 @@ contract PhaseTest {
         require(vm.getRecordedLogs().length == 0);
     }
 
-    function testPhaseSynchronizedCarriesOnlyPhaseAndBlocks() external {
+    function testPhaseSynchronizedCarriesSegmentSnapshot() external {
         uint256 origin = block.number + 1;
         Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT);
         vm.roll(origin);
@@ -197,9 +192,65 @@ contract PhaseTest {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         require(logs.length == 1, "one synchronization event");
         require(logs[0].topics.length == 2, "only phase is indexed");
-        require(logs[0].topics[0] == keccak256("PhaseSynchronized(uint256,uint256)"), "event signature");
+        require(logs[0].topics[0] == keccak256("PhaseSynchronized(uint256,uint256,uint256)"), "event signature");
         require(logs[0].topics[1] == bytes32(uint256(1)), "event phase");
-        require(abi.decode(logs[0].data, (uint256)) == PHASE_BLOCKS, "event phase blocks");
+        (uint256 currentBlocks, uint256 nextBlocks) = abi.decode(logs[0].data, (uint256, uint256));
+        require(currentBlocks == PHASE_BLOCKS, "current segment");
+        require(nextBlocks == PHASE_BLOCKS, "next segment");
+    }
+
+    function testAdjacentSyncsChainSegmentLengths() external {
+        uint256 origin = block.number + 1;
+        Phase phase = new Phase(origin, 10, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT);
+        uint256 timestamp = block.timestamp + 1000;
+        vm.roll(origin);
+        vm.warp(timestamp);
+        phase.sync();
+
+        vm.roll(origin + 11);
+        vm.warp(timestamp + 1000);
+        (bool adjusted, uint256 adjustedBlocks) = phase.sync();
+        require(adjusted && adjustedBlocks > 10);
+
+        (uint256 start, uint256 phaseBlocks) = phase.phaseInfo(3);
+        require(start == origin + 20 && phaseBlocks == adjustedBlocks);
+
+        vm.roll(start + 2 * phaseBlocks);
+        vm.warp(timestamp + 2000);
+        require(phase.currentPhase() == 5, "empty phases are skipped");
+        vm.recordLogs();
+        phase.sync();
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        require(logs.length == 1, "one synchronization event");
+        (uint256 currentBlocks,) = abi.decode(logs[0].data, (uint256, uint256));
+        require(currentBlocks == adjustedBlocks, "current segment follows the previous next segment");
+    }
+
+    function testClampedAdjustmentWritesAnEqualSegment() external {
+        uint256 origin = block.number + 1;
+        Phase phase = new Phase(origin, 1, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT);
+        uint256 timestamp = block.timestamp + 1000;
+        vm.roll(origin);
+        vm.warp(timestamp);
+        phase.sync();
+
+        vm.roll(origin + 11);
+        vm.warp(timestamp + 1000000);
+        require(phase.currentPhase() == 12);
+        vm.recordLogs();
+        (bool adjusted, uint256 newBlocks) = phase.sync();
+        require(adjusted && newBlocks == 1);
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        require(logs.length == 1, "one synchronization event");
+        require(logs[0].topics[1] == bytes32(uint256(12)), "event phase");
+        (uint256 currentBlocks, uint256 nextBlocks) = abi.decode(logs[0].data, (uint256, uint256));
+        require(currentBlocks == 1, "current segment");
+        require(nextBlocks == 1, "next segment");
+
+        (uint256 start, uint256 phaseBlocks) = phase.phaseInfo(13);
+        require(start == origin + 12 && phaseBlocks == 1);
     }
 
     function testObservationPaginationBounds() external {
