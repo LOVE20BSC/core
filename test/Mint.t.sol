@@ -32,6 +32,7 @@ contract MintTest {
     uint256 totalBoost;
     uint256 memberBoost;
     bool rejectProposalScan;
+    uint256 currentPhaseValue = type(uint256).max;
     uint256 public LAUNCH_COUNT_THRESHOLD_RATIO = 1e16;
     uint256 public constant MAX_LAUNCH_COUNT = 1000;
     mapping(address => uint256) public issuedLaunchCount;
@@ -55,8 +56,8 @@ contract MintTest {
         return address(this);
     }
 
-    function currentPhase() external pure returns (uint256) {
-        return type(uint256).max;
+    function currentPhase() external view returns (uint256) {
+        return currentPhaseValue;
     }
 
     function ownerOf(uint256 id) external view returns (address) {
@@ -446,5 +447,49 @@ contract MintTest {
             abi.encodeWithSelector(IMintErrors.ProposalBelowThreshold.selector, address(token), 1, 1, 1, 2)
         );
         mint.mintProposalReward(address(token), 1, 1, address(this));
+    }
+
+    function testPrepareRewardIfNeededRejectsUnfinishedRound() public {
+        setupMint(1000, 10000, 1e17, 1e17);
+        currentPhaseValue = 5;
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 5));
+        mint.prepareRewardIfNeeded(address(token), 5);
+        require(!mint.isRewardPrepared(address(token), 5), "unfinished round marked prepared");
+    }
+
+    function testPrepareRewardIfNeededIsIdempotentWithoutEvent() public {
+        setupMint(1000, 10000, 1e17, 1e17);
+        mint.prepareRewardIfNeeded(address(token), 1);
+
+        require(mint.isRewardPrepared(address(token), 1), "first call did not prepare");
+        uint256 availableBefore = mint.rewardAvailable(address(token));
+        uint256 reservedBefore = mint.totalRewardReserved(address(token));
+        uint256 burnedBefore = mint.totalRewardBurned(address(token));
+        uint256 govBefore = mint.govReward(address(token), 1);
+        uint256 proposalBefore = mint.proposalReward(address(token), 1);
+        uint256 eligibleBefore = mint.eligibleProposalVoteAmount(address(token), 1);
+        require(govBefore > 0 && proposalBefore > 0 && reservedBefore > 0, "empty pool makes idempotence vacuous");
+
+        vm.recordLogs();
+        mint.prepareRewardIfNeeded(address(token), 1);
+        MintVm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 sig = keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256,uint256)");
+        uint256 preparedEvents;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].emitter == address(mint) && logs[i].topics[0] == sig) {
+                preparedEvents++;
+            }
+        }
+        require(preparedEvents == 0, "idempotent call emitted RewardPrepared");
+        require(mint.isRewardPrepared(address(token), 1), "prepared flag cleared");
+        require(mint.rewardAvailable(address(token)) == availableBefore, "rewardAvailable changed");
+        require(mint.totalRewardReserved(address(token)) == reservedBefore, "reservation changed");
+        require(mint.totalRewardBurned(address(token)) == burnedBefore, "burn ledger changed");
+        require(
+            mint.govReward(address(token), 1) == govBefore
+                && mint.proposalReward(address(token), 1) == proposalBefore
+                && mint.eligibleProposalVoteAmount(address(token), 1) == eligibleBefore,
+            "round pool changed"
+        );
     }
 }
