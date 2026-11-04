@@ -53,6 +53,8 @@ contract Phase is IPhase {
 
     function currentPhase() public view returns (uint256) { return phaseAtBlock(block.number); }
 
+    function lastSyncPhase() external view returns (uint256) { return _lastSyncPhase; }
+
     function phaseInfo(uint256 phaseNumber) public view returns (uint256 startBlock, uint256 phaseBlocks) {
         if (phaseNumber == 0) revert PhaseNotStarted();
         (bool found, uint256 key) = _segmentPhaseIndex.nearest(phaseNumber);
