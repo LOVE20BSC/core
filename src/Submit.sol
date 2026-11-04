@@ -14,6 +14,8 @@ contract Submit is ISubmit {
     using Pagination for uint256[];
 
     uint256 private constant SUBMIT_ROUND_LIMIT = 1000;
+    uint256 private constant PRECISION = 1e18;
+    uint256 private constant PROPOSAL_ID_TO_INDEX_OFFSET = 1;
 
     uint256 public constant MAX_TITLE_LENGTH = 1024;
     uint256 public constant MAX_DETAILS_LENGTH = 1024;
@@ -78,7 +80,7 @@ contract Submit is ISubmit {
         uint256 round = currentRound();
         validVotes = stake.validGovVotes(tokenAddress, round, memberId);
         totalVotes = stake.totalValidGovVotes(tokenAddress, round);
-        requiredVotes = Math.mulDiv(totalVotes, SUBMIT_MIN_RATIO, 1e18, Math.Rounding.Ceil);
+        requiredVotes = Math.mulDiv(totalVotes, SUBMIT_MIN_RATIO, PRECISION, Math.Rounding.Ceil);
     }
 
     function _meetsSubmitPower(uint256 validVotes, uint256 requiredVotes) private pure returns (bool) {
@@ -165,7 +167,7 @@ contract Submit is ISubmit {
         returns (address target, TargetMode targetMode)
     {
         _checkExistingProposal(tokenAddress, proposalId);
-        ProposalBody storage body = _proposals[tokenAddress][proposalId - 1].body;
+        ProposalBody storage body = _proposals[tokenAddress][proposalId - PROPOSAL_ID_TO_INDEX_OFFSET].body;
         return (body.target, body.targetMode);
     }
 
@@ -176,7 +178,7 @@ contract Submit is ISubmit {
         ProposalInfo[] memory infos = new ProposalInfo[](requestedProposalIds.length);
         for (uint256 i = 0; i < requestedProposalIds.length; i++) {
             _checkExistingProposal(tokenAddress, requestedProposalIds[i]);
-            infos[i] = _proposals[tokenAddress][requestedProposalIds[i] - 1];
+            infos[i] = _proposals[tokenAddress][requestedProposalIds[i] - PROPOSAL_ID_TO_INDEX_OFFSET];
         }
         return infos;
     }
@@ -324,14 +326,14 @@ contract Submit is ISubmit {
     }
 
     function _callProposalCreated(address tokenAddress, uint256 proposalId) private {
-        ProposalBody memory body = _proposals[tokenAddress][proposalId - 1].body;
+        ProposalBody memory body = _proposals[tokenAddress][proposalId - PROPOSAL_ID_TO_INDEX_OFFSET].body;
         if (body.targetMode == TargetMode.Callback) {
             IProposalTarget(body.target).onProposalCreated(tokenAddress, proposalId, body.targetData);
         }
     }
 
     function _callProposalSubmitted(address tokenAddress, uint256 proposalId, uint256 memberId) private {
-        ProposalBody memory body = _proposals[tokenAddress][proposalId - 1].body;
+        ProposalBody memory body = _proposals[tokenAddress][proposalId - PROPOSAL_ID_TO_INDEX_OFFSET].body;
         if (body.targetMode == TargetMode.Callback) {
             IProposalTarget(body.target).onProposalSubmitted(tokenAddress, proposalId, memberId, body.targetData);
         }

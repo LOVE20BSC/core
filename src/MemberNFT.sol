@@ -15,6 +15,8 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     using Pagination for address[];
     using SafeERC20 for IERC20;
 
+    uint256 private constant TEST_PREFIX_BYTES = 4;
+
     address public LOVE20_TOKEN_ADDRESS;
     uint256 public immutable BASE_DIVISOR;
     uint256 public immutable BYTES_THRESHOLD;
@@ -157,7 +159,7 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     ) internal view returns (string memory) {
         bytes memory symbolBytes = bytes(ILOVE20Token(LOVE20_TOKEN_ADDRESS).symbol());
         if (
-            symbolBytes.length >= 4 &&
+            symbolBytes.length >= TEST_PREFIX_BYTES &&
             symbolBytes[0] == "T" &&
             symbolBytes[1] == "e" &&
             symbolBytes[2] == "s" &&
@@ -165,7 +167,7 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         ) {
             bytes memory nameBytes = bytes(name);
             if (
-                nameBytes.length < 4 ||
+                nameBytes.length < TEST_PREFIX_BYTES ||
                 nameBytes[0] != "T" ||
                 nameBytes[1] != "e" ||
                 nameBytes[2] != "s" ||

@@ -11,6 +11,9 @@ import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
 import {IMint, BurnReason} from "./interfaces/IMint.sol";
 
 contract Mint is IMint {
+    uint256 private constant PRECISION = 1e18;
+    uint256 private constant VOTE_POOL_DIVISOR = 2;
+
     mapping(address => uint256) internal _totalRewardReserved;
     mapping(address => uint256) internal _totalRewardMinted;
     mapping(address => uint256) internal _totalRewardBurned;
@@ -128,8 +131,8 @@ contract Mint is IMint {
             eligibleVoteAmount = _calculateEligibleProposalVoteAmount(tokenAddress, round, minVoteAmount);
 
             uint256 available = rewardAvailable(tokenAddress);
-            govRewardAmount = Math.mulDiv(available, ROUND_REWARD_GOV_RATIO, 1e18);
-            proposalRewardAmount = Math.mulDiv(available, ROUND_REWARD_PROPOSAL_RATIO, 1e18);
+            govRewardAmount = Math.mulDiv(available, ROUND_REWARD_GOV_RATIO, PRECISION);
+            proposalRewardAmount = Math.mulDiv(available, ROUND_REWARD_PROPOSAL_RATIO, PRECISION);
 
             _totalRewardReserved[tokenAddress] += govRewardAmount + proposalRewardAmount;
 
@@ -137,7 +140,7 @@ contract Mint is IMint {
             uint256 totalVoterBoost = IVote(VOTE_ADDRESS).totalVoterBoost(tokenAddress, round);
 
             if (totalVoterBoost == 0) {
-                uint256 boostPoolAmount = govRewardAmount - (govRewardAmount / 2);
+                uint256 boostPoolAmount = govRewardAmount - (govRewardAmount / VOTE_POOL_DIVISOR);
                 _burnCancelledPool(tokenAddress, round, boostPoolAmount, BurnReason.BoostPoolCancelled);
             }
 
@@ -341,7 +344,7 @@ contract Mint is IMint {
             eligibleVoteAmount = _eligibleProposalVoteAmountByRound[tokenAddress][round];
         } else {
             uint256 available = rewardAvailable(tokenAddress);
-            proposalRewardAmount = Math.mulDiv(available, ROUND_REWARD_PROPOSAL_RATIO, 1e18);
+            proposalRewardAmount = Math.mulDiv(available, ROUND_REWARD_PROPOSAL_RATIO, PRECISION);
             eligibleVoteAmount = _calculateEligibleProposalVoteAmount(tokenAddress, round, minVoteAmount);
         }
 
@@ -394,10 +397,10 @@ contract Mint is IMint {
             govRewardAmount = _govReward[tokenAddress][round];
         } else {
             uint256 available = rewardAvailable(tokenAddress);
-            govRewardAmount = Math.mulDiv(available, ROUND_REWARD_GOV_RATIO, 1e18);
+            govRewardAmount = Math.mulDiv(available, ROUND_REWARD_GOV_RATIO, PRECISION);
         }
 
-        uint256 votePoolAmount = govRewardAmount / 2;
+        uint256 votePoolAmount = govRewardAmount / VOTE_POOL_DIVISOR;
         uint256 boostPoolAmount = govRewardAmount - votePoolAmount;
 
         // forge-lint: disable-next-line(divide-before-multiply)
@@ -468,7 +471,7 @@ contract Mint is IMint {
     }
 
     function _minProposalVoteAmount(uint256 totalVoteAmount) internal view returns (uint256) {
-        return Math.mulDiv(totalVoteAmount, PROPOSAL_REWARD_MIN_VOTE_RATIO, 1e18, Math.Rounding.Ceil);
+        return Math.mulDiv(totalVoteAmount, PROPOSAL_REWARD_MIN_VOTE_RATIO, PRECISION, Math.Rounding.Ceil);
     }
 
     function rewardAvailable(address tokenAddress) public view returns (uint256) {
@@ -497,7 +500,7 @@ contract Mint is IMint {
         ILOVE20Token token = ILOVE20Token(tokenAddress);
         uint256 totalSupplyBeforeMint = token.totalSupply() - mintedAmount;
         uint256 threshold = Math.mulDiv(
-            token.MAX_SUPPLY() - totalSupplyBeforeMint, launch.LAUNCH_COUNT_THRESHOLD_RATIO(), 1e18, Math.Rounding.Ceil
+            token.MAX_SUPPLY() - totalSupplyBeforeMint, launch.LAUNCH_COUNT_THRESHOLD_RATIO(), PRECISION, Math.Rounding.Ceil
         );
         if (threshold == 0) {
             return;

@@ -9,6 +9,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 contract Phase is IPhase {
     using OrderedHistoryIndex for OrderedHistoryIndex.Index;
 
+    uint256 private constant PRECISION = 1e18;
+
     struct Segment {
         uint256 phase;
         uint256 startBlock;
@@ -117,7 +119,7 @@ contract Phase is IPhase {
             if (elapsedBlocks > 0 && elapsedSeconds > 0) {
                 uint256 observed = Math.mulDiv(elapsedBlocks, TARGET_SECONDS, elapsedSeconds);
                 uint256 difference = observed > phaseBlocks ? observed - phaseBlocks : phaseBlocks - observed;
-                uint256 deviation = Math.mulDiv(difference, 1e18, phaseBlocks);
+                uint256 deviation = Math.mulDiv(difference, PRECISION, phaseBlocks);
                 if (deviation > ADJUST_THRESHOLD) {
                     newPhaseBlocks = observed == 0 ? 1 : observed;
                     _recordNextSegment(phase, phaseBlocks, newPhaseBlocks);

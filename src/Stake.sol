@@ -46,6 +46,7 @@ contract Stake is IStake {
     using SafeERC20 for IERC20;
 
     uint256 private constant SLIPPAGE_PRECISION = 1e18;
+    uint256 private constant PRECISION = 1e18;
 
     bool public initialized;
     address public PHASE_ADDRESS;
@@ -820,7 +821,7 @@ contract Stake is IStake {
         _applyReclassification(tokenAddress, round, totals, snapshot);
         uint256 feeLp = totals.lastFeeLp;
 
-        uint256 settlementUnit = Math.mulDiv(snapshot.pairTotalSupply, FEE_SETTLEMENT_RATIO, 1e18);
+        uint256 settlementUnit = Math.mulDiv(snapshot.pairTotalSupply, FEE_SETTLEMENT_RATIO, PRECISION);
         if (feeLp < settlementUnit) {
             return;
         }
