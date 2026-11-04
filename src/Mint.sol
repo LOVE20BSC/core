@@ -101,6 +101,10 @@ contract Mint is IMint {
         return round != 0 && IPhase(PHASE_ADDRESS).currentPhase() > round;
     }
 
+    function prepareRewardIfNeeded(address tokenAddress, uint256 round) external {
+        _prepareRewardIfNeeded(tokenAddress, round);
+    }
+
     function _prepareRewardIfNeeded(address tokenAddress, uint256 round) internal {
         if (_isRewardPrepared[tokenAddress][round]) {
             return;

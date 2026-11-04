@@ -116,6 +116,7 @@ interface IMint is IMintEvents, IMintErrors {
         uint256 roundRewardProposalRatio,
         uint256 maxGovBoostRewardMultiplier
     ) external;
+    function prepareRewardIfNeeded(address tokenAddress, uint256 round) external;
     function mintProposalReward(
         address tokenAddress,
         uint256 round,
