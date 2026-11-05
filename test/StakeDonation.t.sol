@@ -242,7 +242,9 @@ contract StakeDonationTest is Test {
             address(pairFactory),
             1,
             100,
-            FEE_SETTLEMENT_RATIO
+            FEE_SETTLEMENT_RATIO,
+            2,
+            5
         );
 
         childToken.transfer(address(pair), SEED);

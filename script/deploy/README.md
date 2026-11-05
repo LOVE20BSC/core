@@ -99,7 +99,6 @@ TOKEN_SYMBOL_LENGTH=6                        # 子币符号 UTF-8 字节长度�
 PROPOSAL_REWARD_MIN_VOTE_RATIO=3e16              # 提案奖励门槛（3%，须 <= 1e18）
 ROUND_REWARD_GOV_RATIO=5e14                      # 治理奖池占可用供应的比例（0.05%）
 ROUND_REWARD_PROPOSAL_RATIO=5e14                 # 提案奖池占可用供应的比例（0.05%）
-MAX_BOOST_MULTIPLIER=2
 
 # Submit 部署参数（比例以 1e18 表示 100%）
 SUBMIT_MIN_RATIO=3e15                            # 推举门槛（0.3%）
@@ -107,6 +106,10 @@ SUBMIT_MIN_RATIO=3e15                            # 推举门槛（0.3%）
 # Stake 部署参数
 PROMISED_WAITING_PHASES_MIN=1
 PROMISED_WAITING_PHASES_MAX=100
+# 加速激励质押单人上限：上限基数 = 流动性质押社区代币本金 × 2 × (已铸造量 / 最大供应量) × 该因子
+BOOST_STAKE_SUPPLY_FACTOR=2                      # 建议 1–10（仅建议，部署只校验大于 0）
+# 单人上限 = 上限基数 × (该治理者有效治理票 / 总有效治理票) × 该倍数（社区层面无聚合上限）
+BOOST_STAKE_MULTIPLIER=5                         # 建议 1–20（仅建议，部署只校验大于 0）
 
 # 单笔手续费结算占 Pair LP 总供应的比例（1e18 = 100%），同时是结算阈值
 FEE_SETTLEMENT_RATIO=25e14   # 0.25%，即上界 MAX_FEE_SETTLEMENT_RATIO（源码常量写作 2.5e15）；每次处理 floor(pairTotalSupply * 该值 / 1e18) 个手续费 LP 最小单位；手续费 LP 不足一个单位时不销毁
@@ -118,7 +121,7 @@ FEE_SETTLEMENT_RATIO=25e14   # 0.25%，即上界 MAX_FEE_SETTLEMENT_RATIO（源�
 
 本仓没有必填键断言：core 的部署参数没有「缺键即静默改变行为」的成员，缺键一律由 `vm.envUint` 在广播前失败；因此三个步骤只做 `params_unset_all`，不调用 `params_require_keys` / `params_require_values`。
 
-`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；全部部署期静态参数由 `DeployCore` 在广播前校验，部署后再由 `_validateDeployment` 逐项核对完整绑定图（含 `Launch.MAX_TOKEN_SYMBOL_LENGTH` 与广播前副本相等），`21_check.sh` 独立复核（含首币 `totalSupply`、`DISTRIBUTOR_ADDRESS` 余额，以及 `TOKEN_SYMBOL_LENGTH + TEST_PREFIX_BYTES <= MAX_TOKEN_SYMBOL_LENGTH` 的 Test 前缀余量，两者均从链上读取）：MemberNFT 四项非零、Phase 五项非零且 `ADJUST_THRESHOLD <= 1e18`、`0 < LAUNCH_COUNT_THRESHOLD_RATIO <= 1e18`、`MAX_LAUNCH_COUNT/TOKEN_SYMBOL_LENGTH` 非零、`0 < LAUNCH_AMOUNT <= MAX_SUPPLY`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、两项激励比例之和 `<= 1e18`、`0 < MAX_BOOST_MULTIPLIER <= 1000`、`0 < SUBMIT_MIN_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN > 0` 且 `<= MAX`、`0 < FEE_SETTLEMENT_RATIO <= 0.25%`（`MAX_FEE_SETTLEMENT_RATIO`）。合约 `init` 只防重复初始化并保存配置。
+`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；全部部署期静态参数由 `DeployCore` 在广播前校验，部署后再由 `_validateDeployment` 逐项核对完整绑定图（含 `Launch.MAX_TOKEN_SYMBOL_LENGTH` 与广播前副本相等），`21_check.sh` 独立复核（含首币 `totalSupply`、`DISTRIBUTOR_ADDRESS` 余额，以及 `TOKEN_SYMBOL_LENGTH + TEST_PREFIX_BYTES <= MAX_TOKEN_SYMBOL_LENGTH` 的 Test 前缀余量，两者均从链上读取）：MemberNFT 四项非零、Phase 五项非零且 `ADJUST_THRESHOLD <= 1e18`、`0 < LAUNCH_COUNT_THRESHOLD_RATIO <= 1e18`、`MAX_LAUNCH_COUNT/TOKEN_SYMBOL_LENGTH` 非零、`0 < LAUNCH_AMOUNT <= MAX_SUPPLY`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、两项激励比例之和 `<= 1e18`、`BOOST_STAKE_SUPPLY_FACTOR > 0`（建议 1–10，非校验条件）、`BOOST_STAKE_MULTIPLIER > 0`（建议 1–20，非校验条件）、`0 < SUBMIT_MIN_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN > 0` 且 `<= MAX`、`0 < FEE_SETTLEMENT_RATIO <= 0.25%`（`MAX_FEE_SETTLEMENT_RATIO`）。合约 `init` 只防重复初始化并保存配置。
 
 **重要参数说明：**
 - `DISTRIBUTOR_ADDRESS`: 设置为部署钱包地址，接收首币的首批供应

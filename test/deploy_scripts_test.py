@@ -224,7 +224,8 @@ def main():
                     "LAUNCH_COUNT_THRESHOLD_RATIO": "1000000000000000000", "MAX_LAUNCH_COUNT": "1000", "TOKEN_SYMBOL_LENGTH": "4",
                     "PROPOSAL_REWARD_MIN_VOTE_RATIO": "50000000000000000", "ROUND_REWARD_GOV_RATIO": "100000000000000000",
                     "ROUND_REWARD_PROPOSAL_RATIO": "100000000000000000",
-                    "MAX_BOOST_MULTIPLIER": "2", "SUBMIT_MIN_RATIO": "10000000000000000", "PROMISED_WAITING_PHASES_MIN": "1",
+                    "BOOST_STAKE_SUPPLY_FACTOR": "2", "BOOST_STAKE_MULTIPLIER": "5",
+                    "SUBMIT_MIN_RATIO": "10000000000000000", "PROMISED_WAITING_PHASES_MIN": "1",
                     "PROMISED_WAITING_PHASES_MAX": "100", "FEE_SETTLEMENT_RATIO": "2500000000000000"})
         calls = {}
 
@@ -247,9 +248,11 @@ def main():
                 "isLOVE20Token(address)(bool)": "true"})
         getters("MINT", {key + "()(uint256)": value for key, value in {
             "PROPOSAL_REWARD_MIN_VOTE_RATIO": "PROPOSAL_REWARD_MIN_VOTE_RATIO", "ROUND_REWARD_GOV_RATIO": "ROUND_REWARD_GOV_RATIO",
-            "ROUND_REWARD_PROPOSAL_RATIO": "ROUND_REWARD_PROPOSAL_RATIO", "MAX_GOV_BOOST_REWARD_MULTIPLIER": "MAX_BOOST_MULTIPLIER"}.items()})
+            "ROUND_REWARD_PROPOSAL_RATIO": "ROUND_REWARD_PROPOSAL_RATIO"}.items()})
         getters("MINT", {"PHASE_ADDRESS()(address)": "PHASE_ADDRESS"})
-        getters("STAKE", {key + "()(uint256)": key for key in ("PROMISED_WAITING_PHASES_MIN", "PROMISED_WAITING_PHASES_MAX", "FEE_SETTLEMENT_RATIO")})
+        getters("STAKE", {key + "()(uint256)": key for key in ("PROMISED_WAITING_PHASES_MIN", "PROMISED_WAITING_PHASES_MAX", "FEE_SETTLEMENT_RATIO",
+                                                               "BOOST_STAKE_SUPPLY_FACTOR", "BOOST_STAKE_MULTIPLIER")})
+        getters("STAKE", {"LIQUIDITY_TOKEN_EQUIVALENCE_FACTOR()(uint256)": "2"})
         getters("STAKE", {"ROUTER_ADDRESS()(address)": "ROUTER_ADDRESS", "PAIR_FACTORY_ADDRESS()(address)": "FACTORY_ADDRESS"})
         getters("SUBMIT", {"SUBMIT_MIN_RATIO()(uint256)": "SUBMIT_MIN_RATIO"})
         dep_keys = {"mint": "MINT", "memberNFT": "MEMBER_NFT", "phase": "PHASE", "stake": "STAKE", "vote": "VOTE", "submit": "SUBMIT", "launch": "LAUNCH"}

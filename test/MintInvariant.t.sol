@@ -35,8 +35,7 @@ contract MintInvariantTest {
             address(this),
             5e16,
             1e17,
-            1e17,
-            2
+            1e17
         );
         token = new LOVE20Token("Test", "TST", 10000, 1000000, address(this), address(mint), address(this));
     }
@@ -189,7 +188,7 @@ contract MintInvariantTest {
                 if (govReward == 0) continue;
 
                 for (uint256 memberId = 1; memberId <= 10; memberId++) {
-                    (uint256 voteReward, uint256 boostReward,,) =
+                    (uint256 voteReward, uint256 boostReward,) =
                         mint.govRewardByMemberId(address(token), round, memberId);
 
                     assert(voteReward + boostReward <= govReward);
@@ -215,20 +214,19 @@ contract MintInvariantTest {
         }
     }
 
-    /// @notice Invariant: boost burn never exceeds theoretical boost
-    function invariant_BoostBurnNeverExceedsTheoretical() public view {
+    /// @notice Invariant: a member's boost reward never exceeds the round's boost pool
+    function invariant_BoostRewardWithinPool() public view {
         for (uint256 round = 1; round <= 10; round++) {
             if (mint.isRewardPrepared(address(token), round)) {
                 uint256 govReward = mint.govReward(address(token), round);
                 if (govReward == 0) continue;
+                uint256 boostPoolAmount = govReward - govReward / 2;
 
                 for (uint256 memberId = 1; memberId <= 10; memberId++) {
-                    (uint256 voteReward, uint256 boostReward, uint256 burnReward,) =
+                    (uint256 voteReward, uint256 boostReward,) =
                         mint.govRewardByMemberId(address(token), round, memberId);
-
-                    // burnReward should not exceed what theoretical boost would be
-                    uint256 theoreticalMax = voteReward * 2; // maxGovBoostRewardMultiplier
-                    assert(burnReward + boostReward <= theoreticalMax);
+                    assert(boostReward <= boostPoolAmount);
+                    assert(voteReward <= govReward / 2);
                 }
             }
         }

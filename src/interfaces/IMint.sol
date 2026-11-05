@@ -3,8 +3,7 @@ pragma solidity =0.8.37;
 
 enum BurnReason {
     BoostPoolCancelled,
-    ProposalPoolCancelled,
-    BoostOverflow
+    ProposalPoolCancelled
 }
 
 interface IMintEvents {
@@ -23,7 +22,6 @@ interface IMintEvents {
         uint256 indexed memberId,
         uint256 voteReward,
         uint256 boostReward,
-        uint256 burnReward,
         uint256 totalRewardMinted
     );
     event ProposalRewardMinted(
@@ -104,7 +102,6 @@ interface IMint is IMintEvents, IMintErrors {
     function PROPOSAL_REWARD_MIN_VOTE_RATIO() external view returns (uint256);
     function ROUND_REWARD_GOV_RATIO() external view returns (uint256);
     function ROUND_REWARD_PROPOSAL_RATIO() external view returns (uint256);
-    function MAX_GOV_BOOST_REWARD_MULTIPLIER() external view returns (uint256);
     function initialized() external view returns (bool);
     function init(
         address voteAddress,
@@ -113,8 +110,7 @@ interface IMint is IMintEvents, IMintErrors {
         address memberNFTAddress,
         uint256 proposalRewardMinVoteRatio,
         uint256 roundRewardGovRatio,
-        uint256 roundRewardProposalRatio,
-        uint256 maxGovBoostRewardMultiplier
+        uint256 roundRewardProposalRatio
     ) external;
     function prepareRewardIfNeeded(address tokenAddress, uint256 round) external;
     function mintProposalReward(
@@ -124,7 +120,7 @@ interface IMint is IMintEvents, IMintErrors {
         address recipient
     ) external returns (uint256 amount);
     function mintGovReward(address tokenAddress, uint256 round, uint256 memberId, address recipient)
-        external returns (uint256 voteReward, uint256 boostReward, uint256 burnReward);
+        external returns (uint256 voteReward, uint256 boostReward);
     function mintGovRewards(
         address tokenAddress,
         uint256[] calldata rounds,
@@ -134,8 +130,7 @@ interface IMint is IMintEvents, IMintErrors {
         external
         returns (
             uint256[] memory voteRewards,
-            uint256[] memory boostRewards,
-            uint256[] memory burnRewards
+            uint256[] memory boostRewards
         );
     function totalRewardReserved(address tokenAddress) external view returns (uint256);
     function totalRewardMinted(address tokenAddress) external view returns (uint256);
@@ -151,7 +146,6 @@ interface IMint is IMintEvents, IMintErrors {
         external view returns (
             uint256 voteReward,
             uint256 boostReward,
-            uint256 burnReward,
             bool minted
         );
     function isProposalIdWithReward(address tokenAddress, uint256 round, uint256 proposalId)

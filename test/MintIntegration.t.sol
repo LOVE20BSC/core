@@ -58,8 +58,7 @@ contract MintIntegrationTest {
             address(this), // memberNFTAddress (test contract implements ownerOf)
             5e16, // 5% min proposal votes
             1e17, // 10% gov reward ratio
-            1e17, // 10% proposal reward ratio
-            2 // 2x max boost multiplier
+            1e17 // 10% proposal reward ratio
         );
 
         // Create token
@@ -98,8 +97,7 @@ contract MintIntegrationTest {
 
         // Member 1 already claimed above, verify member 2's turn
         // Member 2 claims (40% votes)
-        (uint256 voteReward2, uint256 boostReward2,,) =
-            mint.govRewardByMemberId(address(token), 1, 2);
+        (uint256 voteReward2, uint256 boostReward2,) = mint.govRewardByMemberId(address(token), 1, 2);
 
         uint256 balanceBefore2 = token.balanceOf(member2);
         vm.prank(member2);
@@ -121,64 +119,43 @@ contract MintIntegrationTest {
     }
 
     /// @notice Test 2: Multi-token minting - Same member votes on 2 tokens
-    /// @notice The boost cap overflow burns the excess and reports it in `RewardBurned`
-    function testIntegration_BoostOverflowBurnCarriesRoundAndAmount() public {
-        // A tiny vote share with the whole boost pool puts the member above the 2x boost cap.
+    /// @notice The boost half now pays the full theoretical amount; no overflow is burned.
+    function testIntegration_BoostPaysFullTheoreticalWithoutBurn() public {
+        // A tiny vote share with the whole boost pool used to overflow the 2x output cap.
         vote.setMemberVotes(address(token), 1, 1, 10);
         vote.setTotalVotes(address(token), 1, 1000);
         vote.setMemberBoost(address(token), 1, 1, 1000);
         vote.setTotalBoost(address(token), 1, 1000);
         phase.setCurrentPhase(2);
 
-        (uint256 voteReward, uint256 boostReward, uint256 burnReward,) =
-            mint.govRewardByMemberId(address(token), 1, 1);
+        (uint256 voteReward, uint256 boostReward,) = mint.govRewardByMemberId(address(token), 1, 1);
         require(voteReward > 0, "scenario must pay the vote half");
         require(boostReward > 0, "scenario must pay the boost half");
-        require(burnReward > 0, "scenario must overflow the boost cap");
-        require(
-            voteReward != boostReward && boostReward != burnReward && voteReward != burnReward,
-            "the three amounts must be tellable apart, otherwise swapping them is invisible"
-        );
-
-        uint256 burnedBefore = mint.totalRewardBurned(address(token));
 
         vm.recordLogs();
         vm.prank(member1);
         mint.mintGovReward(address(token), 1, 1, member1);
         MintVm.Log[] memory logs = vm.getRecordedLogs();
 
-        bytes32 mintedTopic = keccak256("GovRewardMinted(address,uint256,uint256,uint256,uint256,uint256,uint256)");
+        bytes32 mintedTopic = keccak256("GovRewardMinted(address,uint256,uint256,uint256,uint256,uint256)");
         bytes32 burnedTopic = keccak256("RewardBurned(address,uint256,uint256,uint256,uint8)");
-        uint256 burnedSum;
-        bool seen;
-        bool mintedSeen;
+        uint256 mintedSeen;
+        uint256 overflowBurns;
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].topics[0] == mintedTopic) {
-                (uint256 emittedVote, uint256 emittedBoost, uint256 emittedBurn, uint256 emittedMinted) =
-                    abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
+                (uint256 emittedVote, uint256 emittedBoost, uint256 emittedMinted) =
+                    abi.decode(logs[i].data, (uint256, uint256, uint256));
                 require(emittedVote == voteReward, "the event reports the vote half");
-                require(emittedBoost == boostReward, "the event reports the boost half");
-                // The overflow the member caused is only attributable here: `RewardBurned` carries no
-                // member id, and a settlement that mints nothing but burns everything is reachable.
-                require(emittedBurn == burnReward, "the event reports the overflow as burnReward");
+                require(emittedBoost == boostReward, "the event reports the full boost half");
                 require(emittedMinted == mint.totalRewardMinted(address(token)), "the event carries the minted total");
-                mintedSeen = true;
+                mintedSeen += 1;
             }
             if (logs[i].topics[0] != burnedTopic) continue;
-            (uint256 amount, uint256 burnedPost, uint8 reason) = abi.decode(logs[i].data, (uint256, uint256, uint8));
-            burnedSum += amount;
-            require(burnedPost == burnedBefore + burnedSum, "the event carries the burned total");
-            // Preparation may burn a cancelled pool first; only the overflow burn is this test's subject.
-            if (reason != uint8(BurnReason.BoostOverflow)) continue;
-            require(logs[i].topics.length == 3, "token and round are indexed");
-            require(logs[i].topics[1] == bytes32(uint256(uint160(address(token)))), "burn token");
-            require(logs[i].topics[2] == bytes32(uint256(1)), "burn round");
-            require(amount > 0, "burn amount");
-            seen = true;
+            (, , uint8 reason) = abi.decode(logs[i].data, (uint256, uint256, uint8));
+            if (reason == 2) overflowBurns += 1;
         }
-        require(seen, "missing the overflow RewardBurned");
-        require(mintedSeen, "missing GovRewardMinted");
-        require(mint.totalRewardBurned(address(token)) == burnedBefore + burnedSum, "burned folds every event");
+        require(mintedSeen == 1, "missing GovRewardMinted");
+        require(overflowBurns == 0, "no BoostOverflow burn may be emitted");
     }
 
     function testIntegration_MultiTokenMinting() public {
@@ -255,7 +232,7 @@ contract MintIntegrationTest {
         uint256 balanceBefore = token.balanceOf(member1);
 
         vm.prank(member1);
-        (uint256[] memory voteRewards, uint256[] memory boostRewards,) =
+        (uint256[] memory voteRewards, uint256[] memory boostRewards) =
             mint.mintGovRewards(address(token), rounds, 1, member1);
 
         uint256 balanceAfter = token.balanceOf(member1);
@@ -426,8 +403,8 @@ contract MintIntegrationTest {
         assertEq(mint.eligibleProposalVoteAmount(address(token), 1), 1000, "Eligible votes should sum correctly");
 
         // Verify member rewards are proportional to their votes
-        (uint256 vote1,,,) = mint.govRewardByMemberId(address(token), 1, 1);
-        (uint256 vote2,,,) = mint.govRewardByMemberId(address(token), 1, 2);
+        (uint256 vote1,,) = mint.govRewardByMemberId(address(token), 1, 1);
+        (uint256 vote2,,) = mint.govRewardByMemberId(address(token), 1, 2);
 
         // Member1 (40%) should get less than Member2 (60%)
         assertTrue(vote1 < vote2, "Member1 vote reward < Member2 vote reward");

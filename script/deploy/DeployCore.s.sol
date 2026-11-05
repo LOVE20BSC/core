@@ -36,7 +36,6 @@ contract DeployCore is Script {
     // so a drift between the two contracts cannot pass unnoticed.
     uint256 internal constant MAX_TOKEN_SYMBOL_LENGTH = 32;
     uint256 internal constant TEST_PREFIX_BYTES = 4;
-
     struct DeploymentAddresses {
         address token;
         address memberNFT;
@@ -72,7 +71,8 @@ contract DeployCore is Script {
         uint256 proposalRewardMinVoteRatio;
         uint256 roundRewardGovRatio;
         uint256 roundRewardProposalRatio;
-        uint256 maxBoostMultiplier;
+        uint256 boostStakeSupplyFactor;
+        uint256 boostStakeMultiplier;
         uint256 submitMinRatio;
         uint256 promisedWaitingPhasesMin;
         uint256 promisedWaitingPhasesMax;
@@ -116,7 +116,8 @@ contract DeployCore is Script {
         config.proposalRewardMinVoteRatio = vm.envUint("PROPOSAL_REWARD_MIN_VOTE_RATIO");
         config.roundRewardGovRatio = vm.envUint("ROUND_REWARD_GOV_RATIO");
         config.roundRewardProposalRatio = vm.envUint("ROUND_REWARD_PROPOSAL_RATIO");
-        config.maxBoostMultiplier = vm.envUint("MAX_BOOST_MULTIPLIER");
+        config.boostStakeSupplyFactor = vm.envUint("BOOST_STAKE_SUPPLY_FACTOR");
+        config.boostStakeMultiplier = vm.envUint("BOOST_STAKE_MULTIPLIER");
         config.submitMinRatio = vm.envUint("SUBMIT_MIN_RATIO");
         config.promisedWaitingPhasesMin = vm.envUint("PROMISED_WAITING_PHASES_MIN");
         config.promisedWaitingPhasesMax = vm.envUint("PROMISED_WAITING_PHASES_MAX");
@@ -161,10 +162,8 @@ contract DeployCore is Script {
             config.roundRewardProposalRatio <= 1e18 - config.roundRewardGovRatio,
             "Round reward ratios exceed 1e18"
         );
-        require(
-            config.maxBoostMultiplier != 0 && config.maxBoostMultiplier <= 1000,
-            "Max boost multiplier out of range"
-        );
+        require(config.boostStakeSupplyFactor != 0, "Boost stake supply factor must be nonzero");
+        require(config.boostStakeMultiplier != 0, "Boost stake multiplier must be nonzero");
 
         require(config.submitMinRatio != 0 && config.submitMinRatio <= 1e18, "Submit min ratio out of range");
 
@@ -250,17 +249,7 @@ contract DeployCore is Script {
         console2.log("Vote deployed at:", addrs.vote);
 
         // Initialize Stake.
-        Stake(addrs.stake).init(
-            addrs.phase,
-            addrs.memberNFT,
-            addrs.vote,
-            addrs.launch,
-            config.router,
-            config.factory,
-            config.promisedWaitingPhasesMin,
-            config.promisedWaitingPhasesMax,
-            config.feeSettlementRatio
-        );
+        _initStake(addrs, config);
         console2.log("Stake initialized");
 
         // Initialize Submit.
@@ -279,10 +268,25 @@ contract DeployCore is Script {
             addrs.memberNFT,
             config.proposalRewardMinVoteRatio,
             config.roundRewardGovRatio,
-            config.roundRewardProposalRatio,
-            config.maxBoostMultiplier
+            config.roundRewardProposalRatio
         );
         console2.log("Mint initialized");
+    }
+
+    function _initStake(DeploymentAddresses memory addrs, CoreConfig memory config) private {
+        Stake(addrs.stake).init(
+            addrs.phase,
+            addrs.memberNFT,
+            addrs.vote,
+            addrs.launch,
+            config.router,
+            config.factory,
+            config.promisedWaitingPhasesMin,
+            config.promisedWaitingPhasesMax,
+            config.feeSettlementRatio,
+            config.boostStakeSupplyFactor,
+            config.boostStakeMultiplier
+        );
     }
 
     function _deployMemberNFT(CoreConfig memory config) private returns (MemberNFT) {
@@ -373,10 +377,6 @@ contract DeployCore is Script {
             mint.ROUND_REWARD_PROPOSAL_RATIO() == config.roundRewardProposalRatio,
             "Mint proposal ratio mismatch"
         );
-        require(
-            mint.MAX_GOV_BOOST_REWARD_MULTIPLIER() == config.maxBoostMultiplier,
-            "Mint max boost mismatch"
-        );
 
         IStake stake = IStake(addrs.stake);
         require(stake.initialized(), "Stake not initialized");
@@ -396,6 +396,17 @@ contract DeployCore is Script {
         );
         require(
             stake.FEE_SETTLEMENT_RATIO() == config.feeSettlementRatio, "Stake fee settlement ratio mismatch"
+        );
+        require(
+            stake.BOOST_STAKE_SUPPLY_FACTOR() == config.boostStakeSupplyFactor,
+            "Stake boost supply factor mismatch"
+        );
+        require(
+            stake.BOOST_STAKE_MULTIPLIER() == config.boostStakeMultiplier,
+            "Stake boost multiplier mismatch"
+        );
+        require(
+            stake.LIQUIDITY_TOKEN_EQUIVALENCE_FACTOR() == 2, "Stake liquidity equivalence factor mismatch"
         );
 
         ISubmit submit = ISubmit(addrs.submit);

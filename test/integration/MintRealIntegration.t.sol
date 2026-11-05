@@ -41,13 +41,14 @@ contract MintRealIntegrationTest {
     uint256 constant SLIPPAGE_100_PERCENT = 1e18;
     uint256 constant PROMISED_WAITING_PHASES = 1;
     uint256 constant TOKEN_TRANSFER_AMOUNT = 10000;
-    uint256 constant BOOST_AMOUNT = 1000;
+    uint256 constant BOOST_AMOUNT = 300;
 
     // Configuration constants - must match init() parameters
     uint256 constant ROUND_REWARD_GOV_RATIO = 1e17;              // 10%
     uint256 constant ROUND_REWARD_PROPOSAL_RATIO = 1e17;         // 10%
     uint256 constant PROPOSAL_REWARD_MIN_VOTE_RATIO = 5e16;      // 5%
-    uint256 constant MAX_GOV_BOOST_REWARD_MULTIPLIER = 2;        // 2x
+    uint256 constant BOOST_STAKE_SUPPLY_FACTOR = 2;
+    uint256 constant BOOST_STAKE_MULTIPLIER = 5;
 
     // Real contracts
     Phase public phase;
@@ -154,7 +155,9 @@ contract MintRealIntegrationTest {
             address(factory),
             1,    // promisedWaitingPhasesMin
             100,  // promisedWaitingPhasesMax
-            3e15  // feeSettlementRatio from the integration profile (0.3%)
+            3e15, // feeSettlementRatio from the integration profile (0.3%)
+            BOOST_STAKE_SUPPLY_FACTOR,
+            BOOST_STAKE_MULTIPLIER
         );
 
         // 4. Initialize Vote (depends on: Phase, Stake, Submit, MemberNFT)
@@ -168,8 +171,7 @@ contract MintRealIntegrationTest {
             address(memberNFT),
             PROPOSAL_REWARD_MIN_VOTE_RATIO,   // 5e16: 5%
             ROUND_REWARD_GOV_RATIO,           // 1e17: 10%
-            ROUND_REWARD_PROPOSAL_RATIO,      // 1e17: 10%
-            MAX_GOV_BOOST_REWARD_MULTIPLIER          // 2: 2x
+            ROUND_REWARD_PROPOSAL_RATIO       // 1e17: 10%
         );
 
         // ========== Phase 3: Setup test state ==========
@@ -270,26 +272,21 @@ contract MintRealIntegrationTest {
     }
 
     /// @notice Mathematical model: Calculate expected boost reward
-    /// @dev Independent calculation with 2x cap enforcement
+    /// @dev The output-side cap is gone; the full theoretical boost is minted.
     function _calculateExpectedBoostReward(
         uint256 govRewardAmount,
         uint256 memberBoost,
-        uint256 totalBoost,
-        uint256 voteReward
-    ) internal pure returns (uint256 boostReward, uint256 burnReward) {
+        uint256 totalBoost
+    ) internal pure returns (uint256 boostReward) {
         uint256 votePoolAmount = govRewardAmount / 2;
         uint256 boostPoolAmount = govRewardAmount - votePoolAmount;
 
-        // If totalBoost is 0, entire boost pool is burned
+        // If totalBoost is 0, no boost reward is payable
         if (totalBoost == 0) {
-            return (0, 0);
+            return 0;
         }
 
-        uint256 theoreticalBoost = (boostPoolAmount * memberBoost) / totalBoost;
-        uint256 maxBoostReward = voteReward * MAX_GOV_BOOST_REWARD_MULTIPLIER;
-
-        boostReward = theoreticalBoost > maxBoostReward ? maxBoostReward : theoreticalBoost;
-        burnReward = theoreticalBoost - boostReward;
+        boostReward = (boostPoolAmount * memberBoost) / totalBoost;
     }
 
     /// @notice Mathematical model: Calculate expected proposal reward
@@ -380,10 +377,8 @@ contract MintRealIntegrationTest {
         uint256 member2Boost;
         uint256 actualVoteReward1;
         uint256 actualBoostReward1;
-        uint256 actualBurnReward1;
         uint256 actualVoteReward2;
         uint256 actualBoostReward2;
-        uint256 actualBurnReward2;
     }
 
     function _verifyGovRewardsWithMathModel(uint256 currentRound) internal {
@@ -398,9 +393,9 @@ contract MintRealIntegrationTest {
         data.member2Boost = vote.voterBoost(address(token), currentRound, 2);
 
         // Read actual rewards from contract
-        (data.actualVoteReward1, data.actualBoostReward1, data.actualBurnReward1,) =
+        (data.actualVoteReward1, data.actualBoostReward1,) =
             mint.govRewardByMemberId(address(token), currentRound, 1);
-        (data.actualVoteReward2, data.actualBoostReward2, data.actualBurnReward2,) =
+        (data.actualVoteReward2, data.actualBoostReward2,) =
             mint.govRewardByMemberId(address(token), currentRound, 2);
 
         if (data.totalBoost == 0) {
@@ -420,8 +415,6 @@ contract MintRealIntegrationTest {
         // Verify boost rewards are 0 when no boost exists
         assertEq(data.actualBoostReward1, 0, "Member1 boost reward must be 0 when totalBoost is 0");
         assertEq(data.actualBoostReward2, 0, "Member2 boost reward must be 0 when totalBoost is 0");
-        assertEq(data.actualBurnReward1, 0, "Member1 burn reward must be 0 when totalBoost is 0");
-        assertEq(data.actualBurnReward2, 0, "Member2 burn reward must be 0 when totalBoost is 0");
 
         // Debug: Check actual vote counts
         assertEq(data.member1Votes, VOTE_AMOUNT_MEMBER1, "Member1 should have 100 votes");
@@ -445,19 +438,17 @@ contract MintRealIntegrationTest {
         uint256 expectedVoteReward2 = _calculateExpectedVoteReward(govRewardAmount, data.member2Votes, data.totalVoteAmount);
 
         // Expected boost rewards
-        (uint256 expectedBoostReward1, uint256 expectedBurnReward1) =
-            _calculateExpectedBoostReward(govRewardAmount, data.member1Boost, data.totalBoost, expectedVoteReward1);
-        (uint256 expectedBoostReward2, uint256 expectedBurnReward2) =
-            _calculateExpectedBoostReward(govRewardAmount, data.member2Boost, data.totalBoost, expectedVoteReward2);
+        uint256 expectedBoostReward1 =
+            _calculateExpectedBoostReward(govRewardAmount, data.member1Boost, data.totalBoost);
+        uint256 expectedBoostReward2 =
+            _calculateExpectedBoostReward(govRewardAmount, data.member2Boost, data.totalBoost);
 
         // Verify exact match with mathematical model
         assertEq(data.actualVoteReward1, expectedVoteReward1, "Member1 vote reward must match math model");
         assertEq(data.actualBoostReward1, expectedBoostReward1, "Member1 boost reward must match math model");
-        assertEq(data.actualBurnReward1, expectedBurnReward1, "Member1 burn reward must match math model");
 
         assertEq(data.actualVoteReward2, expectedVoteReward2, "Member2 vote reward must match math model");
         assertEq(data.actualBoostReward2, expectedBoostReward2, "Member2 boost reward must match math model");
-        assertEq(data.actualBurnReward2, expectedBurnReward2, "Member2 burn reward must match math model");
 
         // Verify voting ratio (100:60 = 5:3)
         assertEq(data.actualVoteReward1 * 3, data.actualVoteReward2 * 5, "Vote rewards must match 5:3 ratio");
@@ -609,7 +600,7 @@ contract MintRealIntegrationTest {
         // Batch claim
         uint256 balanceBefore1 = token.balanceOf(member1);
         vm.prank(member1);
-        (uint256[] memory voteRewards1, uint256[] memory boostRewards1,) = mint.mintGovRewards(address(token), rounds, 1, member1);
+        (uint256[] memory voteRewards1, uint256[] memory boostRewards1) = mint.mintGovRewards(address(token), rounds, 1, member1);
         uint256 balanceAfter1 = token.balanceOf(member1);
         uint256 actualTotal1 = balanceAfter1 - balanceBefore1;
 
@@ -622,7 +613,7 @@ contract MintRealIntegrationTest {
         // Member2
         uint256 balanceBefore2 = token.balanceOf(member2);
         vm.prank(member2);
-        (uint256[] memory voteRewards2, uint256[] memory boostRewards2,) = mint.mintGovRewards(address(token), rounds, 2, member2);
+        (uint256[] memory voteRewards2, uint256[] memory boostRewards2) = mint.mintGovRewards(address(token), rounds, 2, member2);
         uint256 balanceAfter2 = token.balanceOf(member2);
         uint256 actualTotal2 = balanceAfter2 - balanceBefore2;
 
@@ -1057,11 +1048,11 @@ contract MintRealIntegrationTest {
         uint256 balBefore = token.balanceOf(member1);
 
         vm.prank(member1);
-        (uint256 vr1, uint256 br1,) = mint.mintGovReward(address(token), data.round1, 1, member1);
+        (uint256 vr1, uint256 br1) = mint.mintGovReward(address(token), data.round1, 1, member1);
         uint256 round1Reward = vr1 + br1;
 
         vm.prank(member1);
-        (uint256 vr2, uint256 br2,) = mint.mintGovReward(address(token), data.round4, 1, member1);
+        (uint256 vr2, uint256 br2) = mint.mintGovReward(address(token), data.round4, 1, member1);
         uint256 round4Reward = vr2 + br2;
 
         uint256 balAfter = token.balanceOf(member1);

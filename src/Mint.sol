@@ -37,7 +37,6 @@ contract Mint is IMint {
     uint256 public PROPOSAL_REWARD_MIN_VOTE_RATIO;
     uint256 public ROUND_REWARD_GOV_RATIO;
     uint256 public ROUND_REWARD_PROPOSAL_RATIO;
-    uint256 public MAX_GOV_BOOST_REWARD_MULTIPLIER;
 
     function totalRewardReserved(address tokenAddress) external view returns (uint256) {
         return _totalRewardReserved[tokenAddress];
@@ -79,8 +78,7 @@ contract Mint is IMint {
         address memberNFTAddress,
         uint256 proposalRewardMinVoteRatio,
         uint256 roundRewardGovRatio,
-        uint256 roundRewardProposalRatio,
-        uint256 maxGovBoostRewardMultiplier
+        uint256 roundRewardProposalRatio
     ) external {
         if (initialized) {
             revert AlreadyInitialized();
@@ -97,7 +95,6 @@ contract Mint is IMint {
         PROPOSAL_REWARD_MIN_VOTE_RATIO = proposalRewardMinVoteRatio;
         ROUND_REWARD_GOV_RATIO = roundRewardGovRatio;
         ROUND_REWARD_PROPOSAL_RATIO = roundRewardProposalRatio;
-        MAX_GOV_BOOST_REWARD_MULTIPLIER = maxGovBoostRewardMultiplier;
     }
 
     function _isRoundEnded(uint256 round) private view returns (bool) {
@@ -251,7 +248,7 @@ contract Mint is IMint {
         uint256 round,
         uint256 memberId,
         address recipient
-    ) external onlyMemberOwner(memberId) returns (uint256 voteReward, uint256 boostReward, uint256 burnReward) {
+    ) external onlyMemberOwner(memberId) returns (uint256 voteReward, uint256 boostReward) {
         return _mintGovReward(tokenAddress, round, memberId, recipient);
     }
 
@@ -262,20 +259,17 @@ contract Mint is IMint {
         address recipient
     ) external onlyMemberOwner(memberId) returns (
         uint256[] memory voteRewards,
-        uint256[] memory boostRewards,
-        uint256[] memory burnRewards
+        uint256[] memory boostRewards
     ) {
         uint256 length = rounds.length;
         voteRewards = new uint256[](length);
         boostRewards = new uint256[](length);
-        burnRewards = new uint256[](length);
 
         for (uint256 i = 0; i < length; i++) {
-            (voteRewards[i], boostRewards[i], burnRewards[i]) =
-                _mintGovReward(tokenAddress, rounds[i], memberId, recipient);
+            (voteRewards[i], boostRewards[i]) = _mintGovReward(tokenAddress, rounds[i], memberId, recipient);
         }
 
-        return (voteRewards, boostRewards, burnRewards);
+        return (voteRewards, boostRewards);
     }
 
     function _calculateEligibleProposalVoteAmount(
@@ -377,19 +371,18 @@ contract Mint is IMint {
     ) internal view returns (
         uint256 voteReward,
         uint256 boostReward,
-        uint256 burnReward,
         bool minted
     ) {
         minted = _govMinted[tokenAddress][round][memberId];
 
         uint256 memberVoteAmount = IVote(VOTE_ADDRESS).voteAmountByMemberId(tokenAddress, round, memberId);
         if (memberVoteAmount == 0) {
-            return (0, 0, 0, minted);
+            return (0, 0, minted);
         }
 
         uint256 totalVoteAmount = IVote(VOTE_ADDRESS).totalVoteAmount(tokenAddress, round);
         if (totalVoteAmount == 0) {
-            return (0, 0, 0, minted);
+            return (0, 0, minted);
         }
 
         uint256 govRewardAmount;
@@ -409,21 +402,16 @@ contract Mint is IMint {
         uint256 totalVoterBoost = IVote(VOTE_ADDRESS).totalVoterBoost(tokenAddress, round);
         if (totalVoterBoost == 0) {
             boostReward = 0;
-            burnReward = 0;
         } else {
             uint256 voterBoost = IVote(VOTE_ADDRESS).voterBoost(
                 tokenAddress,
                 round,
                 memberId
             );
-            uint256 theoreticalBoost = (boostPoolAmount * voterBoost) / totalVoterBoost;
-            // forge-lint: disable-next-line(divide-before-multiply)
-            uint256 maxBoostReward = voteReward * MAX_GOV_BOOST_REWARD_MULTIPLIER;
-            boostReward = theoreticalBoost > maxBoostReward ? maxBoostReward : theoreticalBoost;
-            burnReward = theoreticalBoost - boostReward;
+            boostReward = (boostPoolAmount * voterBoost) / totalVoterBoost;
         }
 
-        return (voteReward, boostReward, burnReward, minted);
+        return (voteReward, boostReward, minted);
     }
 
     function govRewardByMemberId(
@@ -433,7 +421,6 @@ contract Mint is IMint {
     ) external view returns (
         uint256 voteReward,
         uint256 boostReward,
-        uint256 burnReward,
         bool minted
     ) {
         // forge-lint: disable-next-line(unused-return)
@@ -527,7 +514,7 @@ contract Mint is IMint {
         uint256 round,
         uint256 memberId,
         address recipient
-    ) private returns (uint256 voteReward, uint256 boostReward, uint256 burnReward) {
+    ) private returns (uint256 voteReward, uint256 boostReward) {
         if (recipient == address(0)) {
             revert ZeroRecipientAddress();
         }
@@ -538,9 +525,9 @@ contract Mint is IMint {
             revert MemberRewardAlreadyMinted(tokenAddress, round, memberId);
         }
 
-        (voteReward, boostReward, burnReward, ) = _govRewardCalculation(tokenAddress, round, memberId);
+        (voteReward, boostReward, ) = _govRewardCalculation(tokenAddress, round, memberId);
 
-        if (voteReward + boostReward + burnReward == 0) {
+        if (voteReward + boostReward == 0) {
             if (IVote(VOTE_ADDRESS).voteAmountByMemberId(tokenAddress, round, memberId) == 0) {
                 revert MemberHasNoVote(tokenAddress, round, memberId);
             }
@@ -555,28 +542,15 @@ contract Mint is IMint {
 
         uint256 mintAmount = voteReward + boostReward;
         _totalRewardMinted[tokenAddress] += mintAmount;
-        // forge-lint: disable-next-line(missing-events-access-control)
-        _totalRewardBurned[tokenAddress] += burnReward;
 
         if (mintAmount > 0) {
             ILOVE20Token(tokenAddress).mint(recipient, mintAmount);
             _updateLaunchCredit(tokenAddress, memberId, mintAmount);
         }
 
-        if (burnReward > 0) {
-            // forge-lint: disable-next-line(reentrancy-events)
-            emit RewardBurned({
-                tokenAddress: tokenAddress,
-                round: round,
-                amount: burnReward,
-                totalRewardBurned: _totalRewardBurned[tokenAddress],
-                reason: BurnReason.BoostOverflow
-            });
-        }
+        _emitGovRewardMinted(tokenAddress, round, memberId, voteReward, boostReward);
 
-        _emitGovRewardMinted(tokenAddress, round, memberId, voteReward, boostReward, burnReward);
-
-        return (voteReward, boostReward, burnReward);
+        return (voteReward, boostReward);
     }
 
     function _emitGovRewardMinted(
@@ -584,8 +558,7 @@ contract Mint is IMint {
         uint256 round,
         uint256 memberId,
         uint256 voteReward,
-        uint256 boostReward,
-        uint256 burnReward
+        uint256 boostReward
     ) private {
         emit GovRewardMinted({
             tokenAddress: tokenAddress,
@@ -593,7 +566,6 @@ contract Mint is IMint {
             memberId: memberId,
             voteReward: voteReward,
             boostReward: boostReward,
-            burnReward: burnReward,
             totalRewardMinted: _totalRewardMinted[tokenAddress]
         });
     }

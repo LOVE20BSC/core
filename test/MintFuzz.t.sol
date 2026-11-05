@@ -41,8 +41,7 @@ contract MintFuzzTest {
             address(this),
             5e16,
             govRatio,
-            propRatio,
-            2
+            propRatio
         );
         token = new LOVE20Token("Fuzz", "FUZ", supply, maxSup, address(this), address(mint), address(this));
     }
@@ -180,7 +179,7 @@ contract MintFuzzTest {
         if (govTotal == 0) return;
 
         // Query reward before minting to verify calculation
-        (uint256 expectedVote, uint256 expectedBoost, uint256 expectedBurn,) =
+        (uint256 expectedVote, uint256 expectedBoost,) =
             mint.govRewardByMemberId(address(token), 1, 1);
 
         // Skip if vote reward is zero (would revert with a Member* zero-amount error)
@@ -194,17 +193,10 @@ contract MintFuzzTest {
         assertEq(expectedVote, calculatedVote);
         assertEq(mint.totalRewardMinted(address(token)), expectedVote + expectedBoost);
 
-        // Boost must not exceed multiplier cap
+        // The boost half pays the full theoretical amount
         if (totalBoost_ > 0) {
             uint256 theoreticalBoost = ((govTotal - votePool) * memberBoost_) / totalBoost_;
-            uint256 cappedBoost = expectedVote * 2; // multiplier is 2
-            if (theoreticalBoost <= cappedBoost) {
-                assertEq(expectedBoost, theoreticalBoost);
-                assertEq(expectedBurn, 0);
-            } else {
-                assertEq(expectedBoost, cappedBoost);
-                assertEq(expectedBurn, theoreticalBoost - cappedBoost);
-            }
+            assertEq(expectedBoost, theoreticalBoost);
         }
     }
 
@@ -260,7 +252,7 @@ contract MintFuzzTest {
         }
 
         uint256 supplyBefore = token.totalSupply();
-        (uint256[] memory votes,,) = mint.mintGovRewards(address(token), rounds, 1, address(this));
+        (uint256[] memory votes,) = mint.mintGovRewards(address(token), rounds, 1, address(this));
 
         assertEq(votes.length, roundCount);
 

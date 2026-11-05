@@ -129,10 +129,17 @@ contract DeployCoreTest is Test {
         deployer.validateConfigForTest(config);
     }
 
-    function testRejectsZeroMaxBoostMultiplier() public {
+    function testRejectsZeroBoostStakeSupplyFactor() public {
         DeployCore.CoreConfig memory config = _validConfig();
-        config.maxBoostMultiplier = 0;
-        vm.expectRevert("Max boost multiplier out of range");
+        config.boostStakeSupplyFactor = 0;
+        vm.expectRevert("Boost stake supply factor must be nonzero");
+        deployer.validateConfigForTest(config);
+    }
+
+    function testRejectsZeroBoostStakeMultiplier() public {
+        DeployCore.CoreConfig memory config = _validConfig();
+        config.boostStakeMultiplier = 0;
+        vm.expectRevert("Boost stake multiplier must be nonzero");
         deployer.validateConfigForTest(config);
     }
 
@@ -282,10 +289,15 @@ contract DeployCoreTest is Test {
         deployer.validateConfigForTest(config);
     }
 
-    function testRejectsBoostMultiplierAboveMax() public {
+    function testAcceptsBoostStakeSupplyFactorAboveRecommendation() public view {
         DeployCore.CoreConfig memory config = _validConfig();
-        config.maxBoostMultiplier = 1001;
-        vm.expectRevert("Max boost multiplier out of range");
+        config.boostStakeSupplyFactor = 11;
+        deployer.validateConfigForTest(config);
+    }
+
+    function testAcceptsBoostStakeMultiplierAboveRecommendation() public view {
+        DeployCore.CoreConfig memory config = _validConfig();
+        config.boostStakeMultiplier = 21;
         deployer.validateConfigForTest(config);
     }
 
@@ -335,7 +347,8 @@ contract DeployCoreTest is Test {
             proposalRewardMinVoteRatio: 5e16,
             roundRewardGovRatio: 1e17,
             roundRewardProposalRatio: 1e17,
-            maxBoostMultiplier: 2,
+            boostStakeSupplyFactor: 2,
+            boostStakeMultiplier: 5,
             submitMinRatio: 1e16,
             promisedWaitingPhasesMin: 1,
             promisedWaitingPhasesMax: 100,

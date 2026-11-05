@@ -47,6 +47,7 @@ contract Stake is IStake {
 
     uint256 private constant SLIPPAGE_PRECISION = 1e18;
     uint256 private constant PRECISION = 1e18;
+    uint256 public constant LIQUIDITY_TOKEN_EQUIVALENCE_FACTOR = 2;
 
     bool public initialized;
     address public PHASE_ADDRESS;
@@ -58,6 +59,8 @@ contract Stake is IStake {
     uint256 public PROMISED_WAITING_PHASES_MIN;
     uint256 public PROMISED_WAITING_PHASES_MAX;
     uint256 public FEE_SETTLEMENT_RATIO;
+    uint256 public BOOST_STAKE_SUPPLY_FACTOR;
+    uint256 public BOOST_STAKE_MULTIPLIER;
 
     mapping(address => address) internal _pairAddressByTokenAddress;
     mapping(address => TotalStake) internal _totalStake;
@@ -72,6 +75,7 @@ contract Stake is IStake {
     mapping(address => mapping(uint256 => RoundHistoryUint256.History)) internal _validBoostSharesByMember;
     // tokenAddress => phase of the last realised settlement; one settlement per community per phase
     mapping(address => uint256) internal _lastSettlePhase;
+    mapping(address => uint256) internal _totalLiquidityTokenAmount;
 
     // forge-lint: disable-next-item(missing-zero-check)
     function init(
@@ -83,7 +87,9 @@ contract Stake is IStake {
         address pairFactoryAddress,
         uint256 promisedWaitingPhasesMin,
         uint256 promisedWaitingPhasesMax,
-        uint256 feeSettlementRatio
+        uint256 feeSettlementRatio,
+        uint256 boostStakeSupplyFactor,
+        uint256 boostStakeMultiplier
     ) external {
         if (initialized) revert AlreadyInitialized();
         initialized = true;
@@ -96,6 +102,8 @@ contract Stake is IStake {
         PROMISED_WAITING_PHASES_MIN = promisedWaitingPhasesMin;
         PROMISED_WAITING_PHASES_MAX = promisedWaitingPhasesMax;
         FEE_SETTLEMENT_RATIO = feeSettlementRatio;
+        BOOST_STAKE_SUPPLY_FACTOR = boostStakeSupplyFactor;
+        BOOST_STAKE_MULTIPLIER = boostStakeMultiplier;
     }
 
     function settleFees(address tokenAddress) external {
@@ -151,9 +159,11 @@ contract Stake is IStake {
             revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, member.promisedWaitingPhases);
         }
 
+        TotalStake storage totals = _totalStake[tokenAddress];
+        _checkBoostCap(tokenAddress, memberId, round, boostAmount);
+
         _pull(tokenAddress, msg.sender, boostAmount);
 
-        TotalStake storage totals = _totalStake[tokenAddress];
         member.boostShares += boostAmount;
         totals.totalBoostShares += boostAmount;
 
@@ -298,10 +308,20 @@ contract Stake is IStake {
             revert StakeRightsUsed(tokenAddress, round, sourceMemberId);
         }
 
+        bool targetHadPosition = target.liquidityShares != 0 || target.boostShares != 0;
+
         MergedStake memory merged = _mergeIntoTarget(tokenAddress, round, sourceMemberId, targetMemberId);
 
         if (merged.boostShares > 0) {
             _moveBoostHistory(tokenAddress, sourceMemberId, targetMemberId, merged.boostShares, round);
+        }
+
+        if (merged.boostShares > 0 && targetHadPosition) {
+            uint256 targetBoostShares = _memberStake[tokenAddress][targetMemberId].boostShares;
+            (, uint256 targetCap) = _boostStakeBaseAndMemberCap(tokenAddress, targetMemberId, round);
+            if (targetBoostShares > targetCap) {
+                revert BoostCapExceeded(tokenAddress, targetMemberId, targetBoostShares, targetCap);
+            }
         }
 
         emit StakesMerged({
@@ -421,6 +441,19 @@ contract Stake is IStake {
         }
     }
 
+    function liquidityTokenAmount(address tokenAddress) external view returns (uint256) {
+        return _totalLiquidityTokenAmount[tokenAddress];
+    }
+
+    function boostStakeCap(address tokenAddress, uint256 memberId)
+        external
+        view
+        returns (uint256 memberCap, uint256 memberUsed)
+    {
+        (, memberCap) = _boostStakeBaseAndMemberCap(tokenAddress, memberId, _currentRound());
+        memberUsed = _memberStake[tokenAddress][memberId].boostShares;
+    }
+
     function canWithdraw(address tokenAddress, uint256 memberId) external view returns (bool) {
         MemberStake storage member = _memberStake[tokenAddress][memberId];
         if (member.unlockRequestPhase == 0) return false;
@@ -468,6 +501,43 @@ contract Stake is IStake {
     function _totalValidBoostSharesAt(address tokenAddress, uint256 round) private view returns (uint256) {
         return _totalValidBoostSharesAdded[tokenAddress].value(round)
             - _totalValidBoostSharesRemoved[tokenAddress].value(round);
+    }
+
+    function _boostStakeBaseAndMemberCap(address tokenAddress, uint256 memberId, uint256 round)
+        private
+        view
+        returns (uint256 baseCap, uint256 memberCap)
+    {
+        uint256 liquidityPrincipal = _totalLiquidityTokenAmount[tokenAddress];
+        if (liquidityPrincipal == 0) return (0, 0);
+
+        {
+            ILOVE20Token token = ILOVE20Token(tokenAddress);
+            uint256 maxSupply = token.MAX_SUPPLY();
+            if (maxSupply == 0) return (0, 0);
+            uint256 mintedShare = Math.mulDiv(liquidityPrincipal, token.totalSupply(), maxSupply);
+            baseCap = mintedShare * LIQUIDITY_TOKEN_EQUIVALENCE_FACTOR * BOOST_STAKE_SUPPLY_FACTOR;
+        }
+
+        uint256 totalVotes = _totalValidGovVotesAt(tokenAddress, round);
+        if (totalVotes == 0) return (baseCap, 0);
+
+        uint256 memberVotes = _validGovVotesByMember[tokenAddress][memberId].value(round);
+        memberCap = Math.mulDiv(baseCap, memberVotes, totalVotes) * BOOST_STAKE_MULTIPLIER;
+    }
+
+    function _checkBoostCap(
+        address tokenAddress,
+        uint256 memberId,
+        uint256 round,
+        uint256 boostAmount
+    ) private view {
+        MemberStake storage member = _memberStake[tokenAddress][memberId];
+        (, uint256 memberCap) = _boostStakeBaseAndMemberCap(tokenAddress, memberId, round);
+        if (member.boostShares + boostAmount > memberCap) {
+            uint256 memberRemaining = member.boostShares < memberCap ? memberCap - member.boostShares : 0;
+            revert BoostCapExceeded(tokenAddress, memberId, boostAmount, memberRemaining);
+        }
     }
 
     function _checkActiveRound() private view returns (uint256 round) {
@@ -608,6 +678,7 @@ contract Stake is IStake {
         member.promisedWaitingPhases = promisedWaitingPhases;
         totals.totalLiquidityShares += liquiditySharesAdded;
         totals.lastWithdrawableLp += added.lpMinted;
+        _totalLiquidityTokenAmount[tokenAddress] += added.tokenAmount;
         _totalValidGovVotesAdded[tokenAddress].increase(round, govVotesAdded);
         _validGovVotesByMember[tokenAddress][memberId].increase(round, govVotesAdded);
 
@@ -785,6 +856,12 @@ contract Stake is IStake {
 
         uint256 lpAmount = (liquidityShares * totals.lastWithdrawableLp) / totals.totalLiquidityShares;
         totals.lastWithdrawableLp -= lpAmount;
+        if (totals.totalLiquidityShares != 0) {
+            uint256 liquidityPrincipal = _totalLiquidityTokenAmount[tokenAddress];
+            // forge-lint: disable-next-line(divide-before-multiply)
+            _totalLiquidityTokenAmount[tokenAddress] =
+                liquidityPrincipal - (liquidityShares * liquidityPrincipal) / totals.totalLiquidityShares;
+        }
         totals.totalLiquidityShares -= liquidityShares;
 
         if (lpAmount > 0) {

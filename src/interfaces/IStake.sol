@@ -69,6 +69,12 @@ interface IStakeErrors {
         uint256 requestedRound,
         uint256 currentRound
     );
+    error BoostCapExceeded(
+        address tokenAddress,
+        uint256 memberId,
+        uint256 requested,
+        uint256 allowed
+    );
 }
 
 interface IStakeEvents {
@@ -180,7 +186,9 @@ interface IStake is IStakeErrors, IStakeEvents {
         address pairFactoryAddress,
         uint256 promisedWaitingPhasesMin,
         uint256 promisedWaitingPhasesMax,
-        uint256 feeSettlementRatio
+        uint256 feeSettlementRatio,
+        uint256 boostStakeSupplyFactor,
+        uint256 boostStakeMultiplier
     ) external;
     function settleFees(address tokenAddress) external;
     function stakeLiquidity(
@@ -204,6 +212,12 @@ interface IStake is IStakeErrors, IStakeEvents {
     function PROMISED_WAITING_PHASES_MIN() external view returns (uint256);
     function PROMISED_WAITING_PHASES_MAX() external view returns (uint256);
     function FEE_SETTLEMENT_RATIO() external view returns (uint256);
+    function BOOST_STAKE_SUPPLY_FACTOR() external view returns (uint256);
+    function BOOST_STAKE_MULTIPLIER() external view returns (uint256);
+    function LIQUIDITY_TOKEN_EQUIVALENCE_FACTOR() external view returns (uint256);
+    function liquidityTokenAmount(address tokenAddress) external view returns (uint256);
+    function boostStakeCap(address tokenAddress, uint256 memberId)
+        external view returns (uint256 memberCap, uint256 memberUsed);
     function pairAddress(address tokenAddress) external view returns (address);
     function totalBurnedToken(address tokenAddress) external view returns (uint256);
     function totalParentTokenBurned(address tokenAddress) external view returns (uint256);

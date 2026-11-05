@@ -63,10 +63,10 @@ contract ProposalDoSTest is Test {
         (address[] memory tokens,) = launch.tokens(0, 1, false);
         token = LOVE20Token(tokens[0]);
         stake.init(address(phase), address(memberNFT), address(vote), address(launch),
-            address(new MockRouter()), address(factory), 1, 100, 3e15);
+            address(new MockRouter()), address(factory), 1, 100, 3e15, 2, 5);
         submit.init(address(phase), address(stake), address(memberNFT), 1);
         vote.init(address(phase), address(stake), address(submit), address(memberNFT));
-        mint.init(address(vote), address(submit), address(launch), address(memberNFT), 5e16, 1e17, 1e17, 2);
+        mint.init(address(vote), address(submit), address(launch), address(memberNFT), 5e16, 1e17, 1e17);
         vm.startPrank(actor);
         token.approve(address(memberNFT), type(uint256).max);
         token.approve(address(stake), type(uint256).max);
@@ -125,7 +125,7 @@ contract ProposalDoSTest is Test {
         vm.cool(launchAddress);
         vm.startPrank(actor);
         uint256 beforeGas = gasleft();
-        (uint256 govReward,,) = mint.mintGovReward{gas: 8_000_000}(address(token), 1, 1, actor);
+        (uint256 govReward,) = mint.mintGovReward{gas: 8_000_000}(address(token), 1, 1, actor);
         uint256 preparationGas = beforeGas - gasleft();
         vm.stopPrank();
         emit log_named_uint("proposals", count);

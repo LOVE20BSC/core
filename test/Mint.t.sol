@@ -46,8 +46,7 @@ contract MintTest {
             address(this),
             minVoteRatio,
             govRatio,
-            proposalRatio,
-            2
+            proposalRatio
         );
         token = new LOVE20Token("Review", "REV", supply, maxSupply, address(this), address(mint), address(this));
     }
@@ -113,11 +112,11 @@ contract MintTest {
         uint256[] memory rounds = new uint256[](2);
         rounds[0] = 1;
         rounds[1] = 2;
-        (uint256[] memory votes, uint256[] memory boosts, uint256[] memory burns) =
+        (uint256[] memory votes, uint256[] memory boosts) =
             mint.mintGovRewards(address(token), rounds, 1, address(this));
-        require(votes.length == 2 && boosts.length == 2 && burns.length == 2, "array lengths");
+        require(votes.length == 2 && boosts.length == 2, "array lengths");
         require(votes[0] == 450 && votes[1] == 427, "round order");
-        require(boosts[0] + boosts[1] + burns[0] + burns[1] == 0, "cancelled boost");
+        require(boosts[0] + boosts[1] == 0, "cancelled boost");
         require(token.balanceOf(address(this)) == 1877 && mint.totalRewardMinted(address(token)) == 877, "batch reward");
     }
 
@@ -129,7 +128,7 @@ contract MintTest {
             abi.encodeWithSelector(IMintErrors.MemberRewardAlreadyMinted.selector, address(token), 1, 1)
         );
         mint.mintGovRewards(address(token), rounds, 1, address(this));
-        (,,, bool minted) = mint.govRewardByMemberId(address(token), 1, 1);
+        (,, bool minted) = mint.govRewardByMemberId(address(token), 1, 1);
         require(!minted && mint.totalRewardMinted(address(token)) == 0, "reward rollback");
         require(token.totalSupply() == 1000, "token rollback");
         require(issuedLaunchCount[address(token)] == 0 && mint.launchCredit(address(token), 1) == 0, "launch rollback");
@@ -137,9 +136,9 @@ contract MintTest {
 
     function testEmptyBatchHasNoSideEffects() public {
         setupMint(1000, 10000, 1e17, 0);
-        (uint256[] memory votes, uint256[] memory boosts, uint256[] memory burns) =
+        (uint256[] memory votes, uint256[] memory boosts) =
             mint.mintGovRewards(address(token), new uint256[](0), 1, address(this));
-        require(votes.length + boosts.length + burns.length == 0, "empty arrays");
+        require(votes.length + boosts.length == 0, "empty arrays");
         require(token.totalSupply() == 1000 && mint.totalRewardMinted(address(token)) == 0, "empty batch mutated");
     }
 
@@ -270,7 +269,7 @@ contract MintTest {
             abi.encodeWithSelector(IMintErrors.MemberRewardPoolEmpty.selector, address(token), 1)
         );
         mint.mintGovReward(address(token), 1, 1, address(this));
-        (,,, bool minted) = mint.govRewardByMemberId(address(token), 1, 1);
+        (,, bool minted) = mint.govRewardByMemberId(address(token), 1, 1);
         require(!minted && mint.totalRewardMinted(address(token)) == 0, "zero gov reward consumed state");
     }
 
@@ -344,34 +343,34 @@ contract MintTest {
     function testQueryUnpreparedRoundCalculatesRealtime() public {
         setupMint(1000, 10000, 1e17, 0);
         // Query before any mint - should calculate real-time
-        (uint256 voteReward, uint256 boostReward, uint256 burnReward, bool minted) =
+        (uint256 voteReward, uint256 boostReward, bool minted) =
             mint.govRewardByMemberId(address(token), 2, 1);
-        require(voteReward == 450 && boostReward == 0 && burnReward == 0 && !minted, "unprepared calculates real-time");
+        require(voteReward == 450 && boostReward == 0 && !minted, "unprepared calculates real-time");
         // Trigger prepare for round 1 by minting (memberVoteAmount = 1 for this round)
         mint.mintGovReward(address(token), 1, 1, address(this));
         // Now set memberVoteAmount to 0 and query round 1 - should return cached zero for nonvoter
         memberVoteAmount = 0;
-        (voteReward, boostReward, burnReward, minted) = mint.govRewardByMemberId(address(token), 1, 1);
-        require(voteReward + boostReward + burnReward == 0 && minted, "nonvoter member reward");
+        (voteReward, boostReward, minted) = mint.govRewardByMemberId(address(token), 1, 1);
+        require(voteReward + boostReward == 0 && minted, "nonvoter member reward");
     }
 
-    function testGovernanceQueryMatchesMintAndBoostBurn() public {
+    function testGovernanceQueryMatchesMintAndBoost() public {
         totalVoteAmountValue = firstVotes = 10;
         totalBoost = 2;
         memberBoost = 1;
         setupMint(1000, 11000, 1e17, 0);
-        (uint256 voteReward, uint256 boostReward, uint256 burnReward, bool minted) =
+        (uint256 voteReward, uint256 boostReward, bool minted) =
             mint.govRewardByMemberId(address(token), 1, 1);
-        require(voteReward == 50 && boostReward == 100 && burnReward == 150 && !minted, "boost query");
+        require(voteReward == 50 && boostReward == 250 && !minted, "boost query");
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.NotMemberOwner.selector, 1));
         vm.prank(address(2));
         mint.mintGovReward(address(token), 1, 1, address(this));
-        (voteReward, boostReward, burnReward) = mint.mintGovReward(address(token), 1, 1, address(this));
-        require(voteReward == 50 && boostReward == 100 && burnReward == 150, "mint differs from query");
-        require(token.totalSupply() == 1150 && mint.totalRewardBurned(address(token)) == 150, "mint/burn ledger");
+        (voteReward, boostReward) = mint.mintGovReward(address(token), 1, 1, address(this));
+        require(voteReward == 50 && boostReward == 250, "mint differs from query");
+        require(token.totalSupply() == 1300 && mint.totalRewardBurned(address(token)) == 0, "mint/burn ledger");
         require(mint.reservedAvailable(address(token)) == 700, "remaining reserve");
-        (voteReward, boostReward, burnReward, minted) = mint.govRewardByMemberId(address(token), 1, 1);
-        require(voteReward == 50 && boostReward == 100 && burnReward == 150 && minted, "settled query");
+        (voteReward, boostReward, minted) = mint.govRewardByMemberId(address(token), 1, 1);
+        require(voteReward == 50 && boostReward == 250 && minted, "settled query");
     }
 
     function testPrepareScansProposalsOnceAndCachesResult() public {

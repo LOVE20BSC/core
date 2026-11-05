@@ -11,7 +11,7 @@ MemberNFT.Approval(owner:address indexed,approved:address indexed,tokenId:uint25
 MemberNFT.ApprovalForAll(owner:address indexed,operator:address indexed,approved:bool)
 MemberNFT.MemberMinted(memberId:uint256 indexed,owner:address indexed,cost:uint256,totalBurnedForMint:uint256,name:string,normalizedName:string)
 MemberNFT.Transfer(from:address indexed,to:address indexed,tokenId:uint256 indexed)
-Mint.GovRewardMinted(tokenAddress:address indexed,round:uint256 indexed,memberId:uint256 indexed,voteReward:uint256,boostReward:uint256,burnReward:uint256,totalRewardMinted:uint256)
+Mint.GovRewardMinted(tokenAddress:address indexed,round:uint256 indexed,memberId:uint256 indexed,voteReward:uint256,boostReward:uint256,totalRewardMinted:uint256)
 Mint.ProposalRewardMinted(tokenAddress:address indexed,round:uint256 indexed,proposalId:uint256 indexed,recipient:address,amount:uint256,totalRewardMinted:uint256)
 Mint.RewardBurned(tokenAddress:address indexed,round:uint256 indexed,amount:uint256,totalRewardBurned:uint256,reason:uint8)
 Mint.RewardPrepared(tokenAddress:address indexed,round:uint256 indexed,govReward:uint256,proposalReward:uint256,eligibleProposalVoteAmount:uint256,totalRewardReserved:uint256,totalRewardBurned:uint256)

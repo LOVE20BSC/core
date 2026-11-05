@@ -45,8 +45,7 @@ contract MintCoverageTest {
             address(this),
             minVoteRatio,
             govRatio,
-            proposalRatio,
-            2
+            proposalRatio
         );
         token = new LOVE20Token("Coverage", "COV", supply, maxSupply, address(this), address(mint), address(this));
     }
@@ -249,16 +248,16 @@ contract MintCoverageTest {
         require(mint.reservedAvailable(address(token)) == 1, "dust retained");
     }
 
-    function testBurnOnlyGovernanceSettlement() public {
+    function testBoostOnlyGovernanceSettlement() public {
         totalVoteAmountValue = 1_000_000;
         memberVoteAmount = 1;
         totalBoost = 1000;
         memberBoost = 1000;
         setupMint(1000, 10000, 1e17, 0);
-        (uint256 v, uint256 b, uint256 burn) = mint.mintGovReward(address(token), 1, 1, address(this));
-        require(v == 0 && b == 0 && burn == 450, "only burn recorded");
-        require(token.totalSupply() == 1000, "nothing minted");
-        require(mint.launchCredit(address(token), 1) == 0, "no credit without mint");
+        (uint256 v, uint256 b) = mint.mintGovReward(address(token), 1, 1, address(this));
+        require(v == 0 && b == 450, "full boost paid without a vote half");
+        require(token.totalSupply() == 1450, "boost minted");
+        require(token.balanceOf(address(this)) == 1450, "recipient received the boost");
     }
 
     function testGovRewardRoundNotReady() public {
@@ -282,8 +281,8 @@ contract MintCoverageTest {
         setupMint(1000, 10000, 1e17, 0);
         // Before auto-prepare, this would fail with RoundNotEnded
         // Now it should succeed and automatically prepare rewards
-        (uint256 v, uint256 b, uint256 burn) = mint.mintGovReward(address(token), 1, 1, address(this));
+        (uint256 v, uint256 b) = mint.mintGovReward(address(token), 1, 1, address(this));
         // Verify rewards were calculated and minted
-        require(v > 0 || b > 0 || burn > 0, "rewards should be non-zero");
+        require(v > 0 || b > 0, "rewards should be non-zero");
     }
 }

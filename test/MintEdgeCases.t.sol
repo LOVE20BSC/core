@@ -27,8 +27,7 @@ contract MintEdgeCasesTest {
             address(this),
             5e16,
             1e17,
-            1e17,
-            2
+            1e17
         );
         token = new LOVE20Token("Test", "TST", supply, maxSupply, address(this), address(mint), address(this));
     }
@@ -102,7 +101,7 @@ contract MintEdgeCasesTest {
     function testRepeatedInitReverts() public {
         setupMint(1000, 10000);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.AlreadyInitialized.selector));
-        mint.init(address(this), address(this), address(this), address(this), 5e16, 1e17, 1e17, 2);
+        mint.init(address(this), address(this), address(this), address(this), 5e16, 1e17, 1e17);
     }
 
     function testInitDerivesPhaseFromVote() public {
@@ -117,7 +116,7 @@ contract MintEdgeCasesTest {
         mint.mintGovReward(address(token), 5, 1, address(this));
 
         currentPhaseValue = 6;
-        (uint256 voteReward,,) = mint.mintGovReward(address(token), 5, 1, address(this));
+        (uint256 voteReward,) = mint.mintGovReward(address(token), 5, 1, address(this));
         require(voteReward > 0, "round settles once the derived phase advances");
     }
 

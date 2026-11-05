@@ -50,7 +50,6 @@ contract MintEventsTest {
         uint256 indexed memberId,
         uint256 voteReward,
         uint256 boostReward,
-        uint256 burnReward,
         uint256 totalRewardMinted
     );
 
@@ -88,8 +87,7 @@ contract MintEventsTest {
             address(this),
             5e16,
             1e17,
-            1e17,
-            2
+            1e17
         );
         token = new LOVE20Token("Test", "TST", 10000, 1000000, address(this), address(mint), address(this));
     }
@@ -205,23 +203,8 @@ contract MintEventsTest {
         uint256 votePool = govReward / 2;
         uint256 voteReward = votePool * 200 / 1000;
         uint256 boostPool = govReward - votePool;
-        uint256 theoreticalBoost = boostPool * 1500 / 5000;
-        uint256 boostReward = theoreticalBoost > voteReward * 2 ? voteReward * 2 : theoreticalBoost;
-        uint256 burnReward = theoreticalBoost - boostReward;
+        uint256 boostReward = boostPool * 1500 / 5000;
 
-        // If there's a burn, expect RewardBurned first
-        if (burnReward > 0) {
-            vm.expectEmit(true, true, false, true);
-            emit RewardBurned({
-                tokenAddress: address(token),
-                round: round,
-                amount: burnReward,
-                totalRewardBurned: burnReward,
-                reason: BurnReason.BoostOverflow
-            });
-        }
-
-        // Then expect GovRewardMinted
         vm.expectEmit(true, true, true, true);
         emit GovRewardMinted({
             tokenAddress: address(token),
@@ -229,7 +212,6 @@ contract MintEventsTest {
             memberId: memberId,
             voteReward: voteReward,
             boostReward: boostReward,
-            burnReward: burnReward,
             totalRewardMinted: voteReward + boostReward
         });
 
@@ -281,25 +263,11 @@ contract MintEventsTest {
         uint256 votePool = govReward / 2;
         uint256 voteReward1 = votePool * 200 / 1000;
         uint256 boostPool = govReward - votePool;
-        uint256 theoreticalBoost = boostPool * 1500 / 5000;
-        uint256 boostReward1 = theoreticalBoost > voteReward1 * 2 ? voteReward1 * 2 : theoreticalBoost;
-        uint256 burnReward1 = theoreticalBoost - boostReward1;
+        uint256 boostReward1 = boostPool * 1500 / 5000;
 
         // Seed a settlement for the other member so the first batch event's cumulative total
         // differs from its own increment.
         mint.mintGovReward(address(token), 1, 1, address(this));
-
-        // If there's a burn in first round, expect RewardBurned first
-        if (burnReward1 > 0) {
-            vm.expectEmit(true, true, false, true);
-            emit RewardBurned({
-                tokenAddress: address(token),
-                round: 1,
-                amount: burnReward1,
-                totalRewardBurned: burnReward1,
-                reason: BurnReason.BoostOverflow
-            });
-        }
 
         vm.expectEmit(true, true, true, true);
         emit GovRewardMinted({
@@ -308,7 +276,6 @@ contract MintEventsTest {
             memberId: memberId,
             voteReward: voteReward1,
             boostReward: boostReward1,
-            burnReward: burnReward1,
             totalRewardMinted: (voteReward1 + boostReward1) * 2
         });
 
@@ -377,7 +344,7 @@ contract MintEventsTest {
         mint.mintProposalReward(address(token), 1, 1, TARGET);
 
         MintVm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 govTopic = keccak256("GovRewardMinted(address,uint256,uint256,uint256,uint256,uint256,uint256)");
+        bytes32 govTopic = keccak256("GovRewardMinted(address,uint256,uint256,uint256,uint256,uint256)");
         bytes32 proposalTopic = keccak256("ProposalRewardMinted(address,uint256,uint256,address,uint256,uint256)");
         uint256 folded;
         uint256 seen;
@@ -387,7 +354,7 @@ contract MintEventsTest {
             if (logs[i].topics[0] == govTopic) {
                 uint256 voteReward;
                 uint256 boostReward;
-                (voteReward, boostReward,, minted) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
+                (voteReward, boostReward, minted) = abi.decode(logs[i].data, (uint256, uint256, uint256));
                 folded += voteReward + boostReward;
             } else if (logs[i].topics[0] == proposalTopic) {
                 uint256 amount;
@@ -426,7 +393,7 @@ contract MintEventsTest {
         MintVm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 mintTopic = keccak256("TokenMinted(address,uint256)");
         bytes32 launchTopic = keccak256("LaunchCountAdded(address,uint256,uint256,uint256,uint256)");
-        bytes32 govTopic = keccak256("GovRewardMinted(address,uint256,uint256,uint256,uint256,uint256,uint256)");
+        bytes32 govTopic = keccak256("GovRewardMinted(address,uint256,uint256,uint256,uint256,uint256)");
         uint256 mintIndex = type(uint256).max;
         uint256 launchIndex = type(uint256).max;
         uint256 govIndex = type(uint256).max;

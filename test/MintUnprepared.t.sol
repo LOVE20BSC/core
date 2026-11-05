@@ -34,8 +34,7 @@ contract MintUnpreparedTest {
             address(this),
             5e16,
             govRatio,
-            proposalRatio,
-            2
+            proposalRatio
         );
         token = new LOVE20Token("Test", "TST", supply, maxSupply, address(this), address(mint), address(this));
     }
@@ -104,9 +103,9 @@ contract MintUnpreparedTest {
 
     function testUnpreparedGovRewardCalculatesRealtime() public {
         setupMint(1000, 10000, 1e17, 0);
-        (uint256 voteReward, uint256 boostReward, uint256 burnReward, bool minted) =
+        (uint256 voteReward, uint256 boostReward, bool minted) =
             mint.govRewardByMemberId(address(token), 1, 1);
-        require(voteReward == 45 && boostReward == 45 && burnReward == 0 && !minted, "unprepared 10/100 * 900");
+        require(voteReward == 45 && boostReward == 45 && !minted, "unprepared 10/100 * 900");
         require(!mint.isRewardPrepared(address(token), 1), "should not be prepared");
     }
 
@@ -126,11 +125,11 @@ contract MintUnpreparedTest {
 
     function testPreparedAndUnpreparedQueryConsistency() public {
         setupMint(1000, 10000, 1e17, 1e17);
-        (uint256 unprepGov,,,) = mint.govRewardByMemberId(address(token), 1, 1);
+        (uint256 unprepGov,,) = mint.govRewardByMemberId(address(token), 1, 1);
         (uint256 unprepProp,) = mint.proposalRewardByProposalId(address(token), 1, 1);
 
 
-        (uint256 prepGov,,,) = mint.govRewardByMemberId(address(token), 1, 1);
+        (uint256 prepGov,,) = mint.govRewardByMemberId(address(token), 1, 1);
         (uint256 prepProp,) = mint.proposalRewardByProposalId(address(token), 1, 1);
 
         require(unprepGov == prepGov, "gov reward must match");
@@ -143,9 +142,9 @@ contract MintUnpreparedTest {
         proposalVoteAmount = 0;
         setupMint(1000, 10000, 1e17, 1e17);
 
-        (uint256 voteReward, uint256 boostReward, uint256 burnReward, bool minted) =
+        (uint256 voteReward, uint256 boostReward, bool minted) =
             mint.govRewardByMemberId(address(token), 1, 1);
-        require(voteReward == 0 && boostReward == 0 && burnReward == 0 && !minted, "zero votes");
+        require(voteReward == 0 && boostReward == 0 && !minted, "zero votes");
 
         (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
         require(amount == 0, "zero proposal votes");

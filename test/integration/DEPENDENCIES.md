@@ -36,8 +36,7 @@ function init(
     address memberNFTAddress_,
     uint256 proposalRewardMinVoteRatio_,
     uint256 roundRewardGovRatio_,
-    uint256 roundRewardProposalRatio_,
-    uint256 maxGovBoostRewardMultiplier_
+    uint256 roundRewardProposalRatio_
 ) external
 ```
 **依赖**: Vote, Submit, Launch, MemberNFT
@@ -76,7 +75,9 @@ function init(
     address pairFactoryAddress_,
     uint256 promisedWaitingPhasesMin,
     uint256 promisedWaitingPhasesMax,
-    uint256 feeSettlementRatio
+    uint256 feeSettlementRatio,
+    uint256 boostStakeSupplyFactor,
+    uint256 boostStakeMultiplier
 ) external
 ```
 **依赖**: Phase, MemberNFT, Vote, Launch, UniswapV2Router, UniswapV2Factory
@@ -178,7 +179,9 @@ stake.init(
     address(factory),
     1,    // promisedWaitingPhasesMin
     100,  // promisedWaitingPhasesMax
-    2.5e15 // feeSettlementRatio: 0.25% of the pair LP supply per settlement
+    2.5e15, // feeSettlementRatio: 0.25% of the pair LP supply per settlement
+    2,    // boostStakeSupplyFactor
+    5     // boostStakeMultiplier
 );
 
 // 4. 初始化 Vote（依赖 Phase, Stake, Submit, MemberNFT, Mint）
@@ -198,8 +201,7 @@ mint.init(
     address(memberNFT),
     5e16, // proposalRewardMinVoteRatio: 5%
     1e17, // roundRewardGovRatio: 10%
-    1e17, // roundRewardProposalRatio: 10%
-    2     // maxGovBoostRewardMultiplier: 2x
+    1e17  // roundRewardProposalRatio: 10%
 );
 ```
 
