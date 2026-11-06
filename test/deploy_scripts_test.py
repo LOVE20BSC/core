@@ -177,6 +177,108 @@ def fee_settlement_bound_single_source() -> None:
         boundary.group(1), expand_solidity_uint(declared.group(1)))
 
 
+# Constructor argument order: one env key per slot. The element types are not written here; they
+# are derived from the compiled ABI and each env value is checked against its derived type, so the
+# map cannot silently drift: an extra/missing slot, a wrong type, or a value taken from another
+# env key fails.
+CONSTRUCTOR_SLOTS = {
+    "MemberNFT": ["MEMBER_BASE_DIVISOR", "MEMBER_BYTES_THRESHOLD", "MEMBER_MULTIPLIER",
+                  "MEMBER_MAX_NAME_LENGTH", "LOVE20_TOKEN_ADDRESS"],
+    "Phase": ["PHASE_ORIGIN_BLOCKS", "PHASE_ORIGIN_PHASE_BLOCKS", "PHASE_TARGET_SECONDS",
+              "PHASE_ADJUST_THRESHOLD", "PHASE_SYNC_OBSERVATION_LIMIT"],
+    "LOVE20Token": ["TOKEN_NAME", "TOKEN_SYMBOL", "LAUNCH_AMOUNT", "MAX_SUPPLY",
+                    "DISTRIBUTOR_ADDRESS", "MINT_ADDRESS", "WETH_ADDRESS"],
+    "Launch": ["MINT_ADDRESS", "MEMBER_NFT_ADDRESS", "WETH_ADDRESS", "FACTORY_ADDRESS",
+               "DISTRIBUTOR_ADDRESS", "LAUNCH_COUNT_THRESHOLD_RATIO", "MAX_LAUNCH_COUNT",
+               "TOKEN_SYMBOL_LENGTH", "LAUNCH_AMOUNT", "MAX_SUPPLY", "TOKEN_NAME", "TOKEN_SYMBOL"],
+    "Submit": ["PHASE_ADDRESS", "STAKE_ADDRESS", "MEMBER_NFT_ADDRESS", "SUBMIT_MIN_RATIO"],
+    "Vote": ["PHASE_ADDRESS", "STAKE_ADDRESS", "SUBMIT_ADDRESS", "MEMBER_NFT_ADDRESS"],
+    "Stake": ["PHASE_ADDRESS", "MEMBER_NFT_ADDRESS", "VOTE_ADDRESS", "LAUNCH_ADDRESS",
+              "ROUTER_ADDRESS", "FACTORY_ADDRESS", "PROMISED_WAITING_PHASES_MIN",
+              "PROMISED_WAITING_PHASES_MAX", "FEE_SETTLEMENT_RATIO", "BOOST_STAKE_SUPPLY_FACTOR",
+              "BOOST_STAKE_MULTIPLIER"],
+    "Mint": ["PHASE_ADDRESS", "VOTE_ADDRESS", "SUBMIT_ADDRESS", "LAUNCH_ADDRESS",
+             "MEMBER_NFT_ADDRESS", "PROPOSAL_REWARD_MIN_VOTE_RATIO", "ROUND_REWARD_GOV_RATIO",
+             "ROUND_REWARD_PROPOSAL_RATIO"],
+}
+
+ADDRESS_VALUE = re.compile(r"0x[0-9a-fA-F]{40}")
+UINT_VALUE = re.compile(r"0|[1-9][0-9]*")
+
+
+def constructor_abi(repo: Path, contract: str) -> list:
+    """ABI entries from compiled output: `forge inspect` when available, else the `out/` artifact.
+
+    `forge inspect` recompiles first, so it wins; when forge is not on PATH the artifact is still a
+    build product and is used instead. If neither exists the check fails - a gate that cannot verify
+    must not pass silently.
+    """
+    try:
+        inspected = subprocess.run(["forge", "inspect", contract, "abi", "--json"],
+                                   cwd=repo, text=True, capture_output=True)
+    except FileNotFoundError:
+        inspected = None
+    if inspected is not None:
+        assert inspected.returncode == 0, (contract, inspected.stderr, inspected.stdout)
+        return json.loads(inspected.stdout)
+    artifact = repo / "out" / (contract + ".sol") / (contract + ".json")
+    assert artifact.is_file(), (f"cannot derive the {contract} constructor ABI: forge is not on PATH "
+                                f"and {artifact} is missing; run `forge build` first")
+    print(f"warning: forge is not on PATH; using the build artifact {artifact}", file=sys.stderr)
+    return json.loads(artifact.read_text())["abi"]
+
+
+def constructor_layout(repo: Path, contract: str):
+    """Return (signature, slot types, tuple-wrapped) for the constructor, derived from the ABI."""
+    entries = [entry for entry in constructor_abi(repo, contract) if entry.get("type") == "constructor"]
+    assert len(entries) == 1, (contract, entries)
+    inputs = entries[0]["inputs"]
+    if len(inputs) == 1 and inputs[0]["type"] == "tuple":
+        components = inputs[0]["components"]
+        assert all(component["type"] != "tuple" for component in components), (contract, components)
+        slot_types = [component["type"] for component in components]
+        return "constructor((" + ",".join(slot_types) + "))", slot_types, True
+    slot_types = [entry["type"] for entry in inputs]
+    return "constructor(" + ",".join(slot_types) + ")", slot_types, False
+
+
+def verify_constructor_arguments(repo: Path, contract: str, log: list, env: dict) -> None:
+    """Per-slot check of the values 31_verify passes: ABI types in CONSTRUCTOR_SLOTS order."""
+    signature, slot_types, wrapped = constructor_layout(repo, contract)
+    keys = CONSTRUCTOR_SLOTS[contract]
+    assert len(slot_types) == len(keys), (
+        f"{contract}: the compiled ABI has {len(slot_types)} constructor slots but CONSTRUCTOR_SLOTS "
+        f"lists {len(keys)}; update the slot map together with the struct", slot_types, keys)
+    for index, (slot_type, key) in enumerate(zip(slot_types, keys)):
+        if slot_type == "address":
+            valid = ADDRESS_VALUE.fullmatch(env[key]) is not None
+        elif slot_type.startswith("uint"):
+            valid = UINT_VALUE.fullmatch(env[key]) is not None
+        elif slot_type in ("string", "bool", "bytes"):
+            valid = True
+        else:
+            raise AssertionError(f"{contract} slot {index}: unsupported ABI type {slot_type}")
+        assert valid, (f"{contract} slot {index} is {slot_type} but {key}={env[key]} does not fit; "
+                       "CONSTRUCTOR_SLOTS and the ABI disagree", slot_types, keys)
+    encoded = [call for call in log if call[:2] == ["cast", "abi-encode"]]
+    matching = [call for call in encoded if call[2] == signature]
+    assert matching, (contract, "no cast abi-encode call uses the compiled signature", signature,
+                      [call[2] for call in encoded])
+    assert len(matching) == 1, (contract, matching)
+    call = matching[0]
+    if wrapped:
+        assert len(call) == 4 and call[3].startswith("(") and call[3].endswith(")"), (contract, call)
+        values = call[3][1:-1].split(",")
+    else:
+        values = call[3:]
+    assert len(values) == len(slot_types), (
+        f"{contract}: the script passes {len(values)} values but the ABI has {len(slot_types)} slots",
+        values, slot_types)
+    for index, (value, key, slot_type) in enumerate(zip(values, keys, slot_types)):
+        assert value == env[key], (
+            f"{contract} slot {index} ({slot_type}) must be {key}={env[key]} but the script passes {value}")
+
+
 def verifier_skip_never_production() -> None:
     """生产链不能出现在跳过列表：验证默认开启，跳过必须显式且只针对没有浏览器的链。"""
     profile = Path(__file__).resolve().parents[1] / "script/network/verifier.params"
@@ -431,6 +533,11 @@ def main():
         assert len([call for call in log if call[:2] == ["forge", "verify-contract"]]) == 8
         _, log = run("31_verify.sh", args=("test",))
         assert len([call for call in log if call[:2] == ["forge", "verify-contract"]]) == 8
+        # 8 组构造参数逐槽比对：签名顺序与类型来自编译产物，取值来自 CONSTRUCTOR_SLOTS。
+        abi_calls = [call for call in log if call[:2] == ["cast", "abi-encode"]]
+        assert len(abi_calls) == len(CONSTRUCTOR_SLOTS), (len(abi_calls), [call[2] for call in abi_calls])
+        for contract in CONSTRUCTOR_SLOTS:
+            verify_constructor_arguments(core, contract, log, env)
         # 跳过由 verifier.params 显式声明：默认验证，只有列表内的链才跳过，且不发任何验证请求。
         network.parent.joinpath("verifier.params").write_text(
             "ETHERSCAN_VERIFIER_URL=https://api.etherscan.io/v2/api\nVERIFY_SKIP_CHAIN_IDS=31337,97\n")
@@ -451,45 +558,10 @@ def main():
         assert not any(call[0] == "forge" for call in bad_url_log)
         network.parent.joinpath("verifier.params").write_text(
             "ETHERSCAN_VERIFIER_URL=https://api.etherscan.io/v2/api\nVERIFY_SKIP_CHAIN_IDS=31337\n")
-        token_args = next(call for call in log if call[:2] == ["cast", "abi-encode"] and "string,string" in call[2])
-        assert token_args[-2] == env["MINT_ADDRESS"]
-        # Launch 走 tuple 参数：address/uint256 槽位互换时字节长度不变，必须按 ABI 顺序逐槽
-        # 比对「类型」与「取值」，只比整串长度或只比期望签名都拦不住错位。
-        launch_args = next(call for call in log if call[:2] == ["cast", "abi-encode"] and call[2].startswith("constructor(("))
-        launch_signature = launch_args[2]
-        assert launch_signature.startswith("constructor((") and launch_signature.endswith("))"), launch_signature
-        components = launch_signature[len("constructor(("):-2].split(",")
-        assert launch_args[3].startswith("(") and launch_args[3].endswith(")"), launch_args[3]
-        values = launch_args[3][1:-1].split(",")
-        launch_fields = [
-            ("address", "MINT_ADDRESS"),
-            ("address", "MEMBER_NFT_ADDRESS"),
-            ("address", "WETH_ADDRESS"),
-            ("address", "FACTORY_ADDRESS"),
-            ("address", "DISTRIBUTOR_ADDRESS"),
-            ("uint256", "LAUNCH_COUNT_THRESHOLD_RATIO"),
-            ("uint256", "MAX_LAUNCH_COUNT"),
-            ("uint256", "TOKEN_SYMBOL_LENGTH"),
-            ("uint256", "LAUNCH_AMOUNT"),
-            ("uint256", "MAX_SUPPLY"),
-            ("string", "TOKEN_NAME"),
-            ("string", "TOKEN_SYMBOL"),
-        ]
-        assert len(components) == len(values) == len(launch_fields), (components, values, launch_fields)
-        for index, (field_type, key) in enumerate(launch_fields):
-            assert components[index] == field_type, (index, key, components[index], field_type)
-            assert values[index] == env[key], (index, key, values[index], env[key])
-        for signature, label in [
-                ("constructor(uint256,uint256,uint256,uint256,address)", "MemberNFT"),
-                ("constructor(uint256,uint256,uint256,uint256,uint256)", "Phase"),
-                ("constructor(string,string,uint256,uint256,address,address,address)", "LOVE20Token"),
-                ("constructor((address,address,address,address,address,uint256,uint256,uint256,uint256,uint256,string,string))", "Launch"),
-                ("constructor(address,address,address,uint256)", "Submit"),
-                ("constructor(address,address,address,address)", "Vote"),
-                ("constructor(address,address,address,address,address,address,uint256,uint256,uint256,uint256,uint256)", "Stake"),
-                ("constructor(address,address,address,address,address,uint256,uint256,uint256)", "Mint")]:
+        for contract in CONSTRUCTOR_SLOTS:
+            signature, _, _ = constructor_layout(core, contract)
             result, log = run("31_verify.sh", False, ("test",), ABI_ENCODE_FAIL=signature)
-            assert f"Failed to encode {label}" in result.stdout, result.stdout
+            assert f"Failed to encode {contract}" in result.stdout, result.stdout
             assert not any(call[0] == "forge" for call in log)
         with network.joinpath("network.params").open("a") as config:
             config.write("ETHERSCAN_API_KEY=\n")
