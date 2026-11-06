@@ -5,6 +5,10 @@ import {Test} from "@forge-std/Test.sol";
 import {DeployCore} from "../script/deploy/DeployCore.s.sol";
 
 contract DeployCoreHarness is DeployCore {
+    function _predictor() internal view override returns (address) {
+        return address(this);
+    }
+
     function validateConfigForTest(CoreConfig memory config) external view {
         _validateConfig(config);
     }
@@ -360,12 +364,17 @@ contract DeployCoreTest is Test {
 contract MockPair {}
 
 contract MockFactory {
-    function getPair(address, address) external pure returns (address) {
-        return address(0);
+    mapping(address => mapping(address => address)) internal _pairs;
+
+    function getPair(address tokenA, address tokenB) external view returns (address) {
+        return _pairs[tokenA][tokenB];
     }
 
-    function createPair(address, address) external returns (address) {
-        return address(new MockPair());
+    function createPair(address tokenA, address tokenB) external returns (address) {
+        address pair = address(new MockPair());
+        _pairs[tokenA][tokenB] = pair;
+        _pairs[tokenB][tokenA] = pair;
+        return pair;
     }
 }
 

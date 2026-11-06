@@ -27,8 +27,8 @@ contract MintInvariantTest {
     }
 
     function setUp() public {
-        mint = new Mint();
-        mint.init(
+        mint = new Mint(
+            address(this),
             address(this),
             address(this),
             address(this),

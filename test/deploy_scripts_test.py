@@ -245,7 +245,10 @@ def main():
                 "TEST_PREFIX_BYTES()(uint256)": "4",
                 "ROOT_PARENT_TOKEN_ADDRESS()(address)": "WETH_ADDRESS",
                 "FIRST_TOKEN_ADDRESS()(address)": "LOVE20_TOKEN_ADDRESS", "PAIR_FACTORY_ADDRESS()(address)": "FACTORY_ADDRESS",
-                "isLOVE20Token(address)(bool)": "true"})
+                "isLOVE20Token(address)(bool)": "true",
+                "tokenAddressBySymbol(string)(address)": "LOVE20_TOKEN_ADDRESS",
+                "parentToken(address)(address)": "WETH_ADDRESS"})
+        calls[env["FACTORY_ADDRESS"].lower() + "/getPair(address,address)(address)"] = "0x" + "77" * 20
         getters("MINT", {key + "()(uint256)": value for key, value in {
             "PROPOSAL_REWARD_MIN_VOTE_RATIO": "PROPOSAL_REWARD_MIN_VOTE_RATIO", "ROUND_REWARD_GOV_RATIO": "ROUND_REWARD_GOV_RATIO",
             "ROUND_REWARD_PROPOSAL_RATIO": "ROUND_REWARD_PROPOSAL_RATIO"}.items()})
@@ -259,7 +262,6 @@ def main():
         for name, dependencies in {"MEMBER_NFT": [], "LAUNCH": ["mint", "memberNFT"], "MINT": ["vote", "submit", "launch", "memberNFT"],
                 "STAKE": ["phase", "memberNFT", "vote", "launch"], "SUBMIT": ["phase", "stake", "memberNFT"],
                 "VOTE": ["phase", "stake", "submit", "memberNFT"]}.items():
-            getters(name, {"initialized()(bool)": "true"})
             getters(name, {dep_keys.get(dep, dep.upper()) + "_ADDRESS()(address)": dep_keys.get(dep, dep.upper()) + "_ADDRESS" for dep in dependencies})
         getters("ROUTER", {"factory()(address)": "FACTORY_ADDRESS", "WETH()(address)": "WETH_ADDRESS"})
         # cast 对 uint 返回值会带科学计数法标注，且供应量超过 64 位；21_check 必须先归一再按十进制串比较。
@@ -451,9 +453,15 @@ def main():
             "ETHERSCAN_VERIFIER_URL=https://api.etherscan.io/v2/api\nVERIFY_SKIP_CHAIN_IDS=31337\n")
         token_args = next(call for call in log if call[:2] == ["cast", "abi-encode"] and "string,string" in call[2])
         assert token_args[-2] == env["MINT_ADDRESS"]
-        for signature, label in [("constructor(uint256,uint256,uint256,uint256)", "MemberNFT"),
-                                 ("constructor(uint256,uint256,uint256,uint256,uint256)", "Phase"),
-                                 ("constructor(string,string,uint256,uint256,address,address,address)", "LOVE20Token")]:
+        for signature, label in [
+                ("constructor(uint256,uint256,uint256,uint256,address)", "MemberNFT"),
+                ("constructor(uint256,uint256,uint256,uint256,uint256)", "Phase"),
+                ("constructor(string,string,uint256,uint256,address,address,address)", "LOVE20Token"),
+                ("constructor((address,address,address,address,uint256,uint256,uint256,uint256,uint256,address,string,string))", "Launch"),
+                ("constructor(address,address,address,uint256)", "Submit"),
+                ("constructor(address,address,address,address)", "Vote"),
+                ("constructor(address,address,address,address,address,address,uint256,uint256,uint256,uint256,uint256)", "Stake"),
+                ("constructor(address,address,address,address,address,uint256,uint256,uint256)", "Mint")]:
             result, log = run("31_verify.sh", False, ("test",), ABI_ENCODE_FAIL=signature)
             assert f"Failed to encode {label}" in result.stdout, result.stdout
             assert not any(call[0] == "forge" for call in log)

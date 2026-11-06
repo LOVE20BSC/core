@@ -139,13 +139,12 @@ contract MemberNFTTest {
     function setUp() public {
         PARENT = address(this);
         token = _newToken("LOVE");
-        nft = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH);
+        nft = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH, address(token));
         alice = new MemberCaller();
         bob = new MemberCaller();
         carol = new MemberCaller();
         dave = new MemberCaller();
 
-        nft.init(address(token));
         token.approve(address(nft), type(uint256).max);
         _fund(alice);
         _fund(bob);
@@ -159,7 +158,6 @@ contract MemberNFTTest {
         require(nft.BYTES_THRESHOLD() == BYTES_THRESHOLD, "bytes threshold");
         require(nft.MULTIPLIER() == MULTIPLIER, "multiplier");
         require(nft.MAX_NAME_LENGTH() == MAX_NAME_LENGTH, "max name length");
-        require(nft.initialized(), "initialized");
         require(nft.LOVE20_TOKEN_ADDRESS() == address(token), "first token");
         require(nft.totalSupply() == 0, "total supply");
         (address[] memory holderList, uint256 totalCount) = nft.holders(0, 100, false);
@@ -168,31 +166,15 @@ contract MemberNFTTest {
         require(nft.totalBurnedForMint() == 0, "burned");
     }
 
-    function testInitStoresFirstTokenAndRejectsRepeat() public {
-        MemberNFT fresh = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH);
-        require(!fresh.initialized(), "not initialized");
-        require(fresh.LOVE20_TOKEN_ADDRESS() == address(0), "no first token");
-
-        fresh.init(address(token));
-        require(fresh.initialized(), "initialized");
-        require(fresh.LOVE20_TOKEN_ADDRESS() == address(token), "first token");
-
-        bytes memory data = _revertData(
-            address(fresh),
-            abi.encodeWithSelector(IMemberNFT.init.selector, address(token)),
-            "reinit expected"
-        );
-        require(_selector(data) == IMemberNFTErrors.AlreadyInitialized.selector, "reinit");
-    }
-
-    function testMintAndQuoteRevertBeforeInit() public {
-        MemberNFT fresh = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH);
+    function testMintAndQuoteRevertWithoutFirstToken() public {
+        MemberNFT fresh =
+            new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH, address(0));
 
         (bool ok, ) = address(fresh).call(_mintCall("abc"));
-        require(!ok, "mint before init");
+        require(!ok, "mint without first token");
 
         (ok, ) = address(fresh).call(_costCall("abc"));
-        require(!ok, "quote before init");
+        require(!ok, "quote without first token");
     }
 
     function testMintBurnsCostAndStoresIdentity() public {
@@ -239,8 +221,8 @@ contract MemberNFTTest {
             address(this),
             PARENT
         );
-        MemberNFT freeNft = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH);
-        freeNft.init(address(fullyMinted));
+        MemberNFT freeNft =
+            new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH, address(fullyMinted));
         require(freeNft.calculateMintCost("a") == 0, "zero quote");
 
         (uint256 id, uint256 cost) = dave.mint(freeNft, "dave");
@@ -262,8 +244,8 @@ contract MemberNFTTest {
     /// 这里用返回 false 的假代币隔离该分支。
     function testMintRevertsWhenFeeTransferReturnsFalse() public {
         FalseReturningToken fakeToken = new FalseReturningToken();
-        MemberNFT fresh = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH);
-        fresh.init(address(fakeToken));
+        MemberNFT fresh =
+            new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH, address(fakeToken));
         require(fresh.calculateMintCost("abc") > 0, "non-zero quote");
 
         bytes memory data = _revertData(address(fresh), _mintCall("abc"), "false fee transfer expected");
@@ -395,8 +377,8 @@ contract MemberNFTTest {
 
     function testTestPrefixAppliedWhenFirstTokenSymbolStartsWithTest() public {
         LOVE20Token testToken = _newToken("TestLOVE");
-        MemberNFT testNft = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH);
-        testNft.init(address(testToken));
+        MemberNFT testNft =
+            new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH, address(testToken));
         require(testToken.transfer(address(alice), 10 ether), "fund alice");
         alice.approveToken(address(testToken), address(testNft), type(uint256).max);
 

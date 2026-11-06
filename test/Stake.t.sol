@@ -189,12 +189,6 @@ contract StakeTest {
         router = new MockRouter();
         pairFactory = new MockPairFactory();
 
-        // Deploy MemberNFT
-        memberNFT = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH);
-
-        // Deploy Stake
-        stake = new Stake();
-
         // Deploy parent token (root token)
         parentToken = new LOVE20Token(
             "Parent Token",
@@ -206,8 +200,8 @@ contract StakeTest {
             address(this) // parent is a code-bearing test contract
         );
 
-        // Initialize MemberNFT with parent token as fee token
-        memberNFT.init(address(parentToken));
+        // Deploy MemberNFT with the parent token as fee token
+        memberNFT = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH, address(parentToken));
 
         // Deploy child token
         childToken = new LOVE20Token(
@@ -228,8 +222,8 @@ contract StakeTest {
         // Register pair in factory
         pairFactory.setPair(address(childToken), address(parentToken), address(pair));
 
-        // Initialize Stake
-        stake.init(
+        // Deploy Stake
+        stake = new Stake(
             address(phase),
             address(memberNFT),
             address(vote),
@@ -396,27 +390,9 @@ contract StakeTest {
         return !success && keccak256(data) == keccak256(expected);
     }
 
-    function _initCall(
-        address phase_,
-        address memberNFT_,
-        address vote_,
-        address launch_,
-        address router_,
-        address pairFactory_,
-        uint256 min_,
-        uint256 max_,
-        uint256 ratio_
-    ) private pure returns (bytes memory) {
-        return abi.encodeWithSelector(
-            Stake.init.selector, phase_, memberNFT_, vote_, launch_, router_, pairFactory_, min_, max_, ratio_,
-            BOOST_STAKE_SUPPLY_FACTOR, BOOST_STAKE_MULTIPLIER
-        );
-    }
-
-    // ============ Init Tests ============
+    // ============ Constructor Tests ============
 
     function testInitializesCorrectly() external view {
-        require(stake.initialized(), "Should be initialized");
         require(stake.PHASE_ADDRESS() == address(phase), "Phase address mismatch");
         require(stake.MEMBER_NFT_ADDRESS() == address(memberNFT), "MemberNFT address mismatch");
         require(stake.VOTE_ADDRESS() == address(vote), "Vote address mismatch");
@@ -431,25 +407,6 @@ contract StakeTest {
         require(stake.LIQUIDITY_TOKEN_EQUIVALENCE_FACTOR() == 2, "Equivalence factor mismatch");
     }
 
-
-    function testInitRevertsIfAlreadyInitialized() external {
-        _expectRevertData(
-            address(stake),
-            _initCall(
-                address(phase),
-                address(memberNFT),
-                address(vote),
-                address(mockLaunch),
-                address(router),
-                address(pairFactory),
-                PROMISED_WAITING_PHASES_MIN,
-                PROMISED_WAITING_PHASES_MAX,
-                FEE_SETTLEMENT_RATIO
-            ),
-            abi.encodeWithSelector(IStakeErrors.AlreadyInitialized.selector),
-            "Should revert on double init"
-        );
-    }
 
     // ============ Stake Liquidity Tests ============
 

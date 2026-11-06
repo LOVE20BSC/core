@@ -325,14 +325,11 @@ contract VoteTest {
 
         // initialSupply == maxSupply keeps the mint fee at zero, so members cost nothing to create.
         feeToken = new LOVE20Token("LOVE20", "LOVE20", 1000e18, 1000e18, address(this), address(this), address(this));
-        memberNFT = new MemberNFT(1e8, 7, 10, 32);
-        memberNFT.init(address(feeToken));
+        memberNFT = new MemberNFT(1e8, 7, 10, 32, address(feeToken));
 
-        submit = new Submit();
-        submit.init(address(phase), address(stake), address(memberNFT), 1e15);
+        submit = new Submit(address(phase), address(stake), address(memberNFT), 1e15);
 
-        vote = new Vote();
-        vote.init(address(phase), address(stake), address(submit), address(memberNFT));
+        vote = new Vote(address(phase), address(stake), address(submit), address(memberNFT));
 
         target = new MockTarget(address(vote));
 
@@ -531,10 +528,9 @@ contract VoteTest {
         require(ids.length == 0 && total == 0, "voted proposal list must stay empty");
     }
 
-    // ============ init ============
+    // ============ constructor ============
 
-    function testInitWiresEveryDependencyAndStartsEmpty() external view {
-        require(vote.initialized(), "must be initialized");
+    function testConstructorWiresEveryDependencyAndStartsEmpty() external view {
         require(vote.PHASE_ADDRESS() == address(phase), "phase address");
         require(vote.STAKE_ADDRESS() == address(stake), "stake address");
         require(vote.SUBMIT_ADDRESS() == address(submit), "submit address");
@@ -543,47 +539,6 @@ contract VoteTest {
         require(vote.currentRound() == phase.currentPhase(), "round must follow phase");
         require(vote.totalVoteAmount(TOKEN, vote.currentRound()) == 0, "no votes yet");
         require(vote.totalVoterBoost(TOKEN, vote.currentRound()) == 0, "no boost yet");
-    }
-
-    function testInitRejectsSecondCall() external {
-        Vote fresh = new Vote();
-        fresh.init(address(phase), address(stake), address(submit), address(memberNFT));
-        require(fresh.initialized(), "first init must succeed");
-
-        bytes memory expected = abi.encodeWithSelector(IVoteErrors.AlreadyInitialized.selector);
-        _expectRevertOn(
-            address(fresh),
-            abi.encodeCall(fresh.init, (address(phase), address(stake), address(submit), address(memberNFT))),
-            expected,
-            "second init"
-        );
-        require(fresh.MEMBER_NFT_ADDRESS() == address(memberNFT), "second init must not overwrite state");
-    }
-
-    /// @dev Initialization state is read before the arguments, so a second call on an initialized
-    ///      contract reports `AlreadyInitialized` even when the arguments are also invalid.
-    function testInitStateIsCheckedBeforeArguments() external {
-        Vote fresh = new Vote();
-        fresh.init(address(phase), address(stake), address(submit), address(memberNFT));
-
-        bytes memory expected = abi.encodeWithSelector(IVoteErrors.AlreadyInitialized.selector);
-        _expectRevertOn(
-            address(fresh),
-            abi.encodeCall(fresh.init, (address(0), address(0), address(0), address(0))),
-            expected,
-            "state before arguments"
-        );
-    }
-
-    function testInitIsPermissionlessAndThereIsNoDeployer() external {
-        Vote fresh = new Vote();
-        vm.prank(ALICE);
-        fresh.init(address(phase), address(stake), address(submit), address(memberNFT));
-        require(fresh.initialized(), "any caller may initialize");
-
-        // No deployer is remembered: nothing distinguishes this contract from one initialized by
-        // another account, and there is no owner/administrator to leak.
-        require(fresh.PHASE_ADDRESS() == address(phase) && fresh.MEMBER_NFT_ADDRESS() == address(memberNFT), "state as given");
     }
 
     // ============ Round views ============
@@ -2025,12 +1980,10 @@ contract VoteStubTest {
         stake.setPhase(address(phase));
 
         feeToken = new LOVE20Token("LOVE20", "LOVE20", 1000e18, 1000e18, address(this), address(this), address(this));
-        memberNFT = new MemberNFT(1e8, 7, 10, 32);
-        memberNFT.init(address(feeToken));
+        memberNFT = new MemberNFT(1e8, 7, 10, 32, address(feeToken));
 
         submitStub = new MockSubmit();
-        vote = new Vote();
-        vote.init(address(phase), address(stake), address(submitStub), address(memberNFT));
+        vote = new Vote(address(phase), address(stake), address(submitStub), address(memberNFT));
         target = new MockTarget(address(vote));
 
         vm.prank(OWNER);

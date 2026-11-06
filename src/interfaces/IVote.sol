@@ -2,7 +2,6 @@
 pragma solidity =0.8.37;
 
 interface IVoteErrors {
-    error AlreadyInitialized();
     error NotMemberOwner(uint256 memberId);
     error NoVotingPower(
         address tokenAddress,
@@ -51,18 +50,10 @@ interface IVoteEvents {
 }
 
 interface IVote is IVoteErrors, IVoteEvents {
-    function initialized() external view returns (bool);
     function PHASE_ADDRESS() external view returns (address);
     function STAKE_ADDRESS() external view returns (address);
     function SUBMIT_ADDRESS() external view returns (address);
     function MEMBER_NFT_ADDRESS() external view returns (address);
-
-    function init(
-        address phaseAddress,
-        address stakeAddress,
-        address submitAddress,
-        address memberNFTAddress
-    ) external;
 
     function vote(
         address tokenAddress,

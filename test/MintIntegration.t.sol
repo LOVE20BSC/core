@@ -49,9 +49,9 @@ contract MintIntegrationTest {
         launch = new MockLaunch();
         vote.setPhaseAddress(address(phase));
 
-        // Initialize Mint with mocks - pass vote for both voteAddress and memberNFTAddress
-        mint = new Mint();
-        mint.init(
+        // Deploy Mint with mocks - phase is injected explicitly
+        mint = new Mint(
+            address(phase), // phaseAddress
             address(vote), // voteAddress
             address(submit), // submitAddress
             address(launch), // launchAddress

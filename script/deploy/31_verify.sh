@@ -83,8 +83,9 @@ if ! ROOT_PARENT=$(cast call "$ROUTER_ADDRESS" "WETH()(address)" --rpc-url "$RPC
     echo "Error: Failed to read WETH() from Router $ROUTER_ADDRESS"
     exit 1
 fi
-if ! MEMBER_ARGS=$(cast abi-encode "constructor(uint256,uint256,uint256,uint256)" \
-    "$MEMBER_BASE_DIVISOR" "$MEMBER_BYTES_THRESHOLD" "$MEMBER_MULTIPLIER" "$MEMBER_MAX_NAME_LENGTH"); then
+if ! MEMBER_ARGS=$(cast abi-encode "constructor(uint256,uint256,uint256,uint256,address)" \
+    "$MEMBER_BASE_DIVISOR" "$MEMBER_BYTES_THRESHOLD" "$MEMBER_MULTIPLIER" "$MEMBER_MAX_NAME_LENGTH" \
+    "$LOVE20_TOKEN_ADDRESS"); then
     echo "Error: Failed to encode MemberNFT constructor arguments"
     exit 1
 fi
@@ -100,6 +101,37 @@ if ! TOKEN_ARGS=$(cast abi-encode "constructor(string,string,uint256,uint256,add
     echo "Error: Failed to encode LOVE20Token constructor arguments"
     exit 1
 fi
+if ! LAUNCH_ARGS=$(cast abi-encode \
+    "constructor((address,address,address,address,uint256,uint256,uint256,uint256,uint256,address,string,string))" \
+    "($MINT_ADDRESS,$MEMBER_NFT_ADDRESS,$ROOT_PARENT,$FACTORY_ADDRESS,$LAUNCH_COUNT_THRESHOLD_RATIO,\
+$MAX_LAUNCH_COUNT,$TOKEN_SYMBOL_LENGTH,$LAUNCH_AMOUNT,$MAX_SUPPLY,$DISTRIBUTOR_ADDRESS,$TOKEN_NAME,$TOKEN_SYMBOL)"); then
+    echo "Error: Failed to encode Launch constructor arguments"
+    exit 1
+fi
+if ! SUBMIT_ARGS=$(cast abi-encode "constructor(address,address,address,uint256)" \
+    "$PHASE_ADDRESS" "$STAKE_ADDRESS" "$MEMBER_NFT_ADDRESS" "$SUBMIT_MIN_RATIO"); then
+    echo "Error: Failed to encode Submit constructor arguments"
+    exit 1
+fi
+if ! VOTE_ARGS=$(cast abi-encode "constructor(address,address,address,address)" \
+    "$PHASE_ADDRESS" "$STAKE_ADDRESS" "$SUBMIT_ADDRESS" "$MEMBER_NFT_ADDRESS"); then
+    echo "Error: Failed to encode Vote constructor arguments"
+    exit 1
+fi
+if ! STAKE_ARGS=$(cast abi-encode \
+    "constructor(address,address,address,address,address,address,uint256,uint256,uint256,uint256,uint256)" \
+    "$PHASE_ADDRESS" "$MEMBER_NFT_ADDRESS" "$VOTE_ADDRESS" "$LAUNCH_ADDRESS" "$ROUTER_ADDRESS" \
+    "$FACTORY_ADDRESS" "$PROMISED_WAITING_PHASES_MIN" "$PROMISED_WAITING_PHASES_MAX" \
+    "$FEE_SETTLEMENT_RATIO" "$BOOST_STAKE_SUPPLY_FACTOR" "$BOOST_STAKE_MULTIPLIER"); then
+    echo "Error: Failed to encode Stake constructor arguments"
+    exit 1
+fi
+if ! MINT_ARGS=$(cast abi-encode "constructor(address,address,address,address,address,uint256,uint256,uint256)" \
+    "$PHASE_ADDRESS" "$VOTE_ADDRESS" "$SUBMIT_ADDRESS" "$LAUNCH_ADDRESS" "$MEMBER_NFT_ADDRESS" \
+    "$PROPOSAL_REWARD_MIN_VOTE_RATIO" "$ROUND_REWARD_GOV_RATIO" "$ROUND_REWARD_PROPOSAL_RATIO"); then
+    echo "Error: Failed to encode Mint constructor arguments"
+    exit 1
+fi
 
 COMMON_ARGS=(--chain "$CHAIN_ID" --verifier etherscan --verifier-url "$ETHERSCAN_VERIFIER_URL" --watch)
 verify_contract() {
@@ -111,10 +143,10 @@ verify_contract() {
 
 verify_contract "$MEMBER_NFT_ADDRESS" MemberNFT --constructor-args "$MEMBER_ARGS"
 verify_contract "$PHASE_ADDRESS" Phase --constructor-args "$PHASE_ARGS"
-verify_contract "$LAUNCH_ADDRESS" Launch
+verify_contract "$LAUNCH_ADDRESS" Launch --constructor-args "$LAUNCH_ARGS"
 verify_contract "$LOVE20_TOKEN_ADDRESS" LOVE20Token --constructor-args "$TOKEN_ARGS"
-verify_contract "$MINT_ADDRESS" Mint
-verify_contract "$STAKE_ADDRESS" Stake
-verify_contract "$SUBMIT_ADDRESS" Submit
-verify_contract "$VOTE_ADDRESS" Vote
+verify_contract "$MINT_ADDRESS" Mint --constructor-args "$MINT_ARGS"
+verify_contract "$STAKE_ADDRESS" Stake --constructor-args "$STAKE_ARGS"
+verify_contract "$SUBMIT_ADDRESS" Submit --constructor-args "$SUBMIT_ARGS"
+verify_contract "$VOTE_ADDRESS" Vote --constructor-args "$VOTE_ARGS"
 echo "✓ Source verification succeeded for all 8 contracts"

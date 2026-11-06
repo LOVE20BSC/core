@@ -23,8 +23,6 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     uint256 public immutable MULTIPLIER;
     uint256 public immutable MAX_NAME_LENGTH;
 
-    bool public initialized;
-
     uint256 internal _nextTokenId = 1;
 
     uint256 public totalBurnedForMint;
@@ -40,23 +38,19 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     // holderAddress => index in _holders array (0-based, only valid when balanceOf(holder) > 0)
     mapping(address => uint256) internal _holderIndex;
 
+    // forge-lint: disable-next-item(missing-zero-check)
     constructor(
         uint256 baseDivisor,
         uint256 bytesThreshold,
         uint256 multiplier,
-        uint256 maxNameLength
+        uint256 maxNameLength,
+        address firstTokenAddress
     ) ERC721("LOVE20 Member NFT", "Member") {
         BASE_DIVISOR = baseDivisor;
         BYTES_THRESHOLD = bytesThreshold;
         MULTIPLIER = multiplier;
         MAX_NAME_LENGTH = maxNameLength;
-    }
-
-    // forge-lint: disable-next-item(missing-zero-check)
-    function init(address firstTokenAddress) external {
-        if (initialized) revert AlreadyInitialized();
         LOVE20_TOKEN_ADDRESS = firstTokenAddress;
-        initialized = true;
     }
 
     function mint(

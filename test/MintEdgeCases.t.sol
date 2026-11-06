@@ -19,8 +19,8 @@ contract MintEdgeCasesTest {
     address constant TARGET = address(0x1234);
 
     function setupMint(uint256 supply, uint256 maxSupply) internal {
-        mint = new Mint();
-        mint.init(
+        mint = new Mint(
+            address(this),
             address(this),
             address(this),
             address(this),
@@ -98,15 +98,9 @@ contract MintEdgeCasesTest {
         return 1e16;
     }
 
-    function testRepeatedInitReverts() public {
+    function testConstructorExposesPhase() public {
         setupMint(1000, 10000);
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.AlreadyInitialized.selector));
-        mint.init(address(this), address(this), address(this), address(this), 5e16, 1e17, 1e17);
-    }
-
-    function testInitDerivesPhaseFromVote() public {
-        setupMint(1000, 10000);
-        require(mint.PHASE_ADDRESS() == address(this), "phase derived and exposed");
+        require(mint.PHASE_ADDRESS() == address(this), "phase injected and exposed");
     }
 
     function testRoundEndedReadsDerivedPhaseDirectly() public {

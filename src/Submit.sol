@@ -22,7 +22,6 @@ contract Submit is ISubmit {
     uint256 public constant MAX_TARGET_DATA_BYTES = 16 * 1024;
     uint256 public constant MAX_TARGET_DATA_COUNT = 16;
 
-    bool public initialized;
     address public PHASE_ADDRESS;
     address public STAKE_ADDRESS;
     address public MEMBER_NFT_ADDRESS;
@@ -48,16 +47,12 @@ contract Submit is ISubmit {
     }
 
     // forge-lint: disable-next-item(missing-zero-check)
-    function init(
+    constructor(
         address phaseAddress,
         address stakeAddress,
         address memberNFTAddress,
         uint256 submitMinRatio
-    ) external {
-        if (initialized) {
-            revert AlreadyInitialized();
-        }
-        initialized = true;
+    ) {
         PHASE_ADDRESS = phaseAddress;
         STAKE_ADDRESS = stakeAddress;
         MEMBER_NFT_ADDRESS = memberNFTAddress;

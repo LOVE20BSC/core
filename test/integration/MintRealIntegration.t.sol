@@ -22,6 +22,8 @@ interface TestVm {
     function warp(uint256) external;
     function roll(uint256) external;
     function expectRevert(bytes calldata) external;
+    function getNonce(address) external view returns (uint256);
+    function computeCreateAddress(address, uint256) external view returns (address);
 }
 
 /// @title MintRealIntegration - Real contract integration tests with mathematical model verification
@@ -100,25 +102,17 @@ contract MintRealIntegrationTest {
             address(this) // parentTokenAddress (code-bearing test contract)
         );
 
-        // Deploy core contracts
-        memberNFT = new MemberNFT(
-            1e18,  // BASE_DIVISOR
-            4,     // BYTES_THRESHOLD
-            2,     // MULTIPLIER
-            20     // MAX_NAME_LENGTH
-        );
-        mint = new Mint();
-        vote = new Vote();
-        submit = new Submit();
-        stake = new Stake();
-        launch = new Launch();
+        // Deploy core contracts in dependency order:
+        // Launch -> MemberNFT -> Stake -> Submit -> Vote -> Mint
+        uint256 nonce = vm.getNonce(address(this));
+        address predictedMemberNFT = vm.computeCreateAddress(address(this), nonce + 1);
+        address predictedVote = vm.computeCreateAddress(address(this), nonce + 4);
+        address predictedMint = vm.computeCreateAddress(address(this), nonce + 5);
 
-        // ========== Phase 2: Initialize all contracts (init) ==========
-
-        // 1. Initialize Launch first (it creates firstToken and initializes MemberNFT)
-        launch.init(LaunchInitParams({
-            mintAddress: address(mint),
-            memberNFTAddress: address(memberNFT),
+        // 1. Launch creates the first token; Mint and MemberNFT are predicted
+        launch = new Launch(LaunchInitParams({
+            mintAddress: predictedMint,
+            memberNFTAddress: predictedMemberNFT,
             rootParentTokenAddress: address(rootToken),
             pairFactoryAddress: address(factory),
             distributor: distributor,
@@ -131,25 +125,23 @@ contract MintRealIntegrationTest {
             symbol: "TEST"
         }));
 
-        // Get the first token created by Launch
-        (address[] memory tokenList,) = launch.tokens(0, 1, false);
-        token = LOVE20Token(tokenList[0]);
+        token = LOVE20Token(launch.FIRST_TOKEN_ADDRESS());
 
-        // ========== Phase 2 continued: Initialize remaining contracts ==========
-
-        // 2. Initialize Submit (depends on: Phase, Stake, MemberNFT)
-        submit.init(
-            address(phase),
-            address(stake),
-            address(memberNFT),
-            5e16  // submitMinRatio: 5%
+        // 2. MemberNFT is built with the real first token address read from Launch
+        memberNFT = new MemberNFT(
+            1e18,  // BASE_DIVISOR
+            4,     // BYTES_THRESHOLD
+            2,     // MULTIPLIER
+            20,    // MAX_NAME_LENGTH
+            address(token)
         );
+        require(address(memberNFT) == predictedMemberNFT, "member prediction");
 
-        // 3. Initialize Stake (depends on: Phase, MemberNFT, Vote, Router, Factory)
-        stake.init(
+        // 3. Stake needs Vote, which is not deployed yet: single-hop prediction
+        stake = new Stake(
             address(phase),
             address(memberNFT),
-            address(vote),
+            predictedVote,
             address(launch),
             address(router),
             address(factory),
@@ -160,11 +152,21 @@ contract MintRealIntegrationTest {
             BOOST_STAKE_MULTIPLIER
         );
 
-        // 4. Initialize Vote (depends on: Phase, Stake, Submit, MemberNFT)
-        vote.init(address(phase), address(stake), address(submit), address(memberNFT));
+        // 4. Submit takes the real Stake address
+        submit = new Submit(
+            address(phase),
+            address(stake),
+            address(memberNFT),
+            5e16  // submitMinRatio: 5%
+        );
 
-        // 5. Initialize Mint last (depends on: Vote, Submit, Launch, MemberNFT)
-        mint.init(
+        // 5. Vote takes the real Stake and Submit addresses
+        vote = new Vote(address(phase), address(stake), address(submit), address(memberNFT));
+        require(address(vote) == predictedVote, "vote prediction");
+
+        // 6. Mint takes every real address plus the predicted Mint address itself
+        mint = new Mint(
+            address(phase),
             address(vote),
             address(submit),
             address(launch),
@@ -173,6 +175,7 @@ contract MintRealIntegrationTest {
             ROUND_REWARD_GOV_RATIO,           // 1e17: 10%
             ROUND_REWARD_PROPOSAL_RATIO       // 1e17: 10%
         );
+        require(address(mint) == predictedMint, "mint prediction");
 
         // ========== Phase 3: Setup test state ==========
 

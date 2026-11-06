@@ -22,7 +22,6 @@ struct LaunchInitParams {
 }
 
 interface ILaunchErrors {
-    error AlreadyInitialized();
     error ZeroDistributorAddress();
     error TokenNameEmpty();
     error TokenSymbolEmpty();
@@ -113,8 +112,6 @@ interface ILaunch is ILaunchErrors, ILaunchEvents {
     function MAX_LAUNCH_COUNT() external view returns (uint256);
     function LAUNCH_AMOUNT() external view returns (uint256);
     function MAX_SUPPLY() external view returns (uint256);
-    function initialized() external view returns (bool);
-    function init(LaunchInitParams calldata params) external;
     function isLOVE20Token(address tokenAddress) external view returns (bool);
     function launchToken(
         string calldata tokenSymbol,

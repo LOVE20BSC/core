@@ -49,7 +49,6 @@ contract Stake is IStake {
     uint256 private constant PRECISION = 1e18;
     uint256 public constant LIQUIDITY_TOKEN_EQUIVALENCE_FACTOR = 2;
 
-    bool public initialized;
     address public PHASE_ADDRESS;
     address public MEMBER_NFT_ADDRESS;
     address public VOTE_ADDRESS;
@@ -78,7 +77,7 @@ contract Stake is IStake {
     mapping(address => uint256) internal _totalLiquidityTokenAmount;
 
     // forge-lint: disable-next-item(missing-zero-check)
-    function init(
+    constructor(
         address phaseAddress,
         address memberNFTAddress,
         address voteAddress,
@@ -90,9 +89,7 @@ contract Stake is IStake {
         uint256 feeSettlementRatio,
         uint256 boostStakeSupplyFactor,
         uint256 boostStakeMultiplier
-    ) external {
-        if (initialized) revert AlreadyInitialized();
-        initialized = true;
+    ) {
         PHASE_ADDRESS = phaseAddress;
         MEMBER_NFT_ADDRESS = memberNFTAddress;
         VOTE_ADDRESS = voteAddress;

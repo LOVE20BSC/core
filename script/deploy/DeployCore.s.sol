@@ -18,6 +18,7 @@ import {IStake} from "../../src/interfaces/IStake.sol";
 import {ISubmit} from "../../src/interfaces/ISubmit.sol";
 import {IVote} from "../../src/interfaces/IVote.sol";
 import {ILOVE20Token} from "../../src/interfaces/ILOVE20Token.sol";
+import {IUniswapV2Factory} from "../../src/interfaces/UniswapV2/IUniswapV2Factory.sol";
 
 // The deploy script reads only the root parent token and the Factory from the Router; the Router
 // interface Stake actually calls lives in src/interfaces/UniswapV2/.
@@ -194,30 +195,24 @@ contract DeployCore is Script {
         );
     }
 
+    struct PredictedAddresses {
+        address memberNFT;
+        address vote;
+        address mint;
+    }
+
     function _deployContracts(CoreConfig memory config, address rootParent)
         internal
         returns (DeploymentAddresses memory addrs)
     {
-        // Deploy MemberNFT.
-        addrs.memberNFT = address(_deployMemberNFT(config));
-        console2.log("MemberNFT deployed at:", addrs.memberNFT);
+        PredictedAddresses memory predicted = _predictAddresses();
 
-        // Deploy Phase.
         addrs.phase = address(_deployPhase(config));
         console2.log("Phase deployed at:", addrs.phase);
 
-        // Deploy Mint (not initialized yet).
-        addrs.mint = address(new Mint());
-        console2.log("Mint deployed at:", addrs.mint);
-
-        // Deploy Launch.
-        addrs.launch = address(new Launch());
-        console2.log("Launch deployed at:", addrs.launch);
-
-        // Call Launch.init() to create the first token.
         LaunchInitParams memory launchParams = LaunchInitParams({
-            mintAddress: addrs.mint,
-            memberNFTAddress: addrs.memberNFT,
+            mintAddress: predicted.mint,
+            memberNFTAddress: predicted.memberNFT,
             rootParentTokenAddress: rootParent,
             pairFactoryAddress: config.factory,
             launchCountThresholdRatio: config.launchCountThresholdRatio,
@@ -229,69 +224,81 @@ contract DeployCore is Script {
             name: config.tokenName,
             symbol: config.tokenSymbol
         });
-        Launch(addrs.launch).init(launchParams);
-
-        // Read the first token address from Launch.
-        (address[] memory tokens,) = Launch(addrs.launch).tokens(0, 1, false);
-        addrs.token = tokens[0];
+        addrs.launch = address(new Launch(launchParams));
+        console2.log("Launch deployed at:", addrs.launch);
+        addrs.token = Launch(addrs.launch).FIRST_TOKEN_ADDRESS();
         console2.log("First LOVE20Token created at:", addrs.token);
 
-        // Deploy Stake (not initialized yet).
-        addrs.stake = address(new Stake());
+        addrs.memberNFT = address(_deployMemberNFT(config, addrs.token));
+        require(addrs.memberNFT == predicted.memberNFT, "MemberNFT address differs from the prediction");
+        console2.log("MemberNFT deployed at:", addrs.memberNFT);
+
+        addrs.stake = address(
+            new Stake(
+                addrs.phase,
+                addrs.memberNFT,
+                predicted.vote,
+                addrs.launch,
+                config.router,
+                config.factory,
+                config.promisedWaitingPhasesMin,
+                config.promisedWaitingPhasesMax,
+                config.feeSettlementRatio,
+                config.boostStakeSupplyFactor,
+                config.boostStakeMultiplier
+            )
+        );
         console2.log("Stake deployed at:", addrs.stake);
 
-        // Deploy Submit (not initialized yet).
-        addrs.submit = address(new Submit());
+        addrs.submit = address(new Submit(addrs.phase, addrs.stake, addrs.memberNFT, config.submitMinRatio));
         console2.log("Submit deployed at:", addrs.submit);
 
-        // Deploy Vote (not initialized yet).
-        addrs.vote = address(new Vote());
+        addrs.vote = address(new Vote(addrs.phase, addrs.stake, addrs.submit, addrs.memberNFT));
+        require(addrs.vote == predicted.vote, "Vote address differs from the prediction");
+        require(IStake(addrs.stake).VOTE_ADDRESS() == addrs.vote, "Stake vote address differs from the prediction");
         console2.log("Vote deployed at:", addrs.vote);
 
-        // Initialize Stake.
-        _initStake(addrs, config);
-        console2.log("Stake initialized");
-
-        // Initialize Submit.
-        Submit(addrs.submit).init(addrs.phase, addrs.stake, addrs.memberNFT, config.submitMinRatio);
-        console2.log("Submit initialized");
-
-        // Initialize Vote.
-        Vote(addrs.vote).init(addrs.phase, addrs.stake, addrs.submit, addrs.memberNFT);
-        console2.log("Vote initialized");
-
-        // Initialize Mint (needs every contract address).
-        Mint(addrs.mint).init(
-            addrs.vote,
-            addrs.submit,
-            addrs.launch,
-            addrs.memberNFT,
-            config.proposalRewardMinVoteRatio,
-            config.roundRewardGovRatio,
-            config.roundRewardProposalRatio
+        addrs.mint = address(
+            new Mint(
+                addrs.phase,
+                addrs.vote,
+                addrs.submit,
+                addrs.launch,
+                addrs.memberNFT,
+                config.proposalRewardMinVoteRatio,
+                config.roundRewardGovRatio,
+                config.roundRewardProposalRatio
+            )
         );
-        console2.log("Mint initialized");
+        require(addrs.mint == predicted.mint, "Mint address differs from the prediction");
+        require(ILOVE20Token(addrs.token).MINTER() == addrs.mint, "First token minter differs from Mint");
+        require(ILaunch(addrs.launch).MINT_ADDRESS() == addrs.mint, "Launch mint address differs from Mint");
+        console2.log("Mint deployed at:", addrs.mint);
     }
 
-    function _initStake(DeploymentAddresses memory addrs, CoreConfig memory config) private {
-        Stake(addrs.stake).init(
-            addrs.phase,
-            addrs.memberNFT,
-            addrs.vote,
-            addrs.launch,
-            config.router,
-            config.factory,
-            config.promisedWaitingPhasesMin,
-            config.promisedWaitingPhasesMax,
-            config.feeSettlementRatio,
-            config.boostStakeSupplyFactor,
-            config.boostStakeMultiplier
+    function _predictAddresses() private view returns (PredictedAddresses memory predicted) {
+        address creator = _predictor();
+        uint256 nonce = vm.getNonce(creator);
+        predicted.memberNFT = vm.computeCreateAddress(creator, nonce + 2);
+        predicted.vote = vm.computeCreateAddress(creator, nonce + 5);
+        predicted.mint = vm.computeCreateAddress(creator, nonce + 6);
+        require(
+            predicted.memberNFT != address(0) && predicted.vote != address(0) && predicted.mint != address(0),
+            "Predicted address is zero"
         );
     }
 
-    function _deployMemberNFT(CoreConfig memory config) private returns (MemberNFT) {
+    function _predictor() internal view virtual returns (address) {
+        return msg.sender;
+    }
+
+    function _deployMemberNFT(CoreConfig memory config, address firstToken) private returns (MemberNFT) {
         return new MemberNFT(
-            config.memberBaseDivisor, config.memberBytesThreshold, config.memberMultiplier, config.memberMaxNameLength
+            config.memberBaseDivisor,
+            config.memberBytesThreshold,
+            config.memberMultiplier,
+            config.memberMaxNameLength,
+            firstToken
         );
     }
 
@@ -309,6 +316,15 @@ contract DeployCore is Script {
         internal
         view
     {
+        require(addrs.token.code.length != 0, "LOVE20Token is not a contract");
+        require(addrs.memberNFT.code.length != 0, "MemberNFT is not a contract");
+        require(addrs.phase.code.length != 0, "Phase is not a contract");
+        require(addrs.launch.code.length != 0, "Launch is not a contract");
+        require(addrs.mint.code.length != 0, "Mint is not a contract");
+        require(addrs.vote.code.length != 0, "Vote is not a contract");
+        require(addrs.submit.code.length != 0, "Submit is not a contract");
+        require(addrs.stake.code.length != 0, "Stake is not a contract");
+
         ILOVE20Token token = ILOVE20Token(addrs.token);
         require(keccak256(bytes(token.name())) == keccak256(bytes(config.tokenName)), "Token name mismatch");
         require(keccak256(bytes(token.symbol())) == keccak256(bytes(config.tokenSymbol)), "Token symbol mismatch");
@@ -320,7 +336,6 @@ contract DeployCore is Script {
         require(token.balanceOf(config.distributor) == config.launchAmount, "Token distributor balance mismatch");
 
         IMemberNFT memberNFT = IMemberNFT(addrs.memberNFT);
-        require(memberNFT.initialized(), "MemberNFT not initialized");
         require(memberNFT.LOVE20_TOKEN_ADDRESS() == addrs.token, "MemberNFT token mismatch");
         require(memberNFT.BASE_DIVISOR() == config.memberBaseDivisor, "MemberNFT base divisor mismatch");
         require(memberNFT.BYTES_THRESHOLD() == config.memberBytesThreshold, "MemberNFT bytes threshold mismatch");
@@ -341,7 +356,6 @@ contract DeployCore is Script {
         );
 
         ILaunch launch = ILaunch(addrs.launch);
-        require(launch.initialized(), "Launch not initialized");
         require(launch.MINT_ADDRESS() == addrs.mint, "Launch mint mismatch");
         require(launch.MEMBER_NFT_ADDRESS() == addrs.memberNFT, "Launch member NFT mismatch");
         require(launch.ROOT_PARENT_TOKEN_ADDRESS() == rootParent, "Launch root parent mismatch");
@@ -361,8 +375,21 @@ contract DeployCore is Script {
         require(launch.LAUNCH_AMOUNT() == config.launchAmount, "Launch amount mismatch");
         require(launch.MAX_SUPPLY() == config.maxSupply, "Launch max supply mismatch");
 
+        require(launch.isLOVE20Token(addrs.token), "Launch first token not registered");
+        require(launch.parentToken(addrs.token) == rootParent, "Launch first token parent mismatch");
+        require(
+            launch.tokenAddressBySymbol(config.tokenSymbol) == addrs.token, "Launch first token symbol mismatch"
+        );
+        (address[] memory tokenList, uint256 tokenCount) = launch.tokens(0, 1, false);
+        require(tokenCount == 1 && tokenList.length == 1 && tokenList[0] == addrs.token, "Launch token list mismatch");
+        (address[] memory childList, uint256 childCount) = launch.childTokens(rootParent, 0, 1, false);
+        require(childCount == 1 && childList.length == 1 && childList[0] == addrs.token, "Launch child list mismatch");
+        require(
+            IUniswapV2Factory(config.factory).getPair(addrs.token, rootParent) != address(0),
+            "First token pair missing"
+        );
+
         IMint mint = IMint(addrs.mint);
-        require(mint.initialized(), "Mint not initialized");
         require(mint.VOTE_ADDRESS() == addrs.vote, "Mint vote mismatch");
         require(mint.SUBMIT_ADDRESS() == addrs.submit, "Mint submit mismatch");
         require(mint.LAUNCH_ADDRESS() == addrs.launch, "Mint launch mismatch");
@@ -379,7 +406,6 @@ contract DeployCore is Script {
         );
 
         IStake stake = IStake(addrs.stake);
-        require(stake.initialized(), "Stake not initialized");
         require(stake.PHASE_ADDRESS() == addrs.phase, "Stake phase mismatch");
         require(stake.MEMBER_NFT_ADDRESS() == addrs.memberNFT, "Stake member NFT mismatch");
         require(stake.VOTE_ADDRESS() == addrs.vote, "Stake vote mismatch");
@@ -410,14 +436,12 @@ contract DeployCore is Script {
         );
 
         ISubmit submit = ISubmit(addrs.submit);
-        require(submit.initialized(), "Submit not initialized");
         require(submit.PHASE_ADDRESS() == addrs.phase, "Submit phase mismatch");
         require(submit.STAKE_ADDRESS() == addrs.stake, "Submit stake mismatch");
         require(submit.MEMBER_NFT_ADDRESS() == addrs.memberNFT, "Submit member NFT mismatch");
         require(submit.SUBMIT_MIN_RATIO() == config.submitMinRatio, "Submit min ratio mismatch");
 
         IVote vote = IVote(addrs.vote);
-        require(vote.initialized(), "Vote not initialized");
         require(vote.PHASE_ADDRESS() == addrs.phase, "Vote phase mismatch");
         require(vote.STAKE_ADDRESS() == addrs.stake, "Vote stake mismatch");
         require(vote.SUBMIT_ADDRESS() == addrs.submit, "Vote submit mismatch");

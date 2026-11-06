@@ -38,17 +38,18 @@ contract ProposalDoSTest is Test {
         vm.roll(1);
         actor = makeAddr("proposal-owner");
         phase = new Phase(1, 1000, 300, 1e18, 10);
-        memberNFT = new MemberNFT(1e18, 1, 1, 32);
-        mint = new Mint();
-        stake = new Stake();
-        submit = new Submit();
-        vote = new Vote();
-        Launch launch = new Launch();
         StressPairFactory factory = new StressPairFactory();
         parent = new LOVE20Token("Parent", "PAR", 1e27, 1e28, actor, address(this), address(this));
-        launch.init(LaunchInitParams({
-            mintAddress: address(mint),
-            memberNFTAddress: address(memberNFT),
+        MockRouter router = new MockRouter();
+
+        uint256 nonce = vm.getNonce(address(this));
+        address predictedMember = vm.computeCreateAddress(address(this), nonce + 1);
+        address predictedVote = vm.computeCreateAddress(address(this), nonce + 4);
+        address predictedMint = vm.computeCreateAddress(address(this), nonce + 5);
+
+        Launch launch = new Launch(LaunchInitParams({
+            mintAddress: predictedMint,
+            memberNFTAddress: predictedMember,
             rootParentTokenAddress: address(parent),
             pairFactoryAddress: address(factory),
             distributor: actor,
@@ -60,13 +61,13 @@ contract ProposalDoSTest is Test {
             name: "Stress",
             symbol: "STRS"
         }));
-        (address[] memory tokens,) = launch.tokens(0, 1, false);
-        token = LOVE20Token(tokens[0]);
-        stake.init(address(phase), address(memberNFT), address(vote), address(launch),
-            address(new MockRouter()), address(factory), 1, 100, 3e15, 2, 5);
-        submit.init(address(phase), address(stake), address(memberNFT), 1);
-        vote.init(address(phase), address(stake), address(submit), address(memberNFT));
-        mint.init(address(vote), address(submit), address(launch), address(memberNFT), 5e16, 1e17, 1e17);
+        token = LOVE20Token(launch.FIRST_TOKEN_ADDRESS());
+        memberNFT = new MemberNFT(1e18, 1, 1, 32, address(token));
+        stake = new Stake(address(phase), address(memberNFT), predictedVote, address(launch),
+            address(router), address(factory), 1, 100, 3e15, 2, 5);
+        submit = new Submit(address(phase), address(stake), address(memberNFT), 1);
+        vote = new Vote(address(phase), address(stake), address(submit), address(memberNFT));
+        mint = new Mint(address(phase), address(vote), address(submit), address(launch), address(memberNFT), 5e16, 1e17, 1e17);
         vm.startPrank(actor);
         token.approve(address(memberNFT), type(uint256).max);
         token.approve(address(stake), type(uint256).max);

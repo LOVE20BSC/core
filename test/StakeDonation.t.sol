@@ -216,13 +216,10 @@ contract StakeDonationTest is Test {
         MockVote vote = new MockVote();
         vote.setSubmitAddress(address(new MockSubmit()));
 
-        memberNFT = new MemberNFT(1e8, 7, 10, 32);
-        stake = new Stake();
-
         parentToken = new LOVE20Token(
             "Parent Token", "PARENT", 1_000_000e18, 2_000_000e18, address(this), address(this), address(this)
         );
-        memberNFT.init(address(parentToken));
+        memberNFT = new MemberNFT(1e8, 7, 10, 32, address(parentToken));
 
         childToken = new LOVE20Token(
             "Child Token", "CHILD", 1_000_000e18, 100_000_000e18, address(this), address(this), address(parentToken)
@@ -233,7 +230,7 @@ contract StakeDonationTest is Test {
         pairFactory.setPair(address(childToken), address(parentToken), address(pair));
         router.setPair(address(pair));
 
-        stake.init(
+        stake = new Stake(
             address(phase),
             address(memberNFT),
             address(vote),

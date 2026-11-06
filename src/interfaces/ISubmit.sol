@@ -27,7 +27,6 @@ struct SubmitInfo {
     uint256 proposalId;
 }
 interface ISubmitErrors {
-    error AlreadyInitialized();
     error TitleEmpty();
     error TitleTooLong(
         uint256 length,
@@ -105,15 +104,6 @@ interface ISubmit is ISubmitErrors, ISubmitEvents {
     function MAX_DETAILS_LENGTH() external view returns (uint256);
     function MAX_TARGET_DATA_BYTES() external view returns (uint256);
     function MAX_TARGET_DATA_COUNT() external view returns (uint256);
-
-    function initialized() external view returns (bool);
-
-    function init(
-        address phaseAddress,
-        address stakeAddress,
-        address memberNFTAddress,
-        uint256 submitMinRatio
-    ) external;
 
     function currentRound() external view returns (uint256);
 

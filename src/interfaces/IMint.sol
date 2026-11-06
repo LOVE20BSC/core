@@ -42,7 +42,6 @@ interface IMintEvents {
 }
 
 interface IMintErrors {
-    error AlreadyInitialized();
     error NotProposalTarget(
         address caller,
         address expectedTarget
@@ -102,16 +101,6 @@ interface IMint is IMintEvents, IMintErrors {
     function PROPOSAL_REWARD_MIN_VOTE_RATIO() external view returns (uint256);
     function ROUND_REWARD_GOV_RATIO() external view returns (uint256);
     function ROUND_REWARD_PROPOSAL_RATIO() external view returns (uint256);
-    function initialized() external view returns (bool);
-    function init(
-        address voteAddress,
-        address submitAddress,
-        address launchAddress,
-        address memberNFTAddress,
-        uint256 proposalRewardMinVoteRatio,
-        uint256 roundRewardGovRatio,
-        uint256 roundRewardProposalRatio
-    ) external;
     function prepareRewardIfNeeded(address tokenAddress, uint256 round) external;
     function mintProposalReward(
         address tokenAddress,

@@ -37,8 +37,8 @@ contract MintCoverageTest {
     address constant TARGET = address(0x1234);
 
     function setupMint(uint256 supply, uint256 maxSupply, uint256 govRatio, uint256 proposalRatio) internal {
-        mint = new Mint();
-        mint.init(
+        mint = new Mint(
+            address(this),
             address(this),
             address(this),
             address(this),

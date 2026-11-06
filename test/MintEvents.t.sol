@@ -79,8 +79,8 @@ contract MintEventsTest {
     );
 
     function setUp() public {
-        mint = new Mint();
-        mint.init(
+        mint = new Mint(
+            address(this),
             address(this),
             address(this),
             address(this),

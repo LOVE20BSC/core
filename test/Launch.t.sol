@@ -20,6 +20,9 @@ interface Vm {
 
     function recordLogs() external;
     function getRecordedLogs() external returns (Log[] memory logs);
+    function getNonce(address account) external view returns (uint256);
+    function computeCreateAddress(address deployer, uint256 nonce) external view returns (address);
+    function expectRevert(bytes calldata revertData) external;
 }
 
 /// 模拟终端用户：持有 MemberNFT，并以自身身份发起被测调用
@@ -190,8 +193,6 @@ contract LaunchTest {
 
     function setUp() public {
         ROOT = address(this);
-        member = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH);
-        launch = new Launch();
         mintAccount = new MintAccount();
         alice = new Caller();
         bob = new Caller();
@@ -199,8 +200,8 @@ contract LaunchTest {
         distributor = new CallbackDistributor();
         pairFactory = new PairFactoryMock();
 
-        launch.init(_validParams());
-        firstToken = LOVE20Token(member.LOVE20_TOKEN_ADDRESS());
+        (launch, member) = _launchWithMember(_validParams());
+        firstToken = LOVE20Token(launch.FIRST_TOKEN_ADDRESS());
 
         _fundAndApprove(alice, firstToken, member);
         _fundAndApprove(bob, firstToken, member);
@@ -213,8 +214,7 @@ contract LaunchTest {
 
     // ============ init ============
 
-    function testInitCreatesFirstTokenAndWiresDependencies() public view {
-        require(launch.initialized(), "initialized");
+    function testConstructorCreatesFirstTokenAndWiresDependencies() public view {
         require(launch.MINT_ADDRESS() == address(mintAccount), "mint");
         require(launch.MEMBER_NFT_ADDRESS() == address(member), "member");
         require(launch.ROOT_PARENT_TOKEN_ADDRESS() == ROOT, "root parent");
@@ -228,8 +228,7 @@ contract LaunchTest {
         require(launch.LAUNCH_AMOUNT() == LAUNCH_AMOUNT, "launch amount");
         require(launch.MAX_SUPPLY() == MAX_SUPPLY, "max supply");
 
-        // MemberNFT 由 init 同步初始化，并且只保存首币地址
-        require(member.initialized(), "member initialized");
+        // MemberNFT 只保存首币地址
         require(member.LOVE20_TOKEN_ADDRESS() == address(firstToken), "member fee token");
 
         // 登记账本：首币已登记且父币为根父币
@@ -251,37 +250,19 @@ contract LaunchTest {
         require(firstToken.MINTER() == address(mintAccount), "token minter");
         require(firstToken.PARENT_TOKEN_ADDRESS() == ROOT, "token parent");
 
-        // 首币的 Pair 在同一个 init 交易内创建
+        // 首币的 Pair 在同一个构造交易内创建
         require(launch.PAIR_FACTORY_ADDRESS() == address(pairFactory), "pair factory");
         require(pairFactory.createdPairCount() == 1, "first token pair created");
         require(pairFactory.getPair(address(firstToken), ROOT) == pairFactory.createdPairs(0), "first token pair wired");
     }
 
-    function testInitIsPermissionless() public {
-        MemberNFT freshMember = _newMember();
-        Launch freshLaunch = new Launch();
-
-        (bool ok, ) = carol.forward(
-            address(freshLaunch),
-            abi.encodeWithSelector(
-                ILaunch.init.selector, _params(address(freshMember), LAUNCH_AMOUNT, MAX_SUPPLY, "LOVE")
-            )
-        );
-        require(ok, "permissionless init");
-        require(freshLaunch.initialized(), "initialized");
-        require(freshLaunch.MINT_ADDRESS() == address(mintAccount), "mint");
-        require(freshMember.initialized(), "member wired");
-        require(freshLaunch.isLOVE20Token(freshMember.LOVE20_TOKEN_ADDRESS()), "first token registered");
-    }
-
-    function testInitEmitsGenesisTokenCreatedForFirstToken() public {
-        MemberNFT freshMember = _newMember();
-        Launch freshLaunch = new Launch();
+    function testConstructorEmitsGenesisTokenCreatedForFirstToken() public {
+        LaunchInitParams memory params = _freshParams();
 
         vm.recordLogs();
-        freshLaunch.init(_params(address(freshMember), LAUNCH_AMOUNT, MAX_SUPPLY, "LOVE"));
+        Launch freshLaunch = new Launch(params);
 
-        address firstTokenAddress = freshMember.LOVE20_TOKEN_ADDRESS();
+        address firstTokenAddress = freshLaunch.FIRST_TOKEN_ADDRESS();
         bool found;
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 eventSelector = keccak256("GenesisTokenCreated(address,address,address,string,string)");
@@ -299,43 +280,42 @@ contract LaunchTest {
             found = true;
         }
         require(found, "missing GenesisTokenCreated");
-        // E1：登记 → 绑定 MemberNFT → 创建事件，创建事件是 `init` 的最后一条日志
+        // E1：首币创建 → 登记，创建事件是构造函数的最后一条日志
         require(
             logs[logs.length - 1].emitter == address(freshLaunch)
                 && logs[logs.length - 1].topics[0] == eventSelector,
-            "GenesisTokenCreated must be the last log of init"
+            "GenesisTokenCreated must be the last log of the constructor"
         );
         require(
             _countLogs(logs, address(freshLaunch), keccak256("TokenLaunched(address,address,uint256,address,uint8,string,string)")) == 0,
-            "init must not emit TokenLaunched"
+            "constructor must not emit TokenLaunched"
         );
     }
 
-    function testInitRejectsOversizedMetadata() public {
+    function testConstructorRejectsOversizedMetadata() public {
         LaunchInitParams memory params = _freshParams();
         params.name = _repeat("N", 97);
         params.symbol = "LOVE";
-        _requireInitRevert(
-            params, abi.encodeWithSelector(ILaunchErrors.TokenNameTooLong.selector, 97, 96), "oversized name"
+        _requireConstructorRevert(
+            params, abi.encodeWithSelector(ILaunchErrors.TokenNameTooLong.selector, 97, 96)
         );
 
         params = _freshParams();
         params.name = "LOVE20";
         params.symbol = _repeat("S", 33);
-        _requireInitRevert(
-            params, abi.encodeWithSelector(ILaunchErrors.TokenSymbolTooLong.selector, 33, 32), "oversized symbol"
+        _requireConstructorRevert(
+            params, abi.encodeWithSelector(ILaunchErrors.TokenSymbolTooLong.selector, 33, 32)
         );
     }
 
-    function testInitAcceptsMaxMetadata() public {
+    function testConstructorAcceptsMaxMetadata() public {
         LaunchInitParams memory params = _freshParams();
         params.name = _repeat("N", 96);
         params.symbol = _repeat("S", 32);
 
-        Launch freshLaunch = new Launch();
-        freshLaunch.init(params);
+        (Launch freshLaunch,) = _launchWithMember(params);
 
-        address firstTokenAddress = MemberNFT(params.memberNFTAddress).LOVE20_TOKEN_ADDRESS();
+        address firstTokenAddress = freshLaunch.FIRST_TOKEN_ADDRESS();
         require(
             keccak256(bytes(LOVE20Token(firstTokenAddress).name())) == keccak256(bytes(params.name)),
             "max name accepted"
@@ -354,114 +334,50 @@ contract LaunchTest {
         result = string(out);
     }
 
-    function testInitRejectsRepeatInitialization() public {
-        bytes memory data = _revertOf(
-            address(launch), abi.encodeWithSelector(ILaunch.init.selector, _freshParams()), "repeat init expected"
-        );
-        _expectData(data, abi.encodeWithSelector(ILaunchErrors.AlreadyInitialized.selector), "already initialized");
-
-        // 参数非法与重复初始化同时命中时按初始化状态回滚（通用规则「初始化与安全」）
-        LaunchInitParams memory invalid = _freshParams();
-        invalid.mintAddress = address(0);
-        data = _revertOf(
-            address(launch), abi.encodeWithSelector(ILaunch.init.selector, invalid), "status before parameters expected"
-        );
-        _expectData(data, abi.encodeWithSelector(ILaunchErrors.AlreadyInitialized.selector), "initialized checked first");
-
-        // 首币名称/符号为空同样不能越过初始化状态校验
-        invalid = _freshParams();
-        invalid.name = "";
-        data = _revertOf(
-            address(launch), abi.encodeWithSelector(ILaunch.init.selector, invalid), "status before empty name expected"
-        );
-        _expectData(data, abi.encodeWithSelector(ILaunchErrors.AlreadyInitialized.selector), "initialized before empty name");
-    }
-
-    function testInitRevertsWhenPairCreationReturnsZero() public {
-        Launch fresh = new Launch();
-        MemberNFT freshMember = new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH);
-        LaunchInitParams memory params = _params(address(freshMember), LAUNCH_AMOUNT, MAX_SUPPLY, "LOVE");
+    function testConstructorRevertsWhenPairCreationReturnsZero() public {
+        LaunchInitParams memory params = _freshParams();
         params.pairFactoryAddress = address(new ZeroReturningPairFactory());
 
-        bytes memory data = _revertOf(
-            address(fresh), abi.encodeWithSelector(ILaunch.init.selector, params), "pair creation expected"
-        );
-        _expectData(
-            data,
-            abi.encodeWithSelector(ILaunchErrors.PairCreationFailed.selector, ROOT),
-            "pair creation payload"
+        _requireConstructorRevert(
+            params, abi.encodeWithSelector(ILaunchErrors.PairCreationFailed.selector, ROOT)
         );
     }
 
-    function testInitAcceptsEqualSupplySettings() public {
+    function testConstructorAcceptsEqualSupplySettings() public {
         // launchAmount 与 maxSupply 相等是合法配置
-        MemberNFT equalMember = _newMember();
-        Launch equalLaunch = new Launch();
-        equalLaunch.init(_params(address(equalMember), MAX_SUPPLY, MAX_SUPPLY, "LOVE"));
-        LOVE20Token equalToken = LOVE20Token(equalMember.LOVE20_TOKEN_ADDRESS());
+        (Launch equalLaunch,) = _launchWithMember(_params(address(0), MAX_SUPPLY, MAX_SUPPLY, "LOVE"));
+        LOVE20Token equalToken = LOVE20Token(equalLaunch.FIRST_TOKEN_ADDRESS());
         require(equalToken.totalSupply() == MAX_SUPPLY, "equal supply");
         require(equalToken.MAX_SUPPLY() == MAX_SUPPLY, "equal max supply");
     }
 
-    function testInitRejectsEmptyFirstTokenNameOrSymbol() public {
+    function testConstructorRejectsEmptyFirstTokenNameOrSymbol() public {
         LaunchInitParams memory params = _freshParams();
         params.name = "";
-        bytes memory data = _initRevertData(params, "empty name expected");
-        _expectData(data, abi.encodeWithSelector(ILaunchErrors.TokenNameEmpty.selector), "name selector");
+        _requireConstructorRevert(params, abi.encodeWithSelector(ILaunchErrors.TokenNameEmpty.selector));
 
         params = _freshParams();
         params.symbol = "";
-        data = _initRevertData(params, "empty symbol expected");
-        _expectData(data, abi.encodeWithSelector(ILaunchErrors.TokenSymbolEmpty.selector), "symbol selector");
+        _requireConstructorRevert(params, abi.encodeWithSelector(ILaunchErrors.TokenSymbolEmpty.selector));
     }
 
-    function testInitNeverCallsDistributor() public {
-        // 首币固定 NoCallback：即使 distributor 是会在回调里回滚的合约，init 也必须成功
-        MemberNFT freshMember = _newMember();
-        Launch freshLaunch = new Launch();
+    function testConstructorNeverCallsDistributor() public {
+        // 首币固定 NoCallback：即使 distributor 是会在回调里回滚的合约，构造也必须成功
         distributor.setRejectNextCall(true);
 
-        LaunchInitParams memory params = _params(address(freshMember), LAUNCH_AMOUNT, MAX_SUPPLY, "LOVE");
+        LaunchInitParams memory params = _freshParams();
         params.distributor = address(distributor);
-        freshLaunch.init(params);
+        (Launch freshLaunch,) = _launchWithMember(params);
 
         require(distributor.callCount() == 0, "no callback for the first token");
-        LOVE20Token first = LOVE20Token(freshMember.LOVE20_TOKEN_ADDRESS());
+        LOVE20Token first = LOVE20Token(freshLaunch.FIRST_TOKEN_ADDRESS());
         require(first.balanceOf(address(distributor)) == LAUNCH_AMOUNT, "supply delivered");
         require(freshLaunch.isLOVE20Token(address(first)), "first token registered");
-    }
-
-    function testInitRollsBackWhenMemberNftRejects() public {
-        // 预置一个已初始化的 MemberNFT：init 在创建首币后调用它并因此整体回滚
-        MemberNFT rejecting = _newMember();
-        rejecting.init(address(firstToken));
-        Launch freshLaunch = new Launch();
-
-        bytes memory data = _revertOf(
-            address(freshLaunch),
-            abi.encodeWithSelector(
-                ILaunch.init.selector, _params(address(rejecting), LAUNCH_AMOUNT, MAX_SUPPLY, "LOVE")
-            ),
-            "member reject expected"
-        );
-        _expectData(
-            data, abi.encodeWithSelector(IMemberNFTErrors.AlreadyInitialized.selector), "member error bubbles up"
-        );
-        require(!freshLaunch.initialized(), "initialized rolled back");
-        require(freshLaunch.MINT_ADDRESS() == address(0), "mint rolled back");
-        require(freshLaunch.ROOT_PARENT_TOKEN_ADDRESS() == address(0), "root rolled back");
-        require(freshLaunch.FIRST_TOKEN_ADDRESS() == address(0), "first token rolled back");
-        require(rejecting.LOVE20_TOKEN_ADDRESS() == address(firstToken), "member untouched");
     }
 
     // ============ 代币登记与查询 ============
 
     function testRegistrationIsClosedToUnrelatedAddresses() public {
-        Launch freshLaunch = new Launch();
-        require(!freshLaunch.isLOVE20Token(address(0)), "zero before init");
-        require(!freshLaunch.isLOVE20Token(EOA), "eoa before init");
-        require(!freshLaunch.isLOVE20Token(address(firstToken)), "first token before init");
-
         // 有同名 getter 的无关合约同样返回 false，且不发起外部调用
         FakeToken fake = new FakeToken(ROOT, "LOVE");
         require(!launch.isLOVE20Token(address(fake)), "fake token");
@@ -670,12 +586,10 @@ contract LaunchTest {
 
     function testLaunchTokenAcceptsMixedChineseAndAsciiSymbols() public {
         // 符号长度配置为 6 字节：两个汉字、六个 ASCII、或中英数字混排都合法
-        MemberNFT bootedMember = _newMember();
-        Launch bootedLaunch = new Launch();
-        LaunchInitParams memory params = _paramsAtRoot(address(bootedMember), ROOT, "LOVE");
+        LaunchInitParams memory params = _paramsAtRoot(address(0), ROOT, "LOVE");
         params.tokenSymbolLength = 6;
-        bootedLaunch.init(params);
-        LOVE20Token bootedToken = LOVE20Token(bootedMember.LOVE20_TOKEN_ADDRESS());
+        (Launch bootedLaunch, MemberNFT bootedMember) = _launchWithMember(params);
+        LOVE20Token bootedToken = LOVE20Token(bootedLaunch.FIRST_TOKEN_ADDRESS());
         _fundAndApprove(carol, bootedToken, bootedMember);
         (uint256 memberId, ) = carol.mintMember(bootedMember, "dave");
         _grantCountAt(bootedLaunch, address(bootedToken), memberId, 4);
@@ -1472,34 +1386,6 @@ contract LaunchTest {
         _expectData(data, abi.encodeWithSelector(ILaunchErrors.TokenNotRegistered.selector, EOA), "token before cap");
     }
 
-    function testWriteEntriesDoNotValidateInitialized() public {
-        Launch freshLaunch = new Launch();
-        require(!freshLaunch.initialized(), "fixture");
-
-        // launchToken：先命中鉴权；未初始化时 memberNFTAddress 为零地址，ownerOf 退化为无数据 revert
-        (bool ok, bytes memory data) = _launchAt(freshLaunch, alice, "AAA", address(firstToken), aliceMemberId);
-        require(!ok, "uninitialized launch must revert");
-        require(data.length == 0, "zero-address ownerOf revert");
-
-        // mergeLaunchCount：同样先命中鉴权，零地址 ownerOf 退化
-        (ok, data) = alice.forward(
-            address(freshLaunch),
-            abi.encodeWithSelector(ILaunch.mergeLaunchCount.selector, address(firstToken), aliceMemberId, bobMemberId, 1)
-        );
-        require(!ok, "uninitialized merge must revert");
-        require(data.length == 0, "zero-address ownerOf revert");
-
-        // addLaunchCount：先命中鉴权（未初始化时 mintAddress 为零地址）
-        (ok, data) = mintAccount.forward(
-            address(freshLaunch),
-            abi.encodeWithSelector(ILaunch.addLaunchCount.selector, address(firstToken), aliceMemberId, 1)
-        );
-        require(!ok, "uninitialized add must revert");
-        _expectData(
-            data, abi.encodeWithSelector(ILaunchErrors.NotMintContract.selector, address(mintAccount)), "caller check first"
-        );
-    }
-
     // ============ 根级次数与根级发射 ============
 
     function testAddLaunchCountMirrorsRootOnlyForFirstToken() public {
@@ -1705,19 +1591,25 @@ contract LaunchTest {
 
     // ============ Helpers ============
 
-    function _newMember() private returns (MemberNFT) {
-        return new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH);
+    function _launchWithMember(LaunchInitParams memory params)
+        private
+        returns (Launch deployedLaunch, MemberNFT deployedMember)
+    {
+        address predictedMember = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
+        params.memberNFTAddress = predictedMember;
+        deployedLaunch = new Launch(params);
+        deployedMember = new MemberNFT(
+            BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH, deployedLaunch.FIRST_TOKEN_ADDRESS()
+        );
+        require(address(deployedMember) == predictedMember, "member address mismatch");
     }
 
     function _validParams() private view returns (LaunchInitParams memory) {
-        return _params(address(member), LAUNCH_AMOUNT, MAX_SUPPLY, "LOVE");
+        return _params(address(0), LAUNCH_AMOUNT, MAX_SUPPLY, "LOVE");
     }
 
-    /// init 参数校验用例专用：每次换一个未初始化的 MemberNFT。
-    /// `ILaunchErrors.AlreadyInitialized` 与 `IMemberNFTErrors.AlreadyInitialized` 的 selector
-    /// 相同，只有让 MemberNFT 这条路径不可能回滚，断言才能归因到 Launch。
-    function _freshParams() private returns (LaunchInitParams memory) {
-        return _params(address(_newMember()), LAUNCH_AMOUNT, MAX_SUPPLY, "LOVE");
+    function _freshParams() private view returns (LaunchInitParams memory) {
+        return _params(address(0), LAUNCH_AMOUNT, MAX_SUPPLY, "LOVE");
     }
 
     /// 统计某个 emitter 发出的指定 topic0 的日志条数，用于事件的反向断言
@@ -1778,10 +1670,9 @@ contract LaunchTest {
         Caller caller,
         string memory memberName
     ) private returns (Launch bootedLaunch, LOVE20Token bootedToken, MemberNFT bootedMember, uint256 memberId) {
-        bootedMember = _newMember();
-        bootedLaunch = new Launch();
-        bootedLaunch.init(_paramsAtRoot(address(bootedMember), rootParentTokenAddress, firstTokenSymbol));
-        bootedToken = LOVE20Token(bootedMember.LOVE20_TOKEN_ADDRESS());
+        (bootedLaunch, bootedMember) =
+            _launchWithMember(_paramsAtRoot(address(0), rootParentTokenAddress, firstTokenSymbol));
+        bootedToken = LOVE20Token(bootedLaunch.FIRST_TOKEN_ADDRESS());
         _fundAndApprove(caller, bootedToken, bootedMember);
         (memberId, ) = caller.mintMember(bootedMember, memberName);
     }
@@ -1892,13 +1783,9 @@ contract LaunchTest {
         mintAccount.addLaunchCount(target, tokenAddress, memberId, count);
     }
 
-    function _initRevertData(LaunchInitParams memory params, string memory note) private returns (bytes memory) {
-        return _revertOf(address(new Launch()), abi.encodeWithSelector(ILaunch.init.selector, params), note);
-    }
-
-    function _requireInitRevert(LaunchInitParams memory params, bytes memory expected, string memory note) private {
-        bytes memory data = _initRevertData(params, note);
-        _expectData(data, expected, note);
+    function _requireConstructorRevert(LaunchInitParams memory params, bytes memory expected) private {
+        vm.expectRevert(expected);
+        new Launch(params);
     }
 
     function _revertOf(address target, bytes memory callData, string memory note) private returns (bytes memory) {
@@ -1922,13 +1809,12 @@ contract LaunchTest {
     /// E1：首币构造期的 `TokenMinted` 先于 `GenesisTokenCreated`，且事件地址等于部署地址。
     function testGenesisOrdersTokenMintedBeforeCreation() public {
         LaunchInitParams memory params = _freshParams();
-        Launch freshLaunch = new Launch();
 
         vm.recordLogs();
-        freshLaunch.init(params);
+        Launch freshLaunch = new Launch(params);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        address firstTokenAddress = MemberNFT(params.memberNFTAddress).LOVE20_TOKEN_ADDRESS();
+        address firstTokenAddress = freshLaunch.FIRST_TOKEN_ADDRESS();
         bytes32 mintedTopic = keccak256("TokenMinted(address,uint256)");
         bytes32 createdTopic = keccak256("GenesisTokenCreated(address,address,address,string,string)");
         uint256 mintedIndex = type(uint256).max;

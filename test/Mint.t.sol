@@ -38,8 +38,8 @@ contract MintTest {
     mapping(address => uint256) public issuedLaunchCount;
 
     function setupMint(uint256 supply, uint256 maxSupply, uint256 govRatio, uint256 proposalRatio) internal {
-        mint = new Mint();
-        mint.init(
+        mint = new Mint(
+            address(this),
             address(this),
             address(this),
             address(this),

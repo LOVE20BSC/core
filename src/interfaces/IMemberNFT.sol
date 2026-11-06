@@ -17,7 +17,6 @@ interface IMemberNFTEvents {
 
 interface IMemberNFTErrors {
     error NameAlreadyExists(uint256 existingId);
-    error AlreadyInitialized();
     error NameEmpty();
     error NameTooLong(
         uint256 length,
@@ -41,10 +40,6 @@ interface IMemberNFT is
     function MULTIPLIER() external view returns (uint256);
 
     function MAX_NAME_LENGTH() external view returns (uint256);
-
-    function initialized() external view returns (bool);
-
-    function init(address firstTokenAddress) external;
 
     function mint(
         string calldata name

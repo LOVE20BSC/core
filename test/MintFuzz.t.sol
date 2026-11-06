@@ -33,8 +33,8 @@ contract MintFuzzTest {
     mapping(address => uint256) public issuedLaunchCount;
 
     function setupFuzz(uint256 supply, uint256 maxSup, uint256 govRatio, uint256 propRatio) internal {
-        mint = new Mint();
-        mint.init(
+        mint = new Mint(
+            address(this),
             address(this),
             address(this),
             address(this),

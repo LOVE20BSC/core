@@ -12,7 +12,6 @@ import {Pagination} from "@libs/Pagination.sol";
 contract Vote is IVote {
     using Pagination for uint256[];
 
-    bool public initialized;
     address public STAKE_ADDRESS;
     address public SUBMIT_ADDRESS;
     address public PHASE_ADDRESS;
@@ -43,16 +42,12 @@ contract Vote is IVote {
     mapping(address => mapping(uint256 => uint256)) internal _totalVoterBoostByRound;
 
     // forge-lint: disable-next-item(missing-zero-check)
-    function init(
+    constructor(
         address phaseAddress,
         address stakeAddress,
         address submitAddress,
         address memberNFTAddress
-    ) external {
-        if (initialized) {
-            revert AlreadyInitialized();
-        }
-        initialized = true;
+    ) {
         STAKE_ADDRESS = stakeAddress;
         SUBMIT_ADDRESS = submitAddress;
         PHASE_ADDRESS = phaseAddress;

@@ -26,7 +26,6 @@ contract Launch is ILaunch {
     uint256 public constant MAX_TOKEN_SYMBOL_LENGTH = 32;
     uint256 public constant MAX_TOKEN_NAME_LENGTH = 96;
     uint256 public constant TEST_PREFIX_BYTES = 4;
-    bool public initialized;
 
     modifier onlyMint() {
         if (msg.sender != MINT_ADDRESS) revert NotMintContract(msg.sender);
@@ -51,10 +50,8 @@ contract Launch is ILaunch {
     // tokenAddress => issued launch count; consumption and merging do not decrease it
     mapping(address => uint256) internal _issuedLaunchCount;
 
-    function init(LaunchInitParams calldata params) external {
-        if (initialized) revert AlreadyInitialized();
-
-        initialized = true;
+    // forge-lint: disable-next-item(missing-zero-check)
+    constructor(LaunchInitParams memory params) {
         MINT_ADDRESS = params.mintAddress;
         MEMBER_NFT_ADDRESS = params.memberNFTAddress;
         ROOT_PARENT_TOKEN_ADDRESS = params.rootParentTokenAddress;
@@ -71,8 +68,6 @@ contract Launch is ILaunch {
         _parentTokenByTokenAddress[firstToken] = params.rootParentTokenAddress;
         _tokenAddressBySymbol[params.symbol] = firstToken;
         _childTokens[params.rootParentTokenAddress].push(firstToken);
-
-        IMemberNFT(params.memberNFTAddress).init(firstToken);
 
         // forge-lint: disable-next-item(reentrancy-events)
         emit GenesisTokenCreated({

@@ -17,7 +17,6 @@ struct TotalStake {
 }
 
 interface IStakeErrors {
-    error AlreadyInitialized();
     error StakeNotStarted();
     error ZeroTokenAmount();
     error ZeroParentTokenAmount();
@@ -170,26 +169,12 @@ interface IStakeEvents {
 }
 
 interface IStake is IStakeErrors, IStakeEvents {
-    function initialized() external view returns (bool);
     function PHASE_ADDRESS() external view returns (address);
     function MEMBER_NFT_ADDRESS() external view returns (address);
     function VOTE_ADDRESS() external view returns (address);
     function LAUNCH_ADDRESS() external view returns (address);
     function ROUTER_ADDRESS() external view returns (address);
     function PAIR_FACTORY_ADDRESS() external view returns (address);
-    function init(
-        address phaseAddress,
-        address memberNFTAddress,
-        address voteAddress,
-        address launchAddress,
-        address routerAddress,
-        address pairFactoryAddress,
-        uint256 promisedWaitingPhasesMin,
-        uint256 promisedWaitingPhasesMax,
-        uint256 feeSettlementRatio,
-        uint256 boostStakeSupplyFactor,
-        uint256 boostStakeMultiplier
-    ) external;
     function settleFees(address tokenAddress) external;
     function stakeLiquidity(
         address tokenAddress,

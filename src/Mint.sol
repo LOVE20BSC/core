@@ -28,7 +28,6 @@ contract Mint is IMint {
 
     mapping(address => mapping(uint256 => uint256)) internal _launchCredit;
 
-    bool public initialized;
     address public VOTE_ADDRESS;
     address public SUBMIT_ADDRESS;
     address public LAUNCH_ADDRESS;
@@ -71,7 +70,8 @@ contract Mint is IMint {
     }
 
     // forge-lint: disable-next-item(missing-zero-check)
-    function init(
+    constructor(
+        address phaseAddress,
         address voteAddress,
         address submitAddress,
         address launchAddress,
@@ -79,14 +79,7 @@ contract Mint is IMint {
         uint256 proposalRewardMinVoteRatio,
         uint256 roundRewardGovRatio,
         uint256 roundRewardProposalRatio
-    ) external {
-        if (initialized) {
-            revert AlreadyInitialized();
-        }
-        initialized = true;
-
-        address phaseAddress = IVote(voteAddress).PHASE_ADDRESS();
-
+    ) {
         VOTE_ADDRESS = voteAddress;
         SUBMIT_ADDRESS = submitAddress;
         LAUNCH_ADDRESS = launchAddress;

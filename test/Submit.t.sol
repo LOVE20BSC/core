@@ -91,8 +91,7 @@ contract SubmitTest {
         phase = new Phase(100, 100, 1000, 1e17, 10);
         stake = new MockStake();
         memberNFT = new MockMemberNFT();
-        submit = new Submit();
-        submit.init(address(phase), address(stake), address(memberNFT), 1e16);
+        submit = new Submit(address(phase), address(stake), address(memberNFT), 1e16);
 
         // Setup default member ownership and voting power
         memberNFT.setOwner(1, address(this));
@@ -102,24 +101,13 @@ contract SubmitTest {
         stake.setGlobalGovVotes(TOKEN, 1000);
     }
 
-    // ============ Initialization Tests ============
+    // ============ Constructor Tests ============
 
-    function testInitSuccess() external view {
-        require(submit.initialized(), "not initialized");
+    function testConstructorWiresDependencies() external view {
         require(submit.PHASE_ADDRESS() == address(phase), "wrong phase");
         require(submit.STAKE_ADDRESS() == address(stake), "wrong stake");
         require(submit.MEMBER_NFT_ADDRESS() == address(memberNFT), "wrong memberNFT");
         require(submit.SUBMIT_MIN_RATIO() == 1e16, "wrong threshold");
-    }
-
-    function testInitCannotReinitialize() external {
-        Submit newSubmit = new Submit();
-        newSubmit.init(address(phase), address(stake), address(memberNFT), 1e16);
-        bytes memory expected = abi.encodeWithSelector(ISubmitErrors.AlreadyInitialized.selector);
-        (bool ok, bytes memory data) = address(newSubmit).call(
-            abi.encodeCall(newSubmit.init, (address(phase), address(stake), address(memberNFT), 1e16))
-        );
-        require(!ok && keccak256(data) == keccak256(expected), "should revert AlreadyInitialized");
     }
 
     // ============ Permission Tests ============
@@ -956,16 +944,14 @@ contract SubmitTest {
     }
 
     function testMaximumThreshold() external {
-        Submit newSubmit = new Submit();
-        newSubmit.init(address(phase), address(stake), address(memberNFT), 1000);
+        Submit newSubmit = new Submit(address(phase), address(stake), address(memberNFT), 1000);
         stake.setValidGovVotes(TOKEN, 1, 1000);
         stake.setGlobalGovVotes(TOKEN, 1000);
         require(newSubmit.canSubmit(TOKEN, 1), "should submit at max threshold");
     }
 
     function testMinimumThreshold() external {
-        Submit newSubmit = new Submit();
-        newSubmit.init(address(phase), address(stake), address(memberNFT), 1);
+        Submit newSubmit = new Submit(address(phase), address(stake), address(memberNFT), 1);
         stake.setValidGovVotes(TOKEN, 1, 1);
         stake.setGlobalGovVotes(TOKEN, 1000);
         require(newSubmit.canSubmit(TOKEN, 1), "should submit at min threshold");
