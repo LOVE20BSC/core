@@ -9,7 +9,6 @@
 ROUND_REWARD_GOV_RATIO = 1e17                 // 治理奖励池比例: 10%
 ROUND_REWARD_PROPOSAL_RATIO = 1e17            // 提案奖励池比例: 10%
 PROPOSAL_REWARD_MIN_VOTE_RATIO = 5e16        // 提案资格阈值: 5%
-MAX_GOV_BOOST_REWARD_MULTIPLIER = 2           // Boost 倍数上限: 2x
 ```
 
 ### 1.2 Token 供应参数
@@ -90,21 +89,12 @@ totalBoost = 该轮所有成员的总质押 boost 值
 theoreticalBoost = (boostPoolAmount × memberBoost) / totalBoost
 ```
 
-#### 4.4.2 Boost 上限计算
+#### 4.4.2 实际 Boost 奖励
 ```
-maxBoostReward = voteReward × MAX_GOV_BOOST_REWARD_MULTIPLIER
-               = voteReward × 2
-```
-
-#### 4.4.3 实际 Boost 奖励
-```
-boostReward = min(theoreticalBoost, maxBoostReward)
+boostReward = theoreticalBoost
 ```
 
-#### 4.4.4 超额销毁
-```
-burnReward = theoreticalBoost - boostReward
-```
+Mint 侧不设输出倍数上限，也不产生 `burnReward`：加速池按理论份额全额铸出。反资本约束改由 Stake 的加速质押入口按单人本金上限校验，不在本合约内截断。
 
 **池取消规则**:
 - 如果 `totalBoost == 0`，则 `boostPoolAmount` 全部销毁：
@@ -203,9 +193,7 @@ totalBoost = 8000
 ```
 voteReward1 = (47,500 × 100) / 160 = 29,687 (整数除法)
 theoreticalBoost1 = (47,500 × 5000) / 8000 = 29,687
-maxBoostReward1 = 29,687 × 2 = 59,374
-boostReward1 = min(29,687, 59,374) = 29,687
-burnReward1 = 0
+boostReward1 = theoreticalBoost1 = 29,687
 totalReward1 = 29,687 + 29,687 = 59,374
 ```
 
@@ -213,9 +201,7 @@ totalReward1 = 29,687 + 29,687 = 59,374
 ```
 voteReward2 = (47,500 × 60) / 160 = 17,812 (整数除法)
 theoreticalBoost2 = (47,500 × 3000) / 8000 = 17,812
-maxBoostReward2 = 17,812 × 2 = 35,624
-boostReward2 = min(17,812, 35,624) = 17,812
-burnReward2 = 0
+boostReward2 = theoreticalBoost2 = 17,812
 totalReward2 = 17,812 + 17,812 = 35,624
 ```
 
@@ -259,7 +245,7 @@ proposal2Reward = 0 (不合格)
 proposal3Reward = (95,000 × 470) / 494 = 90,425 (整数除法)
 ```
 
-### 场景 3: Boost 上限触发
+### 场景 3: Boost 按理论份额全额发放
 
 **极端投票分布**:
 ```
@@ -279,25 +265,21 @@ boostPoolAmount = 50,000
 ```
 voteReward1 = (50,000 × 10) / 100 = 5,000
 theoreticalBoost1 = (50,000 × 9000) / 10,000 = 45,000
-maxBoostReward1 = 5,000 × 2 = 10,000
-boostReward1 = min(45,000, 10,000) = 10,000 (触发上限)
-burnReward1 = 45,000 - 10,000 = 35,000 (超额销毁)
-totalReward1 = 5,000 + 10,000 = 15,000
+boostReward1 = theoreticalBoost1 = 45,000
+totalReward1 = 5,000 + 45,000 = 50,000
 ```
 
 **成员 2**:
 ```
 voteReward2 = (50,000 × 90) / 100 = 45,000
 theoreticalBoost2 = (50,000 × 1000) / 10,000 = 5,000
-maxBoostReward2 = 45,000 × 2 = 90,000
-boostReward2 = min(5,000, 90,000) = 5,000 (未触发上限)
-burnReward2 = 0
+boostReward2 = theoreticalBoost2 = 5,000
 totalReward2 = 45,000 + 5,000 = 50,000
 ```
 
 **总销毁**:
 ```
-totalBurned = 35,000
+totalBurned = 0
 ```
 
 ### 场景 4: 池取消
@@ -307,7 +289,7 @@ totalBurned = 35,000
 ```
 boostPoolCancelled = boostPoolAmount
 totalRewardBurned += boostPoolAmount
-所有成员: boostReward = 0, burnReward = 0
+所有成员: boostReward = 0
 ```
 
 #### 4.2 提案池取消
@@ -411,11 +393,10 @@ assertEq(actualValue, expectedValue, "描述");
 assertEq(voteReward1 * 3, voteReward2 * 5, "Vote rewards should match 5:3 ratio");
 ```
 
-### 9.3 不等式验证
-对于上限和下限约束：
+### 9.3 等式验证
+对于 Boost 奖励的满额发放：
 ```solidity
-assertTrue(boostReward <= maxBoostReward, "Boost should not exceed cap");
-assertTrue(boostReward <= theoreticalBoost, "Boost should not exceed theoretical");
+assertEq(boostReward, theoreticalBoost, "Boost should be paid in full");
 ```
 
 ### 9.4 独立计算
