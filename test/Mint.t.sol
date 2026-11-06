@@ -456,6 +456,13 @@ contract MintTest {
         require(!mint.isRewardPrepared(address(token), 5), "unfinished round marked prepared");
     }
 
+    function testPrepareRewardIfNeededRejectsRoundZero() public {
+        setupMint(1000, 10000, 1e17, 1e17);
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 0));
+        mint.prepareRewardIfNeeded(address(token), 0);
+        require(!mint.isRewardPrepared(address(token), 0), "round zero marked prepared");
+    }
+
     function testPrepareRewardIfNeededIsIdempotentWithoutEvent() public {
         setupMint(1000, 10000, 1e17, 1e17);
         mint.prepareRewardIfNeeded(address(token), 1);
@@ -469,6 +476,9 @@ contract MintTest {
         uint256 eligibleBefore = mint.eligibleProposalVoteAmount(address(token), 1);
         require(govBefore > 0 && proposalBefore > 0 && reservedBefore > 0, "empty pool makes idempotence vacuous");
 
+        token.burn(100);
+        require(mint.rewardAvailable(address(token)) == availableBefore + 100, "burn must move the budget");
+
         vm.recordLogs();
         mint.prepareRewardIfNeeded(address(token), 1);
         MintVm.Log[] memory logs = vm.getRecordedLogs();
@@ -481,7 +491,7 @@ contract MintTest {
         }
         require(preparedEvents == 0, "idempotent call emitted RewardPrepared");
         require(mint.isRewardPrepared(address(token), 1), "prepared flag cleared");
-        require(mint.rewardAvailable(address(token)) == availableBefore, "rewardAvailable changed");
+        require(mint.rewardAvailable(address(token)) == availableBefore + 100, "second call re-read the budget");
         require(mint.totalRewardReserved(address(token)) == reservedBefore, "reservation changed");
         require(mint.totalRewardBurned(address(token)) == burnedBefore, "burn ledger changed");
         require(
