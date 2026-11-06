@@ -23,7 +23,6 @@ interface ILOVE20TokenErrors {
         uint256 maxSupply
     );
     error ZeroDistributorAddress();
-    error DependencyNotContract(address dependency);
     error NotMinter(address caller);
     error MaxSupplyExceeded(
         uint256 requested,

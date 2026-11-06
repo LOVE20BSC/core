@@ -158,7 +158,7 @@ contract LOVE20TokenTest {
         require(_deploys(_tokenCode(100 ether, 100 ether, address(this), address(this), PARENT)), "equal supply");
     }
 
-    function testConstructorRejectsZeroAddresses() public {
+    function testConstructorRejectsZeroDistributor() public {
         require(
             _revertEquals(
                 _deployRevert(_tokenCode(1 ether, 1 ether, address(0), address(this), PARENT)),
@@ -166,19 +166,19 @@ contract LOVE20TokenTest {
             ),
             "zero distributor"
         );
+    }
+
+    /// minter 与 parent 只作为构造参数保存，不再要求有代码：零地址与 EOA 都可部署
+    function testConstructorAcceptsNonContractMinterAndParent() public {
+        require(_deploys(_tokenCode(1 ether, 1 ether, address(this), address(0), PARENT)), "zero minter");
         require(
-            _revertEquals(
-                _deployRevert(_tokenCode(1 ether, 1 ether, address(this), address(0), PARENT)),
-                abi.encodeWithSelector(ILOVE20TokenErrors.DependencyNotContract.selector, address(0))
-            ),
-            "zero minter"
+            _deploys(_tokenCode(1 ether, 1 ether, address(this), address(0xBEEF), PARENT)), "EOA minter"
         );
         require(
-            _revertEquals(
-                _deployRevert(_tokenCode(1 ether, 1 ether, address(this), address(this), address(0))),
-                abi.encodeWithSelector(ILOVE20TokenErrors.DependencyNotContract.selector, address(0))
-            ),
-            "zero parent"
+            _deploys(_tokenCode(1 ether, 1 ether, address(this), address(this), address(0))), "zero parent"
+        );
+        require(
+            _deploys(_tokenCode(1 ether, 1 ether, address(this), address(this), address(0xCAFE))), "EOA parent"
         );
     }
 

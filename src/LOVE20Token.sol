@@ -9,6 +9,7 @@ contract LOVE20Token is ERC20, ILOVE20Token {
     address public immutable MINTER;
     address public immutable PARENT_TOKEN_ADDRESS;
 
+    // forge-lint: disable-next-item(missing-zero-check)
     constructor(
         string memory name,
         string memory symbol,
@@ -21,8 +22,6 @@ contract LOVE20Token is ERC20, ILOVE20Token {
         if (initialSupply == 0) revert ZeroInitialSupply();
         if (maxSupply < initialSupply) revert MaxSupplyBelowInitialSupply(initialSupply, maxSupply);
         if (distributor == address(0)) revert ZeroDistributorAddress();
-        if (minter.code.length == 0) revert DependencyNotContract(minter);
-        if (parentTokenAddress.code.length == 0) revert DependencyNotContract(parentTokenAddress);
 
         _mint(distributor, initialSupply);
         emit TokenMinted({
