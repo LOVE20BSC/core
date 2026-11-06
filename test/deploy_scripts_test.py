@@ -453,11 +453,37 @@ def main():
             "ETHERSCAN_VERIFIER_URL=https://api.etherscan.io/v2/api\nVERIFY_SKIP_CHAIN_IDS=31337\n")
         token_args = next(call for call in log if call[:2] == ["cast", "abi-encode"] and "string,string" in call[2])
         assert token_args[-2] == env["MINT_ADDRESS"]
+        # Launch 走 tuple 参数：address/uint256 槽位互换时字节长度不变，必须按 ABI 顺序逐槽
+        # 比对「类型」与「取值」，只比整串长度或只比期望签名都拦不住错位。
+        launch_args = next(call for call in log if call[:2] == ["cast", "abi-encode"] and call[2].startswith("constructor(("))
+        launch_signature = launch_args[2]
+        assert launch_signature.startswith("constructor((") and launch_signature.endswith("))"), launch_signature
+        components = launch_signature[len("constructor(("):-2].split(",")
+        assert launch_args[3].startswith("(") and launch_args[3].endswith(")"), launch_args[3]
+        values = launch_args[3][1:-1].split(",")
+        launch_fields = [
+            ("address", "MINT_ADDRESS"),
+            ("address", "MEMBER_NFT_ADDRESS"),
+            ("address", "WETH_ADDRESS"),
+            ("address", "FACTORY_ADDRESS"),
+            ("address", "DISTRIBUTOR_ADDRESS"),
+            ("uint256", "LAUNCH_COUNT_THRESHOLD_RATIO"),
+            ("uint256", "MAX_LAUNCH_COUNT"),
+            ("uint256", "TOKEN_SYMBOL_LENGTH"),
+            ("uint256", "LAUNCH_AMOUNT"),
+            ("uint256", "MAX_SUPPLY"),
+            ("string", "TOKEN_NAME"),
+            ("string", "TOKEN_SYMBOL"),
+        ]
+        assert len(components) == len(values) == len(launch_fields), (components, values, launch_fields)
+        for index, (field_type, key) in enumerate(launch_fields):
+            assert components[index] == field_type, (index, key, components[index], field_type)
+            assert values[index] == env[key], (index, key, values[index], env[key])
         for signature, label in [
                 ("constructor(uint256,uint256,uint256,uint256,address)", "MemberNFT"),
                 ("constructor(uint256,uint256,uint256,uint256,uint256)", "Phase"),
                 ("constructor(string,string,uint256,uint256,address,address,address)", "LOVE20Token"),
-                ("constructor((address,address,address,address,uint256,uint256,uint256,uint256,uint256,address,string,string))", "Launch"),
+                ("constructor((address,address,address,address,address,uint256,uint256,uint256,uint256,uint256,string,string))", "Launch"),
                 ("constructor(address,address,address,uint256)", "Submit"),
                 ("constructor(address,address,address,address)", "Vote"),
                 ("constructor(address,address,address,address,address,address,uint256,uint256,uint256,uint256,uint256)", "Stake"),

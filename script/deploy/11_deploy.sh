@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Step 1: deploy and initialize the contracts. Self-contained: loads and validates every file it
+# Step 1: deploy the contracts. Self-contained: loads and validates every file it
 # needs, without relying on a preloaded caller environment.
 # Usage: script/deploy/11_deploy.sh <network>
 # This step writes addresses.core.params, which 21_check.sh and 31_verify.sh load on their own.

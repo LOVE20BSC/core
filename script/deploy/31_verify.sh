@@ -102,9 +102,9 @@ if ! TOKEN_ARGS=$(cast abi-encode "constructor(string,string,uint256,uint256,add
     exit 1
 fi
 if ! LAUNCH_ARGS=$(cast abi-encode \
-    "constructor((address,address,address,address,uint256,uint256,uint256,uint256,uint256,address,string,string))" \
-    "($MINT_ADDRESS,$MEMBER_NFT_ADDRESS,$ROOT_PARENT,$FACTORY_ADDRESS,$LAUNCH_COUNT_THRESHOLD_RATIO,\
-$MAX_LAUNCH_COUNT,$TOKEN_SYMBOL_LENGTH,$LAUNCH_AMOUNT,$MAX_SUPPLY,$DISTRIBUTOR_ADDRESS,$TOKEN_NAME,$TOKEN_SYMBOL)"); then
+    "constructor((address,address,address,address,address,uint256,uint256,uint256,uint256,uint256,string,string))" \
+    "($MINT_ADDRESS,$MEMBER_NFT_ADDRESS,$ROOT_PARENT,$FACTORY_ADDRESS,$DISTRIBUTOR_ADDRESS,$LAUNCH_COUNT_THRESHOLD_RATIO,\
+$MAX_LAUNCH_COUNT,$TOKEN_SYMBOL_LENGTH,$LAUNCH_AMOUNT,$MAX_SUPPLY,$TOKEN_NAME,$TOKEN_SYMBOL)"); then
     echo "Error: Failed to encode Launch constructor arguments"
     exit 1
 fi

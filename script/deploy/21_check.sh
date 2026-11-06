@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Deployment and initialization check: read-only over config and chain state.
+# Deployment check: read-only over config and chain state.
 # Loads its own inputs instead of relying on a preloaded environment: network.params provides
 # RPC and chain ID, the dex UniswapV2 address file the expected bindings, core.params the
 # expected deployment parameters and addresses.core.params the addresses to verify.

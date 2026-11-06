@@ -61,12 +61,12 @@ if [ -f "$ADDRESS_FILE" ]; then
     had_address_file=1
 fi
 
-# Step 1: deploy and initialize the contracts (loads its own deployment inputs). The address file is
+# Step 1: deploy the contracts (loads its own deployment inputs). The address file is
 # written only after every check passes; a failure after broadcast cannot be rolled back on chain,
 # so recover the record from the log and the broadcast artifact 11_deploy.sh prints.
 bash "$SCRIPT_DIR/11_deploy.sh" "$network"
 
-# Step 2: verify deployment and initialization (loads its own check inputs, restores the saved
+# Step 2: verify the deployment (loads its own check inputs, restores the saved
 # addresses on failure).
 if ! bash "$SCRIPT_DIR/21_check.sh" "$network"; then
     echo "Error: post-deployment check failed."

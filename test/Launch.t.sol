@@ -212,7 +212,7 @@ contract LaunchTest {
         (carolMemberId, ) = carol.mintMember(member, "carol");
     }
 
-    // ============ init ============
+    // ============ constructor ============
 
     function testConstructorCreatesFirstTokenAndWiresDependencies() public view {
         require(launch.MINT_ADDRESS() == address(mintAccount), "mint");

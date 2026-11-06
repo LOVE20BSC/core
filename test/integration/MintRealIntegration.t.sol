@@ -45,7 +45,7 @@ contract MintRealIntegrationTest {
     uint256 constant TOKEN_TRANSFER_AMOUNT = 10000;
     uint256 constant BOOST_AMOUNT = 300;
 
-    // Configuration constants - must match init() parameters
+    // Configuration constants - must match constructor parameters
     uint256 constant ROUND_REWARD_GOV_RATIO = 1e17;              // 10%
     uint256 constant ROUND_REWARD_PROPOSAL_RATIO = 1e17;         // 10%
     uint256 constant PROPOSAL_REWARD_MIN_VOTE_RATIO = 5e16;      // 5%

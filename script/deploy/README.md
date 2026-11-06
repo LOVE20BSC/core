@@ -209,7 +209,7 @@ VOTE_ADDRESS=0x...
 
 ### 1. 首币 minter 绑定问题
 
-`DeployCore` 先部署 Mint，再由 Launch 创建首币并绑定 Mint。Token 没有 `setMinter`，错误绑定必须重新部署。开源验证使用本次部署地址文件里的 `MINT_ADDRESS`。
+`DeployCore` 先部署 `Launch`，由其构造函数创建首币并写入预测的 Mint 地址；Mint 最后部署，部署后回读 `Token.MINTER` 与 `Launch.MINT_ADDRESS` 核对。Token 没有 `setMinter`，错误绑定必须重新部署。开源验证使用本次部署地址文件里的 `MINT_ADDRESS`。
 
 ### 2. 根父币（WETH）配置
 
