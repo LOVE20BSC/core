@@ -6,8 +6,8 @@
 script/
 ├── deploy/
 │   ├── one_click_deploy.sh    # 一键部署入口（纯编排，不载入任何环境文件）
-│   ├── 11_deploy.sh           # 合约部署与初始化（自载入部署输入）
-│   ├── 21_check.sh            # 部署与初始化正确性校验（自载入校验文件）
+│   ├── 11_deploy.sh           # 合约部署（构造函数一次注入，自载入部署输入）
+│   ├── 21_check.sh            # 部署正确性校验（自载入校验文件）
 │   ├── 31_verify.sh           # 合约开源验证（自载入网络与地址文件）
 │   └── DeployCore.s.sol       # Foundry 部署脚本
 └── network/
@@ -121,7 +121,7 @@ FEE_SETTLEMENT_RATIO=25e14   # 0.25%，即上界 MAX_FEE_SETTLEMENT_RATIO（源�
 
 本仓没有必填键断言：core 的部署参数没有「缺键即静默改变行为」的成员，缺键一律由 `vm.envUint` 在广播前失败；因此三个步骤只做 `params_unset_all`，不调用 `params_require_keys` / `params_require_values`。
 
-`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；全部部署期静态参数由 `DeployCore` 在广播前校验，部署后再由 `_validateDeployment` 逐项核对完整绑定图（含 `Launch.MAX_TOKEN_SYMBOL_LENGTH` 与广播前副本相等），`21_check.sh` 独立复核（含首币 `totalSupply`、`DISTRIBUTOR_ADDRESS` 余额，以及 `TOKEN_SYMBOL_LENGTH + TEST_PREFIX_BYTES <= MAX_TOKEN_SYMBOL_LENGTH` 的 Test 前缀余量，两者均从链上读取）：MemberNFT 四项非零、Phase 五项非零且 `ADJUST_THRESHOLD <= 1e18`、`0 < LAUNCH_COUNT_THRESHOLD_RATIO <= 1e18`、`MAX_LAUNCH_COUNT/TOKEN_SYMBOL_LENGTH` 非零、`0 < LAUNCH_AMOUNT <= MAX_SUPPLY`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、两项激励比例之和 `<= 1e18`、`BOOST_STAKE_SUPPLY_FACTOR > 0`（建议 1–10，非校验条件）、`BOOST_STAKE_MULTIPLIER > 0`（建议 1–20，非校验条件）、`0 < SUBMIT_MIN_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN > 0` 且 `<= MAX`、`0 < FEE_SETTLEMENT_RATIO <= 0.25%`（`MAX_FEE_SETTLEMENT_RATIO`）。合约 `init` 只防重复初始化并保存配置。
+`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；全部部署期静态参数由 `DeployCore` 在广播前校验，部署后再由 `_validateDeployment` 逐项核对完整绑定图（含 `Launch.MAX_TOKEN_SYMBOL_LENGTH` 与广播前副本相等），`21_check.sh` 独立复核（含首币 `totalSupply`、`DISTRIBUTOR_ADDRESS` 余额，以及 `TOKEN_SYMBOL_LENGTH + TEST_PREFIX_BYTES <= MAX_TOKEN_SYMBOL_LENGTH` 的 Test 前缀余量，两者均从链上读取）：MemberNFT 四项非零、Phase 五项非零且 `ADJUST_THRESHOLD <= 1e18`、`0 < LAUNCH_COUNT_THRESHOLD_RATIO <= 1e18`、`MAX_LAUNCH_COUNT/TOKEN_SYMBOL_LENGTH` 非零、`0 < LAUNCH_AMOUNT <= MAX_SUPPLY`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、两项激励比例之和 `<= 1e18`、`BOOST_STAKE_SUPPLY_FACTOR > 0`（建议 1–10，非校验条件）、`BOOST_STAKE_MULTIPLIER > 0`（建议 1–20，非校验条件）、`0 < SUBMIT_MIN_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN > 0` 且 `<= MAX`、`0 < FEE_SETTLEMENT_RATIO <= 0.25%`（`MAX_FEE_SETTLEMENT_RATIO`）。合约构造函数只保存配置，不做静态零值校验；依赖代码与派生值由部署脚本核对。
 
 **重要参数说明：**
 - `DISTRIBUTOR_ADDRESS`: 设置为部署钱包地址，接收首币的首批供应
@@ -140,11 +140,11 @@ cd core
 
 该脚本依次调用下列单步骤脚本（各步骤只做自己那一步、互不调用、自行载入输入；单独执行见「分步部署」）：
 
-1. `11_deploy.sh` —— 自载入部署输入并部署初始化全部合约，写入合约地址
-2. `21_check.sh` —— 自载入校验文件，校验部署与初始化结果
+1. `11_deploy.sh` —— 自载入部署输入并按固定顺序部署全部合约（构造函数一次注入依赖），写入合约地址
+2. `21_check.sh` —— 自载入校验文件，校验部署结果
 3. `31_verify.sh` —— 自载入地址文件做合约开源验证；默认执行（需 `network.params` 的 `ETHERSCAN_API_KEY`），只有 `verifier.params` 的 `VERIFY_SKIP_CHAIN_IDS` 列出的链才跳过
 
-链 ID、全部部署期静态参数、初始化绑定及常量、DEX 地址关系任一不一致，部署入口返回失败，并回滚到上一次已保存的地址（校验失败不覆盖旧地址）。广播阶段或其后的校验失败时，`11_deploy.sh` 保留部署日志并打印日志与 broadcast 产物路径；广播前失败只清理本次临时文件。网络名必填，缺参直接报错。`FACTORY_ADDRESS`、`ROUTER_ADDRESS` 有代码、`Router.factory()` 与配置一致、`Router.WETH()` 读出的根父币有代码，均在广播前校验，配错不会产生任何交易。
+链 ID、全部部署期静态参数、构造绑定及常量、DEX 地址关系任一不一致，部署入口返回失败，并回滚到上一次已保存的地址（校验失败不覆盖旧地址）。广播阶段或其后的校验失败时，`11_deploy.sh` 保留部署日志并打印日志与 broadcast 产物路径；广播前失败只清理本次临时文件。网络名必填，缺参直接报错。`FACTORY_ADDRESS`、`ROUTER_ADDRESS` 有代码、`Router.factory()` 与配置一致、`Router.WETH()` 读出的根父币有代码，均在广播前校验，配错不会产生任何交易。
 
 DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2，Factory 的 `feeTo` 与 `feeToSetter` 均为零。地址应来自该仓库同网络的部署及验收结果，不使用旧 PancakeSwap 配置。
 
@@ -163,10 +163,10 @@ DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2，Factory 的 `feeTo
 各步骤自行载入自己的输入（见上表），dex 的地址文件与 `core.params` 之间无引用关系，载入顺序不再敏感。`21_check.sh` 另断言 `addresses.core.params` 的键集合等于 8 个期望合约键。
 
 ```bash
-# 部署与初始化
+# 部署
 ./script/deploy/11_deploy.sh anvil31337_dev
 
-# 校验部署与初始化结果（只读配置与链上状态）
+# 校验部署结果（只读配置与链上状态）
 ./script/deploy/21_check.sh anvil31337_dev
 
 # 合约开源验证

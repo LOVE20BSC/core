@@ -38,8 +38,8 @@
 完整的治理流程集成测试：
 
 **testRealIntegration_FullGovernanceFlow** (3.18M gas)
-- 使用 "new then init" 策略初始化所有真实合约
-- 解决 Vote ↔ Stake 循环依赖
+- 使用 nonce 预测 + 构造函数注入部署所有真实合约
+- 解决 Vote ↔ Stake 前向引用
 - 测试完整流程：质押 → 提案 → 投票 → 推进轮次 → 准备奖励 → 领取奖励
 - 验证所有跨合约集成点
 
@@ -58,29 +58,34 @@ Submit ↔ Stake: 验证提案资格
 
 详见 [DEPENDENCIES.md](./DEPENDENCIES.md)
 
-## 初始化顺序
+## 部署顺序
+
+固定顺序为 `Phase → Launch → MemberNFT → Stake → Submit → Vote → Mint`。
 
 ```solidity
-// 阶段 1: 部署所有合约 (new)
-phase = new Phase(100, 1000, 3600, 10, 50);
-vote = new Vote();
-submit = new Submit();
-stake = new Stake();
-launch = new Launch();
-mint = new Mint();
-memberNFT = new MemberNFT(...);
-
-// Mock 外部依赖
+// 阶段 1: 先部署 mock 外部依赖（避免 CREATE 打乱 nonce）
 factory = new MockUniswapV2Factory();
 router = new MockUniswapV2Router();
 rootToken = new LOVE20Token(...);
 
-// 阶段 2: 初始化 (init) - 按依赖顺序
-launch.init(...);   // 1. 先初始化，创建 firstToken
-submit.init(...);   // 2. 依赖 Phase, Stake, MemberNFT
-stake.init(...);    // 3. 依赖 Phase, MemberNFT, Vote, Launch, Router, Factory
-vote.init(...);     // 4. 依赖 Phase, Stake, Submit, MemberNFT, Mint
-mint.init(...);     // 5. 依赖 Vote, Submit, Launch, MemberNFT
+// 预测三处前向引用（相对起始 nonce 的 +2 / +5 / +6）
+uint256 nonce = vm.getNonce(address(this));
+address predictedMember = vm.computeCreateAddress(address(this), nonce + 2);
+address predictedVote = vm.computeCreateAddress(address(this), nonce + 5);
+address predictedMint = vm.computeCreateAddress(address(this), nonce + 6);
+
+// 阶段 2: 按顺序构造
+phase = new Phase(100, 1000, 3600, 10, 50);
+launch = new Launch(...);                                          // 1. 创建首币
+memberNFT = new MemberNFT(..., launch.FIRST_TOKEN_ADDRESS());       // 2. 真实首币地址
+stake = new Stake(..., predictedVote, ...);                        // 3. Vote 尚未部署
+submit = new Submit(address(phase), address(stake), address(memberNFT), 5e16);
+vote = new Vote(address(phase), address(stake), address(submit), address(memberNFT));
+mint = new Mint(address(phase), address(vote), address(submit), address(launch), address(memberNFT), 5e16, 1e17, 1e17);
+
+require(address(memberNFT) == predictedMember);
+require(address(vote) == predictedVote);
+require(address(mint) == predictedMint);
 ```
 
 ## 运行测试
@@ -109,7 +114,7 @@ Suite result: ok. 1 passed; 0 failed; 0 skipped
 1. **Round 0 限制**: Round 0 不允许质押，测试需要先推进区块
 2. **RootToken 需求**: Stake.stakeLiquidity 需要 rootToken (parentToken) 余额
 3. **Uniswap Mock**: MockUniswapV2Pair 必须实现 totalSupply(), mint(), burn() 方法
-4. **循环依赖解决**: Vote ↔ Stake 通过 "new then init" 成功解决
+4. **前向引用解决**: Vote ↔ Stake 通过 nonce 预测 + 构造函数注入解决
 
 ## 补充测试
 
