@@ -214,7 +214,7 @@ VOTE_ADDRESS=0x...
 ### 2. 根父币（WETH）配置
 
 - 根父币无需配置：`DeployCore` 从 `Router.WETH()` 读取。首个代币必须使用 WETH 作为父币（协议树外根父币，BSC 上即官方 WBNB）
-- 发射的父币可以使用任意已部署的 LOVE20Token 地址，或根父币（WETH）：父币为根父币的根级发射创建与首币平级的同级币，消耗首币次数 1:1 伴生出的根级次数
+- 发射的父币必须是已部署的 LOVE20Token 地址；根父币不是可发射父币，根级（同级）发射与根级次数已停用（父币为根父币的发射回滚 `ParentTokenNotRegistered`）
 - 部署后 `FIRST_TOKEN_ADDRESS()` 必须等于 `tokens(0)` 的首币地址（`21_check.sh` 已校验）
 
 ### 3. 区块数量配置
