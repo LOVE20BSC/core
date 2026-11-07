@@ -95,7 +95,7 @@ contract Launch is ILaunch {
         if (distributor == address(0)) revert ZeroDistributorAddress();
         _checkDistributorMode(distributorMode, distributor);
 
-        if (parentTokenAddress != ROOT_PARENT_TOKEN_ADDRESS && !isLOVE20Token(parentTokenAddress)) {
+        if (!isLOVE20Token(parentTokenAddress)) {
             revert ParentTokenNotRegistered(parentTokenAddress);
         }
 
@@ -114,10 +114,7 @@ contract Launch is ILaunch {
         }
 
         string memory parentTokenSymbol = ILOVE20Token(parentTokenAddress).symbol();
-        string memory prefixSourceSymbol = parentTokenAddress == ROOT_PARENT_TOKEN_ADDRESS
-            ? ILOVE20Token(FIRST_TOKEN_ADDRESS).symbol()
-            : parentTokenSymbol;
-        string memory subTokenSymbol = _addTestPrefixIfNeeded(tokenSymbol, prefixSourceSymbol);
+        string memory subTokenSymbol = _addTestPrefixIfNeeded(tokenSymbol, parentTokenSymbol);
         if (_tokenAddressBySymbol[subTokenSymbol] != address(0)) {
             revert TokenSymbolAlreadyExists(keccak256(bytes(subTokenSymbol)));
         }
@@ -155,7 +152,7 @@ contract Launch is ILaunch {
         }
         if (count == 0) revert ZeroCount();
 
-        if (tokenAddress != ROOT_PARENT_TOKEN_ADDRESS && !isLOVE20Token(tokenAddress)) {
+        if (!isLOVE20Token(tokenAddress)) {
             revert TokenNotRegistered(tokenAddress);
         }
 
@@ -192,10 +189,6 @@ contract Launch is ILaunch {
         }
 
         _addLaunchCount(tokenAddress, memberId, count);
-
-        if (tokenAddress == FIRST_TOKEN_ADDRESS) {
-            _addLaunchCount(ROOT_PARENT_TOKEN_ADDRESS, memberId, count);
-        }
     }
 
     function remainingLaunchCount(address tokenAddress, uint256 memberId) external view returns (uint256) {

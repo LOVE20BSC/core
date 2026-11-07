@@ -1174,7 +1174,7 @@ contract LaunchTest {
 
     // ============ addLaunchCount ============
 
-    function testAddLaunchCountUpdatesBothLedgersAndEmits() public {
+    function testAddLaunchCountUpdatesTokenLedgerAndEmitsOnce() public {
         // A second holder keeps the ledger total and the member balance apart in the payload.
         mintAccount.addLaunchCount(launch, address(firstToken), bobMemberId, 2);
 
@@ -1184,14 +1184,11 @@ contract LaunchTest {
         require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 4, "launch count");
         require(launch.issuedLaunchCount(address(firstToken)) == 6, "issued count");
 
-        // 首币次数 1:1 伴生到根父币维度：同一笔交易、同一 count、各发一条 LaunchCountAdded
-        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 4, "root count mirrored");
-        require(launch.issuedLaunchCount(ROOT) == 6, "root issued mirrored");
+        // 次数只记入代币自己的维度，根父币维度不再增长
+        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 0, "root count untouched");
+        require(launch.issuedLaunchCount(ROOT) == 0, "root issued untouched");
 
         bool foundFirst;
-        bool foundRoot;
-        uint256 firstIndex = type(uint256).max;
-        uint256 rootIndex = type(uint256).max;
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 eventSelector = keccak256("LaunchCountAdded(address,uint256,uint256,uint256,uint256)");
         for (uint256 i; i < logs.length; ++i) {
@@ -1200,27 +1197,16 @@ contract LaunchTest {
             (uint256 count, uint256 issuedCount, uint256 memberRemaining) =
                 abi.decode(logs[i].data, (uint256, uint256, uint256));
             require(issuedCount != memberRemaining, "ledger total and member balance must be tellable apart");
-            if (logs[i].topics[1] == bytes32(uint256(uint160(address(firstToken))))) {
-                require(logs[i].topics[2] == bytes32(aliceMemberId), "event member");
-                require(count == 4, "event count");
-                require(issuedCount == 6, "event issued count");
-                require(memberRemaining == 4, "event member remaining");
-                firstIndex = i;
-                foundFirst = true;
-            } else if (logs[i].topics[1] == bytes32(uint256(uint160(ROOT)))) {
-                require(logs[i].topics[2] == bytes32(aliceMemberId), "root event member");
-                require(count == 4, "root event count");
-                require(issuedCount == 6, "root event issued count");
-                require(memberRemaining == 4, "root event member remaining");
-                rootIndex = i;
-                foundRoot = true;
-            }
+            require(logs[i].topics[1] == bytes32(uint256(uint160(address(firstToken)))), "event token");
+            require(logs[i].topics[2] == bytes32(aliceMemberId), "event member");
+            require(count == 4, "event count");
+            require(issuedCount == 6, "event issued count");
+            require(memberRemaining == 4, "event member remaining");
+            foundFirst = true;
         }
-        require(foundFirst && foundRoot, "missing LaunchCountAdded");
-        // 伴生顺序固定：首币维度先发，根父币维度后发
-        require(firstIndex < rootIndex, "the first token ledger must precede the root mirror");
-        // 反向断言：首币与根父币各一条 LaunchCountAdded，且不产生其它 Launch 事件
-        require(_countLogs(logs, address(launch), eventSelector) == 2, "two LaunchCountAdded");
+        require(foundFirst, "missing LaunchCountAdded");
+        // 反向断言：一次成功写入恰好一条 LaunchCountAdded，且不产生其它 Launch 事件
+        require(_countLogs(logs, address(launch), eventSelector) == 1, "one LaunchCountAdded");
         require(
             _countLogs(logs, address(launch), keccak256("LaunchCountMerged(address,uint256,uint256,uint256,uint256,uint256)")) == 0,
             "no merged"
@@ -1234,8 +1220,8 @@ contract LaunchTest {
         mintAccount.addLaunchCount(launch, address(firstToken), aliceMemberId, 1);
         require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 5, "accumulated");
         require(launch.issuedLaunchCount(address(firstToken)) == 7, "issued accumulated");
-        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 5, "root accumulated");
-        require(launch.issuedLaunchCount(ROOT) == 7, "root issued accumulated");
+        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 0, "root stays untouched");
+        require(launch.issuedLaunchCount(ROOT) == 0, "root issued stays untouched");
     }
 
     function testAddLaunchCountIssuedCountMatchesFold() public {
@@ -1257,7 +1243,7 @@ contract LaunchTest {
             foldedIssued = issuedCount;
             ++seen;
         }
-        require(seen == 2, "first token and root each emit once");
+        require(seen == 1, "one event per successful add");
         require(foldedIssued == launch.issuedLaunchCount(address(firstToken)), "matches ledger");
     }
 
@@ -1313,9 +1299,9 @@ contract LaunchTest {
         mintAccount.addLaunchCount(launch, address(firstToken), aliceMemberId, MAX_LAUNCH_COUNT);
         require(launch.issuedLaunchCount(address(firstToken)) == MAX_LAUNCH_COUNT, "issued at cap");
         require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == MAX_LAUNCH_COUNT, "count at cap");
-        // 根级伴生同步到达同一上限：不变式 issuedLaunchCount(root) == issuedLaunchCount(first)
-        require(launch.issuedLaunchCount(ROOT) == MAX_LAUNCH_COUNT, "root issued at cap");
-        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == MAX_LAUNCH_COUNT, "root count at cap");
+        // 上限只作用于代币维度，根父币维度始终为零
+        require(launch.issuedLaunchCount(ROOT) == 0, "root issued stays zero");
+        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 0, "root count stays zero");
 
         // 到达上限后任何增量都回滚，极端大值也不能以算术溢出收场
         (bool ok, bytes memory data) = mintAccount.forward(
@@ -1386,20 +1372,20 @@ contract LaunchTest {
         _expectData(data, abi.encodeWithSelector(ILaunchErrors.TokenNotRegistered.selector, EOA), "token before cap");
     }
 
-    // ============ 根级次数与根级发射 ============
+    // ============ 根级计数已停用 ============
 
-    function testAddLaunchCountMirrorsRootOnlyForFirstToken() public {
+    function testAddLaunchCountNeverWritesRootLedger() public {
         _grantCount(address(firstToken), aliceMemberId, 1);
         address child = _launchOk(alice, "AAA", address(firstToken), aliceMemberId);
 
-        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 1, "root mirrored from the first token");
-        require(launch.issuedLaunchCount(ROOT) == 1, "root issued mirrored");
+        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 0, "root never receives first token counts");
+        require(launch.issuedLaunchCount(ROOT) == 0, "root issued stays zero");
 
-        // 子币产生的次数不伴生根级次数
+        // 子币产生的次数同样不写根级账本
         _grantCount(child, aliceMemberId, 3);
         require(launch.remainingLaunchCount(child, aliceMemberId) == 3, "child count");
-        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 1, "root unchanged by child counts");
-        require(launch.issuedLaunchCount(ROOT) == 1, "root issued unchanged");
+        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 0, "root unchanged by child counts");
+        require(launch.issuedLaunchCount(ROOT) == 0, "root issued unchanged");
         require(launch.issuedLaunchCount(child) == 3, "child issued");
     }
 
@@ -1414,96 +1400,35 @@ contract LaunchTest {
         require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 0, "root ledger untouched");
     }
 
-    function testMergeRootLevelCountMovesRootLedger() public {
+    function testMergeRootLevelCountReverts() public {
         _grantCount(address(firstToken), aliceMemberId, 3);
 
-        (bool ok, ) = _merge(alice, ROOT, aliceMemberId, bobMemberId, 2);
-        require(ok, "merge root level");
-        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 1, "root source decreased");
-        require(launch.remainingLaunchCount(ROOT, bobMemberId) == 2, "root target increased");
-        require(launch.issuedLaunchCount(ROOT) == 3, "root issued unchanged");
+        (bool ok, bytes memory data) = _merge(alice, ROOT, aliceMemberId, bobMemberId, 2);
+        require(!ok, "root level merge must revert");
+        _expectData(
+            data, abi.encodeWithSelector(ILaunchErrors.TokenNotRegistered.selector, ROOT), "token selector"
+        );
+        require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 0, "root ledger untouched");
         require(launch.remainingLaunchCount(address(firstToken), aliceMemberId) == 3, "community untouched");
     }
 
-    function testLaunchRootLevelTokenCreatesSiblingAndConsumesRootCount() public {
+    function testLaunchRootLevelTokenReverts() public {
         RootTokenMock rootToken = new RootTokenMock("WETH");
         (Launch booted, LOVE20Token bootedToken, , uint256 memberId) =
             _bootSystemAtRoot(address(rootToken), "LOVE", carol, "dave");
 
         _grantCountAt(booted, address(bootedToken), memberId, 2);
-        require(booted.remainingLaunchCount(address(rootToken), memberId) == 2, "root mirrored");
-        uint256 pairsBefore = pairFactory.createdPairCount();
 
-        address sibling = _launchOkAt(booted, carol, "AAA", address(rootToken), memberId);
-        LOVE20Token siblingToken = LOVE20Token(sibling);
-
-        // 名称按现有规则拼接：子币符号 + "@" + 根父币实际符号
-        require(keccak256(bytes(siblingToken.name())) == keccak256("AAA@WETH"), "sibling name");
-        require(keccak256(bytes(siblingToken.symbol())) == keccak256("AAA"), "sibling symbol");
-        require(siblingToken.PARENT_TOKEN_ADDRESS() == address(rootToken), "sibling token parent");
-        require(booted.isLOVE20Token(sibling), "sibling registered");
-        require(booted.parentToken(sibling) == address(rootToken), "sibling parent ledger");
-        require(booted.tokenAddressBySymbol("AAA") == sibling, "sibling symbol ledger");
-
-        // 消耗根级次数，首币次数不动
-        require(booted.remainingLaunchCount(address(rootToken), memberId) == 1, "root count consumed");
-        require(booted.remainingLaunchCount(address(bootedToken), memberId) == 2, "community count untouched");
-        require(booted.issuedLaunchCount(address(rootToken)) == 2, "root issued unchanged");
-
-        // 根父币的子币列表：首币在索引 0，同级币按创建顺序追加
-        (address[] memory list, uint256 total) = booted.childTokens(address(rootToken), 0, 10, false);
-        require(total == 2 && list[0] == address(bootedToken) && list[1] == sibling, "root children");
-        (list, total) = booted.tokens(0, 10, false);
-        require(total == 2 && list[1] == sibling, "sibling appended to token list");
-
-        // 同级币的 Pair 在同一笔发射内创建
-        require(pairFactory.createdPairCount() == pairsBefore + 1, "sibling pair created");
-        require(
-            pairFactory.getPair(sibling, address(rootToken)) == pairFactory.createdPairs(pairsBefore),
-            "sibling pair wired"
-        );
-    }
-
-    function testRootLevelAndCommunityCountsAreIndependent() public {
-        RootTokenMock rootToken = new RootTokenMock("WETH");
-        (Launch booted, LOVE20Token bootedToken, , uint256 memberId) =
-            _bootSystemAtRoot(address(rootToken), "LOVE", carol, "dave");
-
-        _grantCountAt(booted, address(bootedToken), memberId, 1);
-
-        // 根级发射消耗根级次数，社区次数不动
-        _launchOkAt(booted, carol, "AAA", address(rootToken), memberId);
-        require(booted.remainingLaunchCount(address(rootToken), memberId) == 0, "root consumed");
-        require(booted.remainingLaunchCount(address(bootedToken), memberId) == 1, "community remains");
-
-        // 社区发射消耗社区次数
-        _launchOkAt(booted, carol, "BBB", address(bootedToken), memberId);
-        require(booted.remainingLaunchCount(address(bootedToken), memberId) == 0, "community consumed");
-
-        // 两边都用尽后根级发射回滚
-        (bool ok, bytes memory data) = _launchAt(booted, carol, "CCC", address(rootToken), memberId);
-        require(!ok, "no root count must revert");
+        (bool ok, bytes memory data) = _launchAt(booted, carol, "AAA", address(rootToken), memberId);
+        require(!ok, "root level launch must revert");
         _expectData(
             data,
-            abi.encodeWithSelector(ILaunchErrors.InsufficientLaunchCount.selector, memberId, 1, 0),
-            "count selector"
+            abi.encodeWithSelector(ILaunchErrors.ParentTokenNotRegistered.selector, address(rootToken)),
+            "parent selector"
         );
-    }
-
-    function testRootLevelLaunchPrefixUsesFirstTokenSymbol() public {
-        RootTokenMock rootToken = new RootTokenMock("WETH");
-        (Launch booted, LOVE20Token bootedToken, , uint256 memberId) =
-            _bootSystemAtRoot(address(rootToken), "TestLOVE", carol, "dave");
-
-        _grantCountAt(booted, address(bootedToken), memberId, 1);
-        address sibling = _launchOkAt(booted, carol, "AAA", address(rootToken), memberId);
-        LOVE20Token siblingToken = LOVE20Token(sibling);
-
-        // 根父币符号不含 Test，但根级发射按首币符号判定，仍然加前缀
-        require(keccak256(bytes(siblingToken.symbol())) == keccak256("TestAAA"), "prefixed symbol");
-        require(keccak256(bytes(siblingToken.name())) == keccak256("TestAAA@WETH"), "prefixed name");
-        require(booted.tokenAddressBySymbol("TestAAA") == sibling, "final symbol ledger");
-        require(booted.tokenAddressBySymbol("AAA") == address(0), "unprefixed symbol not registered");
+        require(booted.remainingLaunchCount(address(bootedToken), memberId) == 2, "community count untouched");
+        (address[] memory list, uint256 total) = booted.childTokens(address(rootToken), 0, 10, false);
+        require(total == 1 && list[0] == address(bootedToken), "only the first token remains under root");
     }
 
     // ============ 分页查询 ============
