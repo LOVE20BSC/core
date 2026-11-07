@@ -29,8 +29,8 @@ TOKEN_SYMBOL_LENGTH=6
 
 # Mint (ratios: 1e18 = 100%)
 PROPOSAL_REWARD_MIN_VOTE_RATIO=5e16     # 5%
-ROUND_REWARD_GOV_RATIO=1e15             # 0.1%
-ROUND_REWARD_PROPOSAL_RATIO=1e15        # 0.1%
+ROUND_REWARD_GOV_RATIO=5e14             # 0.05%
+ROUND_REWARD_PROPOSAL_RATIO=5e14        # 0.05%
 
 # Submit (ratios: 1e18 = 100%)
 SUBMIT_MIN_RATIO=5e15                   # 0.5%
