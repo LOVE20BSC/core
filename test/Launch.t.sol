@@ -117,7 +117,7 @@ contract FakeToken {
     }
 }
 
-/// 根父币最小模拟：只提供根级发射命名与前缀判定所需的 symbol()
+/// 根父币最小模拟：只提供符号读取所需的 symbol()
 contract RootTokenMock {
     string public symbol;
 
@@ -1372,7 +1372,7 @@ contract LaunchTest {
         _expectData(data, abi.encodeWithSelector(ILaunchErrors.TokenNotRegistered.selector, EOA), "token before cap");
     }
 
-    // ============ 根级计数已停用 ============
+    // ============ 根父币不是合法父币 ============
 
     function testAddLaunchCountNeverWritesRootLedger() public {
         _grantCount(address(firstToken), aliceMemberId, 1);
@@ -1381,7 +1381,7 @@ contract LaunchTest {
         require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 0, "root never receives first token counts");
         require(launch.issuedLaunchCount(ROOT) == 0, "root issued stays zero");
 
-        // 子币产生的次数同样不写根级账本
+        // 子币产生的次数只写入子币自己的账本
         _grantCount(child, aliceMemberId, 3);
         require(launch.remainingLaunchCount(child, aliceMemberId) == 3, "child count");
         require(launch.remainingLaunchCount(ROOT, aliceMemberId) == 0, "root unchanged by child counts");
@@ -1588,7 +1588,7 @@ contract LaunchTest {
         return _bootSystemAtRoot(ROOT, firstTokenSymbol, caller, memberName);
     }
 
-    /// 同 _bootSystem，根父币换成可提供 symbol() 的地址，用于根级发射用例
+    /// 同 _bootSystem，根父币换成可提供 symbol() 的地址
     function _bootSystemAtRoot(
         address rootParentTokenAddress,
         string memory firstTokenSymbol,

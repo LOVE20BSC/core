@@ -1085,7 +1085,7 @@ contract MintRealIntegrationTest {
     }
 
     /// @notice Test 6: Target burns its unminted proposal reward after the round ends
-    /// @dev Verifies burn settlement, availability restoration, and sibling-proposal isolation
+    /// @dev Verifies burn settlement, availability restoration, and cross-proposal isolation
     function testRealIntegration_BurnUnmintedProposalReward() public {
         vm.roll(block.number + BLOCKS_PAST_ROUND0);
 
@@ -1336,9 +1336,9 @@ contract MintRealIntegrationTest {
         assertEq(childToken.totalSupply(), launch.LAUNCH_AMOUNT(), "Child token total supply");
         assertEq(childToken.MAX_SUPPLY(), launch.MAX_SUPPLY(), "Child token max supply");
 
-        // 根级计数已停用：首币的治理激励只写入代币自己的维度
-        assertEq(launch.remainingLaunchCount(address(rootToken), 1), 0, "Root-level credits must stay zero");
-        assertEq(launch.issuedLaunchCount(address(rootToken)), 0, "Root issued count must stay zero");
+        // 首币的治理激励只写入首币自己的维度
+        assertEq(launch.remainingLaunchCount(address(rootToken), 1), 0, "Root parent credits must stay zero");
+        assertEq(launch.issuedLaunchCount(address(rootToken)), 0, "Root parent issued count must stay zero");
     }
 
     // ========================================

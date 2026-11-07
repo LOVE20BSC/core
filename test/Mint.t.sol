@@ -391,7 +391,7 @@ contract MintTest {
         secondVotes = 19;
         proposalCount = 2;
         setupMint(1000, 10000, 0, 1e17);
-        require(mint.mintProposalReward(address(token), 1, 2, address(this)) == 855, "prepare via sibling mint");
+        require(mint.mintProposalReward(address(token), 1, 2, address(this)) == 855, "prepare via prior mint");
         uint256 reservedBefore = mint.reservedAvailable(address(token));
         uint256 availableBefore = mint.rewardAvailable(address(token));
         uint256 proposalPoolBefore = mint.proposalReward(address(token), 1);
