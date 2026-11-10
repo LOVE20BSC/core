@@ -106,10 +106,11 @@ contract Submit is ISubmit {
     ) external onlyMemberOwner(memberId) returns (uint256 proposalId) {
         _checkProposalBody(proposalBody);
         _checkSubmitPower(tokenAddress, memberId);
+        _checkSubmitterQuota(tokenAddress, memberId);
 
         proposalId = _createProposal(tokenAddress, memberId, proposalBody);
 
-        _submitByProposalId(tokenAddress, memberId, proposalId);
+        _recordSubmission(tokenAddress, memberId, proposalId);
         _callProposalCreated(tokenAddress, proposalId);
         _callProposalSubmitted(tokenAddress, proposalId, memberId);
         return proposalId;
@@ -122,7 +123,13 @@ contract Submit is ISubmit {
         _checkExistingProposal(tokenAddress, proposalId);
         _checkSubmitPower(tokenAddress, memberId);
 
-        _submitByProposalId(tokenAddress, memberId, proposalId);
+        uint256 round = currentRound();
+        if (isSubmitted(tokenAddress, round, proposalId)) {
+            revert ProposalAlreadySubmitted(tokenAddress, round, proposalId);
+        }
+        _checkSubmitterQuota(tokenAddress, memberId);
+
+        _recordSubmission(tokenAddress, memberId, proposalId);
         _callProposalSubmitted(tokenAddress, proposalId, memberId);
     }
 
@@ -271,17 +278,13 @@ contract Submit is ISubmit {
         }
     }
 
-    function _submitByProposalId(
+    /// @dev 状态/资格检查先于任何账本写入（error-standards §五）。`submitNewProposal` 的新提案不可能
+    ///      已被推举，因此这里只查成员名额与本轮总量。
+    function _checkSubmitterQuota(
         address tokenAddress,
-        uint256 memberId,
-        uint256 proposalId
-    ) internal {
-        _checkExistingProposal(tokenAddress, proposalId);
-
+        uint256 memberId
+    ) internal view {
         uint256 round = currentRound();
-        if (isSubmitted(tokenAddress, round, proposalId)) {
-            revert ProposalAlreadySubmitted(tokenAddress, round, proposalId);
-        }
         if (
             _submitInfoBySubmitterId[tokenAddress][round][memberId]
                 .submitterId != 0
@@ -289,6 +292,14 @@ contract Submit is ISubmit {
         if (_submits[tokenAddress][round].length >= SUBMIT_ROUND_LIMIT) {
             revert SubmitRoundFull(tokenAddress, round, SUBMIT_ROUND_LIMIT);
         }
+    }
+
+    function _recordSubmission(
+        address tokenAddress,
+        uint256 memberId,
+        uint256 proposalId
+    ) internal {
+        uint256 round = currentRound();
 
         SubmitInfo memory submitInfo = SubmitInfo(
             memberId,
