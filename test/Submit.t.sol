@@ -112,6 +112,65 @@ contract MockTarget {
     }
 }
 
+/// @notice Malicious target: burns every unit of gas its create callback receives.
+/// @dev Load-bearing: the outer call can only fail. Without a callback the same call succeeds,
+///      so this fixture proves the callback (not the setup) is what reverts the whole call.
+contract GasBurningTarget {
+    uint256 public spinSeed;
+
+    function onProposalCreated(address, uint256, bytes[] calldata) external {
+        while (true) {
+            spinSeed += 1;
+        }
+    }
+
+    function onProposalSubmitted(address, uint256, uint256, bytes[] calldata) external {}
+
+    function onProposalVoted(address, uint256, uint256, uint256, uint256, bytes[] calldata) external {}
+}
+
+/// @notice Target that owns a member and re-enters `Submit.submit` from its create callback.
+/// @dev Load-bearing: it owns `MEMBER_ID`, so the re-entry passes the owner gate and reaches the
+///      round-quota check; a target without the member would only prove the owner gate.
+contract ReenteringSubmitter {
+    Submit public immutable SUBMIT;
+    address public immutable TOKEN;
+    uint256 public immutable MEMBER_ID;
+    uint256 public immutable REENTER_PROPOSAL_ID;
+
+    bool public armed;
+    bool public reentered;
+    bytes public reentryRevertData;
+
+    constructor(address submitAddress, address tokenAddress, uint256 memberId, uint256 reenterProposalId) {
+        SUBMIT = Submit(submitAddress);
+        TOKEN = tokenAddress;
+        MEMBER_ID = memberId;
+        REENTER_PROPOSAL_ID = reenterProposalId;
+    }
+
+    function arm() external {
+        armed = true;
+    }
+
+    function submitNewProposal(ProposalBody calldata proposalBody) external returns (uint256) {
+        return SUBMIT.submitNewProposal(TOKEN, MEMBER_ID, proposalBody);
+    }
+
+    function onProposalCreated(address, uint256, bytes[] calldata) external {
+        if (!armed) return;
+        armed = false;
+        reentered = true;
+        try SUBMIT.submit(TOKEN, MEMBER_ID, REENTER_PROPOSAL_ID) {} catch (bytes memory reason) {
+            reentryRevertData = reason;
+        }
+    }
+
+    function onProposalSubmitted(address, uint256, uint256, bytes[] calldata) external {}
+
+    function onProposalVoted(address, uint256, uint256, uint256, uint256, bytes[] calldata) external {}
+}
+
 contract SubmitTest {
     SubmitVm private constant vm = SubmitVm(address(uint160(uint256(keccak256("hevm cheat code")))));
     address private constant TOKEN = address(0xBEEF);
@@ -247,6 +306,83 @@ contract SubmitTest {
         require(target.lastCreatedProposalId() == proposalId, "callback not called on create");
         require(target.lastSubmittedProposalId() == proposalId, "callback not called on submit");
         require(target.lastSubmitterId() == 1, "wrong submitter in callback");
+    }
+
+    function testGasBurningTargetRevertsTheWholeCallAndLeavesNoState() external {
+        GasBurningTarget target = new GasBurningTarget();
+        stake.setValidGovVotes(TOKEN, 2, 100);
+        stake.setValidGovVotes(TOKEN, 3, 100);
+
+        // Control: the same target address without a callback must succeed under the same budget.
+        ProposalBody memory controlBody = ProposalBody({
+            title: "Control",
+            details: "No callback, so the target is never entered",
+            target: address(target),
+            targetMode: TargetMode.NoCallback,
+            targetData: new bytes[](0)
+        });
+        vm.prank(ALICE);
+        uint256 controlId = submit.submitNewProposal(TOKEN, 2, controlBody);
+        require(controlId == 1, "control call must succeed");
+
+        ProposalBody memory bombBody = ProposalBody({
+            title: "Bomb",
+            details: "The create callback burns everything it is given",
+            target: address(target),
+            targetMode: TargetMode.Callback,
+            targetData: new bytes[](0)
+        });
+        vm.prank(BOB);
+        (bool ok,) = address(submit).call{gas: 1_000_000}(
+            abi.encodeCall(submit.submitNewProposal, (TOKEN, 3, bombBody))
+        );
+        require(!ok, "the gas-burning callback must fail the outer call");
+
+        (, uint256 count) = submit.proposalIds(TOKEN, 0, 0, false);
+        require(count == 1, "the reverted call leaves no proposal behind");
+        require(submit.proposalIdBySubmitterId(TOKEN, 1, 3) == 0, "no submitter record survives");
+        require(!submit.isSubmitted(TOKEN, 1, controlId + 1), "no submit record survives");
+    }
+
+    function testTargetCannotReenterSubmitForTheSameMemberInTheRound() external {
+        // Round 1: member 2 (ALICE) creates the proposal the re-entry will target.
+        stake.setValidGovVotes(TOKEN, 2, 100);
+        ProposalBody memory seedBody = ProposalBody({
+            title: "Seed",
+            details: "Created in round 1 by another member",
+            target: address(0x1),
+            targetMode: TargetMode.NoCallback,
+            targetData: new bytes[](0)
+        });
+        vm.prank(ALICE);
+        uint256 seedProposalId = submit.submitNewProposal(TOKEN, 2, seedBody);
+
+        // Round 2: member 1 belongs to the re-entering target, so the re-entry clears the owner gate.
+        vm.roll(200);
+        require(phase.currentPhase() == 2, "fixture moved to round 2");
+        ReenteringSubmitter reentering = new ReenteringSubmitter(address(submit), TOKEN, 1, seedProposalId);
+        memberNFT.setOwner(1, address(reentering));
+        reentering.arm();
+
+        ProposalBody memory body = ProposalBody({
+            title: "Re-entry",
+            details: "Its create callback re-enters submit for the seed proposal",
+            target: address(reentering),
+            targetMode: TargetMode.Callback,
+            targetData: new bytes[](0)
+        });
+        uint256 proposalId = reentering.submitNewProposal(body);
+
+        require(proposalId == seedProposalId + 1, "the outer proposal is created");
+        require(reentering.reentered(), "the callback re-entered submit");
+        bytes memory reason = reentering.reentryRevertData();
+        bytes4 selector;
+        assembly {
+            selector := mload(add(reason, 32))
+        }
+        require(selector == ISubmitErrors.MemberAlreadySubmitted.selector, "re-entry hits the round quota");
+        require(!submit.isSubmitted(TOKEN, 2, seedProposalId), "the re-entered proposal stays unsubmitted");
+        require(submit.isSubmitted(TOKEN, 2, proposalId), "the outer submission stands");
     }
 
     function testSubmitNewProposalRejectsEmptyTitle() external {
