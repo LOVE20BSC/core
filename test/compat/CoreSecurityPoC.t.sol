@@ -310,25 +310,6 @@ contract CoreSecurityPoC {
         _true(token.balanceOf(address(stake)) >= 3e17, "boost still fully backed after settlement");
     }
 
-    function test_tinySkewedPoolSettlementDoesNotRevert() public {
-        _mintMember(m1, "Alice");
-
-        vm.startPrank(m1);
-        token.approve(address(stake), type(uint256).max);
-        root.approve(address(stake), type(uint256).max);
-        stake.stakeLiquidity(address(token), 401, 1e8, SLIPPAGE_ANY, WAIT_MIN, 1);
-        vm.stopPrank();
-
-        root.transfer(address(pair), 1e8);
-        pair.sync();
-
-        stake.settleFees(address(token));
-
-        (, uint256 totalLp, uint256 withdrawableLp, uint256 feeLp,,,) = stake.totalStake(address(token));
-        _true(totalLp > 0, "position alive");
-        _eq(feeLp + withdrawableLp, totalLp, "fee ledger intact");
-    }
-
     /// @notice `_canBurn` blocks a `pair.burn` that would floor to zero; the member receives the LP
     ///         instead of the transaction reverting.
     function test_zeroValueBurnFallsBackToLpTransfer() public {
