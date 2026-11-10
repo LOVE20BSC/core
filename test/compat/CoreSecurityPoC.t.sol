@@ -86,8 +86,8 @@ contract ProposalBot is IProposalTarget {
     }
 }
 
-/// @notice Regression witnesses for the security fixes reported in SECURITY_AUDIT_2026-09-28.md and
-///         for the accounting paths they touch. The DEX is the faithful V2 subset from RealV2.sol.
+/// @notice Regression witnesses for the security fixes from the init-era audit and for the
+///         accounting paths they touch. The DEX is the faithful V2 subset from RealV2.sol.
 contract CoreSecurityPoC {
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
