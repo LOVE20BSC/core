@@ -28,5 +28,3 @@ Core 负责 MemberNFT、Phase、Stake、Proposal、Vote、Mint、LOVE20Token 和
 - `test/compat/`：真实 V2 子集 `RealV2.sol` 与前序审计修复的回归证据 `CoreSecurityPoC.t.sol`，随 `forge test` 在 CI 执行。
 
 每个提交只做一个行为变化，并附带编译、测试和 ABI 差异说明。
-
-`SECURITY_AUDIT_2026-09-28.md` 与 `SECURITY_AUDIT_REPORT_2026-10-01.md` 是 `init` 时代的历史记录，结论与行号均已随构造函数化失效，只作追溯保留。

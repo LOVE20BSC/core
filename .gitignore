@@ -9,3 +9,8 @@ script/network/**/.account
 
 # 本地审计 PoC，不进仓库
 /test/audit/
+
+# 临时审计报告不入库，归档在工作区 `.scratch/`
+*AUDIT*.md
+*Audit*.md
+*audit*.md
