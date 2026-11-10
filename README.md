@@ -20,6 +20,13 @@ Core 负责 MemberNFT、Phase、Stake、Proposal、Vote、Mint、LOVE20Token 和
 - `src/Launch.sol`：已完成 BSC 版，负责首币部署、代币创建与登记、发射次数账本、次数融合和子币发射。
 - `src/MemberNFT.sol`：已完成 BSC 版成员身份 NFT，首币地址在构造函数传入（部署脚本从 `Launch.FIRST_TOKEN_ADDRESS()` 读取）。
 - `src/Phase.sol`：已完成 BSC 版无业务语义时间片，含同步观测分页查询与动态校准。
+- `src/Stake.sol`：已完成 BSC 版流动性质押、加速质押、份额与手续费重分类、按轮次的治理票与加速份额账本。
+- `src/Submit.sol`：已完成 BSC 版 Proposal 创建与推举，含创建与推举两个 Target 回调。
+- `src/Vote.sol`：已完成 BSC 版本轮投票、票数上限与加速快照，含投票回调。
+- `src/Mint.sol`：已完成 BSC 版轮次池准备（含无许可入口）、治理与 Proposal 结算、发射额度生成。
 - `src/interfaces/`：与冻结自有声明保持一致，标准能力通过 OpenZeppelin 继承补齐。
+- `test/compat/`：真实 V2 子集 `RealV2.sol` 与前序审计修复的回归证据 `CoreSecurityPoC.t.sol`，随 `forge test` 在 CI 执行。
 
 每个提交只做一个行为变化，并附带编译、测试和 ABI 差异说明。
+
+`SECURITY_AUDIT_2026-09-28.md` 与 `SECURITY_AUDIT_REPORT_2026-10-01.md` 是 `init` 时代的历史记录，结论与行号均已随构造函数化失效，只作追溯保留。
