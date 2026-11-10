@@ -314,7 +314,7 @@ contract Submit is ISubmit {
         });
 
         if (isFirstSubmit) {
-            // forge-lint: disable-next-line(unused-return)
+            // forge-lint: disable-next-item(unused-return)
             IPhase(PHASE_ADDRESS).sync();
         }
 

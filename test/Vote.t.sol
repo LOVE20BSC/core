@@ -283,6 +283,52 @@ contract MockTarget is IProposalTarget {
         }
     }
 }
+/// @notice Target that owns a member identity and re-enters `vote` from inside the vote callback.
+contract ReenteringVoter is IProposalTarget {
+    Vote public immutable VOTE;
+    address public immutable TOKEN;
+
+    uint256 public memberId;
+    bool public armed;
+    bool public reentered;
+    bytes public reentryRevertData;
+
+    constructor(Vote voteAddress_, address tokenAddress_) {
+        VOTE = voteAddress_;
+        TOKEN = tokenAddress_;
+    }
+
+    function configure(uint256 memberId_) external {
+        memberId = memberId_;
+        armed = true;
+    }
+
+    function voteOnce(uint256 proposalId, uint256 votes) external {
+        uint256[] memory proposalIds = new uint256[](1);
+        proposalIds[0] = proposalId;
+        uint256[] memory voteAmounts = new uint256[](1);
+        voteAmounts[0] = votes;
+        VOTE.vote(TOKEN, memberId, proposalIds, voteAmounts, new bytes[][](0));
+    }
+
+    function onProposalCreated(address, uint256, bytes[] calldata) external {}
+
+    function onProposalSubmitted(address, uint256, uint256, bytes[] calldata) external {}
+
+    function onProposalVoted(address, uint256, uint256 proposalId, uint256, uint256, bytes[] calldata) external {
+        if (!armed) return;
+        armed = false;
+        reentered = true;
+        uint256[] memory proposalIds = new uint256[](1);
+        proposalIds[0] = proposalId;
+        uint256[] memory voteAmounts = new uint256[](1);
+        voteAmounts[0] = 1;
+        try VOTE.vote(TOKEN, memberId, proposalIds, voteAmounts, new bytes[][](0)) {} catch (bytes memory reason) {
+            reentryRevertData = reason;
+        }
+    }
+}
+
 /// @notice Submit stand-in used only to reach branches the real Submit makes unreachable.
 contract MockSubmit {
     mapping(address => mapping(uint256 => mapping(uint256 => bool))) private _submitted;
@@ -1537,6 +1583,31 @@ contract VoteTest {
     }
 
     // ============ vote: target callbacks ============
+
+    function testCallbackReentryCannotExceedTheRoundAllowance() external {
+        ReenteringVoter reentering = new ReenteringVoter(vote, TOKEN);
+        vm.prank(ALICE);
+        (uint256 memberId,) = memberNFT.mint("reentering");
+        vm.prank(ALICE);
+        memberNFT.transferFrom(ALICE, address(reentering), memberId);
+        reentering.configure(memberId);
+        stake.setValidGovVotes(TOKEN, memberId, DEFAULT_CAP);
+
+        uint256 proposalId = _proposeCallback(TOKEN, address(reentering));
+        reentering.voteOnce(proposalId, DEFAULT_CAP);
+
+        require(reentering.reentered(), "callback re-entered vote");
+        bytes memory data = reentering.reentryRevertData();
+        bytes4 selector;
+        assembly {
+            selector := mload(add(data, 32))
+        }
+        require(selector == IVoteErrors.VoteLimitExceeded.selector, "re-entry must not exceed the allowance");
+        require(
+            vote.voteAmountByMemberId(TOKEN, phase.currentPhase(), memberId) == DEFAULT_CAP,
+            "allowance stays at the cap"
+        );
+    }
 
     function testNoCallbackModeNeverCallsTheTarget() external {
         uint256 memberId = _memberIds[0];

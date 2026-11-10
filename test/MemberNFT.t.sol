@@ -660,49 +660,6 @@ contract MemberNFTTest {
 
     // ============ Helpers ============
 
-    // 用裸 CREATE 的返回值判定构造是否成功：成功返回非零地址，回滚返回 address(0)。
-    // 不使用 vm.expectRevert：`new` 构造一旦回滚，测试函数会在此终止并被判 PASS，
-    // 其后语句全部成为死代码；且与裸 create 混用还会污染返回值观测。
-    function _deploys(
-        uint256 divisor,
-        uint256 threshold,
-        uint256 multiplier,
-        uint256 maxLength
-    ) private returns (bool) {
-        bytes memory bytecode = abi.encodePacked(
-            type(MemberNFT).creationCode,
-            abi.encode(divisor, threshold, multiplier, maxLength)
-        );
-        address deployed;
-        assembly {
-            deployed := create(0, add(bytecode, 32), mload(bytecode))
-        }
-        return deployed != address(0);
-    }
-
-    function _deployRevert(
-        uint256 divisor,
-        uint256 threshold,
-        uint256 multiplier,
-        uint256 maxLength
-    ) private returns (bytes memory data) {
-        bytes memory bytecode = abi.encodePacked(
-            type(MemberNFT).creationCode,
-            abi.encode(divisor, threshold, multiplier, maxLength)
-        );
-        address deployed;
-        uint256 size;
-        assembly {
-            deployed := create(0, add(bytecode, 32), mload(bytecode))
-            size := returndatasize()
-        }
-        require(deployed == address(0), "deploy should revert");
-        data = new bytes(size);
-        assembly {
-            returndatacopy(add(data, 32), 0, size)
-        }
-    }
-
     function _newToken(string memory symbol) private returns (LOVE20Token) {
         return
             new LOVE20Token(

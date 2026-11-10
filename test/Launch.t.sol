@@ -3,6 +3,7 @@ pragma solidity =0.8.37;
 
 import {Launch} from "../src/Launch.sol";
 import {ILaunch, ILaunchErrors, LaunchInitParams, DistributorMode} from "../src/interfaces/ILaunch.sol";
+import {ILaunchDistributor} from "../src/interfaces/ILaunchDistributor.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {MemberNFT} from "../src/MemberNFT.sol";
 import {IMemberNFTErrors} from "../src/interfaces/IMemberNFT.sol";
@@ -155,6 +156,47 @@ contract ZeroReturningPairFactory {
 
     function createPair(address, address) external pure returns (address) {
         return address(0);
+    }
+}
+
+/// 首币的 Pair 正常返回、其后一律返回零，用于覆盖子币建池失败分支
+contract ZeroReturningAfterFirstPairFactory {
+    address private _firstPair;
+
+    function getPair(address, address) external pure returns (address) {
+        return address(0);
+    }
+
+    function createPair(address, address) external returns (address) {
+        if (_firstPair != address(0)) return address(0);
+        _firstPair = address(0xF1);
+        return _firstPair;
+    }
+}
+
+/// 持有一个成员身份、在 onTokenLaunched 里用另一个符号重入 launchToken 的分发方
+contract ReenteringDistributor is ILaunchDistributor {
+    Launch public launch;
+    address public parentToken;
+    uint256 public memberId;
+    string public reentrySymbol;
+    bool public reentered;
+
+    function configure(Launch launch_, address parentToken_, uint256 memberId_, string memory reentrySymbol_) external {
+        launch = launch_;
+        parentToken = parentToken_;
+        memberId = memberId_;
+        reentrySymbol = reentrySymbol_;
+    }
+
+    function launchToken(string calldata symbol, DistributorMode mode) external returns (address) {
+        return launch.launchToken(symbol, parentToken, memberId, address(this), mode, new bytes[](0));
+    }
+
+    function onTokenLaunched(address, address, uint256, bytes[] calldata) external {
+        if (reentered) return;
+        reentered = true;
+        launch.launchToken(reentrySymbol, parentToken, memberId, address(this), DistributorMode.NoCallback, new bytes[](0));
     }
 }
 
@@ -414,6 +456,57 @@ contract LaunchTest {
     }
 
     // ============ launchToken ============
+
+    function testLaunchTokenReusesPrebuiltPair() public {
+        _grantCount(address(firstToken), aliceMemberId, 1);
+
+        address predicted = vm.computeCreateAddress(address(launch), vm.getNonce(address(launch)));
+        address prebuiltPair = pairFactory.createPair(predicted, address(firstToken));
+        uint256 pairsBefore = pairFactory.createdPairCount();
+
+        address tokenAddress = _launchOk(alice, "AAA", address(firstToken), aliceMemberId);
+
+        require(tokenAddress == predicted, "predicted address");
+        require(pairFactory.createdPairCount() == pairsBefore, "no second pair");
+        require(pairFactory.getPair(tokenAddress, address(firstToken)) == prebuiltPair, "prebuilt pair reused");
+        require(launch.isLOVE20Token(tokenAddress), "registered");
+    }
+
+    function testLaunchTokenRevertsWhenPairCreationReturnsZero() public {
+        LaunchInitParams memory params = _freshParams();
+        params.memberNFTAddress = address(member);
+        params.pairFactoryAddress = address(new ZeroReturningAfterFirstPairFactory());
+        Launch target = new Launch(params);
+        address parentTokenAddress = target.FIRST_TOKEN_ADDRESS();
+
+        mintAccount.addLaunchCount(target, parentTokenAddress, aliceMemberId, 1);
+
+        (, bytes memory data) = _launchAt(target, alice, "AAA", parentTokenAddress, aliceMemberId);
+        require(
+            keccak256(data)
+                == keccak256(abi.encodeWithSelector(ILaunchErrors.PairCreationFailed.selector, parentTokenAddress)),
+            "pair creation failure"
+        );
+    }
+
+    function testDistributorCallbackReentersAndConsumesSecondCount() public {
+        ReenteringDistributor reentering = new ReenteringDistributor();
+        (uint256 reenteringMemberId,) = alice.mintMember(member, "reenter");
+        alice.transferMember(member, address(reentering), reenteringMemberId);
+        reentering.configure(launch, address(firstToken), reenteringMemberId, "BBB");
+        mintAccount.addLaunchCount(launch, address(firstToken), reenteringMemberId, 2);
+
+        require(reentering.launchToken("AAA", DistributorMode.Callback) != address(0), "outer launch");
+        require(reentering.reentered(), "callback ran");
+        require(
+            launch.remainingLaunchCount(address(firstToken), reenteringMemberId) == 0, "both counts consumed"
+        );
+        require(launch.tokenAddressBySymbol("AAA") != address(0), "outer symbol registered");
+        require(launch.tokenAddressBySymbol("BBB") != address(0), "inner symbol registered");
+
+        (, uint256 total) = launch.tokens(0, 10, false);
+        require(total == 3, "two launches appended");
+    }
 
     function testLaunchTokenCreatesRegistersAndConsumesCount() public {
         _grantCount(address(firstToken), aliceMemberId, 2);

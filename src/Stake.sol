@@ -292,6 +292,7 @@ contract Stake is IStake {
             revert SourceEqualsTarget(sourceMemberId);
         }
         _checkToken(tokenAddress);
+        // forge-lint: disable-next-item(unused-return)
         IMemberNFT(MEMBER_NFT_ADDRESS).ownerOf(targetMemberId);
 
         MemberStake storage source = _memberStake[tokenAddress][sourceMemberId];
@@ -729,7 +730,7 @@ contract Stake is IStake {
 
     function _pairSnapshot(address pair, address tokenAddress) private view returns (PairSnapshot memory snapshot) {
         IUniswapV2Pair pairContract = IUniswapV2Pair(pair);
-        // forge-lint: disable-next-line(unused-return)
+        // forge-lint: disable-next-item(unused-return)
         (uint112 reserve0, uint112 reserve1, ) = pairContract.getReserves();
         snapshot.pairTotalSupply = pairContract.totalSupply();
         if (tokenAddress == pairContract.token0()) {

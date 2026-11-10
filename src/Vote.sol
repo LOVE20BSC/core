@@ -218,7 +218,9 @@ contract Vote is IVote {
             revert ZeroVoteAmount(tokenAddress, round, proposalId);
         }
 
+        // forge-lint: disable-next-item(calls-loop)
         (address target, TargetMode targetMode) = ISubmit(SUBMIT_ADDRESS).proposalTarget(tokenAddress, proposalId);
+        // forge-lint: disable-next-item(calls-loop)
         if (!ISubmit(SUBMIT_ADDRESS).isSubmitted(tokenAddress, round, proposalId)) {
             // forge-lint: disable-next-line(require-revert-in-loop)
             revert ProposalNotSubmitted(tokenAddress, round, proposalId);
@@ -226,7 +228,7 @@ contract Vote is IVote {
 
         {
             uint256 currentVoterBoost = _voterBoostByMemberId[tokenAddress][round][memberId];
-            // forge-lint: disable-next-line(calls-loop, unused-return)
+            // forge-lint: disable-next-item(calls-loop, unused-return)
             uint256 actualVoterBoost = IStake(STAKE_ADDRESS).validBoostShares(tokenAddress, round, memberId);
 
             if (currentVoterBoost == 0) {
@@ -281,6 +283,7 @@ contract Vote is IVote {
         uint256 proposalId,
         uint256 voteAmount
     ) private {
+        // forge-lint: disable-next-item(reentrancy-events)
         emit VoteCast({
             tokenAddress: tokenAddress,
             round: round,

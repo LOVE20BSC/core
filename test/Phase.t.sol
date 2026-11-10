@@ -282,6 +282,49 @@ contract PhaseTest {
         require(!ok && _selector(data) == IPhaseErrors.PhaseNotStarted.selector);
     }
 
+    function testObservationPaginationWindows() external {
+        uint256 origin = block.number + 1;
+        Phase phase = new Phase(origin, PHASE_BLOCKS, TARGET_SECONDS, THRESHOLD, OBSERVATION_LIMIT);
+
+        uint256 count = 5;
+        uint256[] memory expected = new uint256[](count);
+        for (uint256 i = 0; i < count; i++) {
+            vm.roll(origin + i * PHASE_BLOCKS);
+            vm.warp(block.timestamp + TARGET_SECONDS);
+            expected[i] = block.number;
+            phase.sync();
+        }
+
+        (uint256[] memory blockNumbers,, uint256 totalCount) = phase.observations(0, count, false);
+        require(blockNumbers.length == count && totalCount == count, "forward page size");
+        for (uint256 i = 0; i < count; i++) {
+            require(blockNumbers[i] == expected[i], "forward order");
+        }
+
+        (blockNumbers,, ) = phase.observations(0, count, true);
+        for (uint256 i = 0; i < count; i++) {
+            require(blockNumbers[i] == expected[count - 1 - i], "reverse order");
+        }
+
+        (blockNumbers,, ) = phase.observations(1, count, true);
+        require(blockNumbers.length == count - 1, "reverse offset page size");
+        for (uint256 i = 0; i < count - 1; i++) {
+            require(blockNumbers[i] == expected[count - 2 - i], "reverse offset order");
+        }
+
+        (blockNumbers,, totalCount) = phase.observations(count, count, false);
+        require(blockNumbers.length == 0 && totalCount == count, "offset at total");
+
+        (blockNumbers,, totalCount) = phase.observations(count, count, true);
+        require(blockNumbers.length == 0 && totalCount == count, "reverse offset at total");
+
+        (blockNumbers,, totalCount) = phase.observations(0, 0, false);
+        require(blockNumbers.length == 0 && totalCount == count, "zero limit");
+
+        (blockNumbers,, totalCount) = phase.observations(0, 0, true);
+        require(blockNumbers.length == 0 && totalCount == count, "reverse zero limit");
+    }
+
     function _observationsCount(Phase phase) private view returns (uint256) {
         (,, uint256 totalCount) = phase.observations(0, 0, false);
         return totalCount;

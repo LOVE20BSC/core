@@ -24,9 +24,5 @@ severity = ["high", "med", "low"]
 ignore = ["test/**/*.sol"]
 # missing-zero-check: 构造期的静态零值校验由部署脚本负责（dev-standards §5.7）；
 # 具体构造行用行内抑制，不整类禁用。
-exclude_lints = ["calls-loop", "reentrancy-events", "unused-return"]
-# Intentional patterns in Mint.sol:
-# - calls-loop: Each round needs fresh external state (supply, votes, proposals)
-# - reentrancy-events: Events after view calls are safe; no state changes possible
-# - unused-return: Second element of tuple intentionally ignored where count already known
-# These warning types cannot be suppressed with inline comments in this Foundry version.
+# calls-loop / reentrancy-events / unused-return 一律按行内 disable-next-item 逐条抑制，
+# 不整类关闭。这三类在本版 Foundry（1.8.1）不认 disable-next-line，只认 disable-next-item。
