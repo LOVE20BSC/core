@@ -103,6 +103,8 @@ contract Mint is IMint {
         if (_isRewardPrepared[tokenAddress][round]) {
             return;
         }
+        // forge-lint: disable-next-item(calls-loop, require-revert-in-loop)
+        if (!ILaunch(LAUNCH_ADDRESS).isLOVE20Token(tokenAddress)) revert TokenNotRegistered(tokenAddress);
 
         if (!_isRoundEnded(round)) {
             // forge-lint: disable-next-line(require-revert-in-loop)

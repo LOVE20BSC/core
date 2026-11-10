@@ -286,7 +286,7 @@ contract MemberNFTTest {
     }
 
     function testMintRejectsForbiddenCharactersAndInvalidUtf8() public {
-        bytes[] memory invalid = new bytes[](31);
+        bytes[] memory invalid = new bytes[](37);
         invalid[0] = hex"20"; // space
         invalid[1] = hex"01"; // C0 control
         invalid[2] = hex"7f"; // DEL
@@ -317,7 +317,13 @@ contract MemberNFTTest {
         invalid[27] = hex"eda080"; // UTF-16 surrogate U+D800
         invalid[28] = hex"f0808080"; // overlong 4-byte encoding
         invalid[29] = hex"f4908080"; // code point above U+10FFFF
-        invalid[30] = bytes.concat("ab", hex"e2808b", "cd"); // forbidden char inside a name
+        invalid[30] = hex"e1a08e"; // U+180E mongolian vowel separator
+        invalid[31] = hex"e1859f"; // U+115F hangul choseong filler
+        invalid[32] = hex"e185a0"; // U+1160 hangul jungseong filler
+        invalid[33] = hex"e385a4"; // U+3164 hangul filler
+        invalid[34] = hex"efbea0"; // U+FFA0 halfwidth hangul filler
+        invalid[35] = hex"e2a080"; // U+2800 braille pattern blank
+        invalid[36] = bytes.concat("ab", hex"e2808b", "cd"); // forbidden char inside a name
 
         for (uint256 i; i < invalid.length; ++i) {
             bytes memory data = _revertData(address(nft), _mintCall(string(invalid[i])), "invalid name expected");

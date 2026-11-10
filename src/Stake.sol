@@ -48,6 +48,8 @@ contract Stake is IStake {
     uint256 private constant SLIPPAGE_PRECISION = 1e18;
     uint256 private constant PRECISION = 1e18;
     uint256 public constant LIQUIDITY_TOKEN_EQUIVALENCE_FACTOR = 2;
+    uint256 private constant SWAP_FEE_NUMERATOR = 997;
+    uint256 private constant SWAP_FEE_DENOMINATOR = 1000;
 
     address public PHASE_ADDRESS;
     address public MEMBER_NFT_ADDRESS;
@@ -906,6 +908,9 @@ contract Stake is IStake {
         if (!_canBurn(settlementUnit, snapshot)) {
             return;
         }
+        if (!_canSwapFeeHalf(settlementUnit, snapshot)) {
+            return;
+        }
 
         _realizeFees(tokenAddress, pair, settlementUnit, round);
     }
@@ -916,6 +921,22 @@ contract Stake is IStake {
     function _canBurn(uint256 lpAmount, PairSnapshot memory snapshot) private pure returns (bool) {
         return lpAmount * snapshot.reserveToken >= snapshot.pairTotalSupply
             && lpAmount * snapshot.reserveParent >= snapshot.pairTotalSupply;
+    }
+
+    /// @dev Load-bearing: the router swap runs on the reserves left by the burn, so the parent half is
+    ///      priced there, and the canonical V2 fee is assumed. Getting either wrong only ever skips a
+    ///      settlement (the fee LP stays in the ledger), but a permanently false result would stop the
+    ///      burning for that community without any revert to show for it.
+    function _canSwapFeeHalf(uint256 lpAmount, PairSnapshot memory snapshot) private pure returns (bool) {
+        uint256 tokenBurned = Math.mulDiv(lpAmount, snapshot.reserveToken, snapshot.pairTotalSupply);
+        uint256 parentBurned = Math.mulDiv(lpAmount, snapshot.reserveParent, snapshot.pairTotalSupply);
+        uint256 reserveIn = snapshot.reserveParent - parentBurned;
+        uint256 reserveOut = snapshot.reserveToken - tokenBurned;
+        if (parentBurned == 0 || reserveIn == 0 || reserveOut == 0) {
+            return false;
+        }
+        uint256 amountInWithFee = parentBurned * SWAP_FEE_NUMERATOR;
+        return amountInWithFee * reserveOut >= reserveIn * SWAP_FEE_DENOMINATOR + amountInWithFee;
     }
 
     function _realizeFees(address tokenAddress, address pair, uint256 processedFeeLp, uint256 round) private {

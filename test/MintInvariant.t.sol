@@ -512,6 +512,10 @@ contract MintInvariantTest {
         return issuedLaunchCountTotal;
     }
 
+    function isLOVE20Token(address tokenAddress) external view returns (bool) {
+        return tokenAddress == address(token);
+    }
+
     function MAX_LAUNCH_COUNT() external pure returns (uint256) {
         return MAX_LAUNCH;
     }

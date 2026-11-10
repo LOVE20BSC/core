@@ -69,6 +69,8 @@ contract Launch is ILaunch {
         _tokenAddressBySymbol[params.symbol] = firstToken;
         _childTokens[params.rootParentTokenAddress].push(firstToken);
 
+        _ensurePair(firstToken, params.rootParentTokenAddress);
+
         // forge-lint: disable-next-item(reentrancy-events)
         emit GenesisTokenCreated({
             tokenAddress: firstToken,
@@ -120,12 +122,13 @@ contract Launch is ILaunch {
         }
         string memory tokenName = string.concat(subTokenSymbol, "@", parentTokenSymbol);
 
-        // forge-lint: disable-next-item(reentrancy-no-eth)
         tokenAddress = _createToken(parentTokenAddress, tokenName, subTokenSymbol, distributor);
         _tokens.push(tokenAddress);
         _parentTokenByTokenAddress[tokenAddress] = parentTokenAddress;
         _tokenAddressBySymbol[subTokenSymbol] = tokenAddress;
         _childTokens[parentTokenAddress].push(tokenAddress);
+
+        _ensurePair(tokenAddress, parentTokenAddress);
 
         // forge-lint: disable-next-item(reentrancy-events)
         emit TokenLaunched({
@@ -238,11 +241,13 @@ contract Launch is ILaunch {
         tokenAddress = address(
             new LOVE20Token(name, symbol, LAUNCH_AMOUNT, MAX_SUPPLY, distributor, MINT_ADDRESS, parentTokenAddress)
         );
+    }
 
+    /// @dev Load-bearing: called only after every launch ledger is written, so a factory that calls
+    ///      back into Launch finds the symbol, token and count ledgers already consistent.
+    function _ensurePair(address tokenAddress, address parentTokenAddress) private {
         IUniswapV2Factory factory = IUniswapV2Factory(PAIR_FACTORY_ADDRESS);
-        // forge-lint: disable-next-line(reentrancy-no-eth)
         if (factory.getPair(tokenAddress, parentTokenAddress) == address(0)) {
-            // forge-lint: disable-next-line(reentrancy-no-eth)
             address pair = factory.createPair(tokenAddress, parentTokenAddress);
             if (pair == address(0)) revert PairCreationFailed(parentTokenAddress);
         }

@@ -690,6 +690,10 @@ contract MockSubmit {
 
 contract MockLaunch {
     mapping(address => uint256) public launchCounts;
+
+    function isLOVE20Token(address) external pure returns (bool) {
+        return true;
+    }
     mapping(address => uint256) public issuedCounts;
 
     function addLaunchCount(address community, uint256, uint256 count) external {

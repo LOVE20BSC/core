@@ -38,6 +38,10 @@ contract MintEdgeCasesTest {
         return address(this);
     }
 
+    function isLOVE20Token(address tokenAddress) external view returns (bool) {
+        return tokenAddress == address(token);
+    }
+
     function currentPhase() external view returns (uint256) {
         return currentPhaseValue;
     }
@@ -101,6 +105,17 @@ contract MintEdgeCasesTest {
     function testConstructorExposesPhase() public {
         setupMint(1000, 10000);
         require(mint.PHASE_ADDRESS() == address(this), "phase injected and exposed");
+    }
+
+    function testPrepareRejectsUnregisteredToken() public {
+        setupMint(1000, 10000);
+        currentPhaseValue = 5;
+        address unregistered = address(0xBEEF);
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.TokenNotRegistered.selector, unregistered));
+        mint.prepareRewardIfNeeded(unregistered, 1);
+
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.TokenNotRegistered.selector, unregistered));
+        mint.mintGovReward(unregistered, 1, 1, address(this));
     }
 
     function testRoundEndedReadsDerivedPhaseDirectly() public {

@@ -55,6 +55,10 @@ contract MintTest {
         return address(this);
     }
 
+    function isLOVE20Token(address tokenAddress) external view returns (bool) {
+        return tokenAddress == address(token);
+    }
+
     function currentPhase() external view returns (uint256) {
         return currentPhaseValue;
     }

@@ -305,6 +305,12 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
                     if (byte2 == 0x9A && byte3 == 0x80) {
                         return false;
                     }
+                    if (byte2 == 0xA0 && byte3 == 0x8E) {
+                        return false;
+                    }
+                    if (byte2 == 0x85 && (byte3 == 0x9F || byte3 == 0xA0)) {
+                        return false;
+                    }
                 } else if (byte1 == 0xE2) {
                     if (byte2 == 0x80) {
                         if (
@@ -321,13 +327,21 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
                         ) {
                             return false;
                         }
+                    } else if (byte2 == 0xA0 && byte3 == 0x80) {
+                        return false;
                     }
                 } else if (byte1 == 0xE3) {
                     if (byte2 == 0x80 && byte3 == 0x80) {
                         return false;
                     }
+                    if (byte2 == 0x85 && byte3 == 0xA4) {
+                        return false;
+                    }
                 } else if (byte1 == 0xEF) {
                     if (byte2 == 0xBB && byte3 == 0xBF) {
+                        return false;
+                    }
+                    if (byte2 == 0xBE && byte3 == 0xA0) {
                         return false;
                     }
                 } else if (byte1 == 0xE0) {

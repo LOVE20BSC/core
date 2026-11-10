@@ -48,6 +48,7 @@ interface IMintErrors {
     );
     error ZeroRecipientAddress();
     error RoundNotEnded(uint256 round);
+    error TokenNotRegistered(address tokenAddress);
     error ProposalRewardAlreadyMinted(
         address tokenAddress,
         uint256 round,

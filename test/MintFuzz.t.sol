@@ -50,6 +50,10 @@ contract MintFuzzTest {
         return address(this);
     }
 
+    function isLOVE20Token(address tokenAddress) external view returns (bool) {
+        return tokenAddress == address(token);
+    }
+
     function currentPhase() external pure returns (uint256) {
         return type(uint256).max;
     }
