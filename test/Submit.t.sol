@@ -3,6 +3,8 @@ pragma solidity =0.8.37;
 
 import {Submit} from "../src/Submit.sol";
 import {Phase} from "../src/Phase.sol";
+import {IPhase} from "../src/interfaces/IPhase.sol";
+import {IStakeErrors} from "../src/interfaces/IStake.sol";
 import {ISubmitErrors, ProposalBody, ProposalInfo, SubmitInfo, TargetMode} from "../src/interfaces/ISubmit.sol";
 
 interface SubmitVm {
@@ -22,24 +24,61 @@ interface SubmitVm {
     function getRecordedLogs() external returns (Log[] memory logs);
 }
 
+/// @notice Stake stand-in for the two reads Submit performs.
+/// @dev Load-bearing: an explicit per-round record must win over the `_default*` baseline and a
+///      not-yet-started round must revert. If either rule is dropped, the round-scoping tests stop
+///      proving anything while still passing.
 contract MockStake {
-    mapping(address => mapping(uint256 => uint256)) private _validVotes;
-    mapping(address => uint256) private _globalVotes;
+    address public PHASE_ADDRESS;
+
+    mapping(address => mapping(uint256 => uint256)) private _defaultValidVotes; // token => member => votes
+    mapping(address => uint256) private _defaultGlobalVotes; // token => votes
+    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) private _validVotesByRound; // token => round => member => votes
+    mapping(address => mapping(uint256 => uint256)) private _globalVotesByRound; // token => round => votes
+    mapping(address => mapping(uint256 => mapping(uint256 => bool))) private _validVoteRecorded; // token => round => member
+    mapping(address => mapping(uint256 => bool)) private _globalVoteRecorded; // token => round
+
+    constructor(address phaseAddress) {
+        PHASE_ADDRESS = phaseAddress;
+    }
 
     function setValidGovVotes(address token, uint256 memberId, uint256 votes) external {
-        _validVotes[token][memberId] = votes;
+        _defaultValidVotes[token][memberId] = votes;
     }
 
     function setGlobalGovVotes(address token, uint256 votes) external {
-        _globalVotes[token] = votes;
+        _defaultGlobalVotes[token] = votes;
     }
 
-    function validGovVotes(address token, uint256, uint256 memberId) external view returns (uint256) {
-        return _validVotes[token][memberId];
+    function setValidGovVotesAtRound(address token, uint256 round, uint256 memberId, uint256 votes) external {
+        _validVotesByRound[token][round][memberId] = votes;
+        _validVoteRecorded[token][round][memberId] = true;
     }
 
-    function totalValidGovVotes(address token, uint256) external view returns (uint256) {
-        return _globalVotes[token];
+    function setGlobalGovVotesAtRound(address token, uint256 round, uint256 votes) external {
+        _globalVotesByRound[token][round] = votes;
+        _globalVoteRecorded[token][round] = true;
+    }
+
+    function validGovVotes(address token, uint256 round, uint256 memberId) external view returns (uint256) {
+        _checkRoundStarted(round);
+        if (_validVoteRecorded[token][round][memberId]) {
+            return _validVotesByRound[token][round][memberId];
+        }
+        return _defaultValidVotes[token][memberId];
+    }
+
+    function totalValidGovVotes(address token, uint256 round) external view returns (uint256) {
+        _checkRoundStarted(round);
+        if (_globalVoteRecorded[token][round]) {
+            return _globalVotesByRound[token][round];
+        }
+        return _defaultGlobalVotes[token];
+    }
+
+    function _checkRoundStarted(uint256 round) private view {
+        uint256 currentRound = IPhase(PHASE_ADDRESS).currentPhase();
+        if (round > currentRound) revert IStakeErrors.RoundNotStarted(round, currentRound);
     }
 }
 
@@ -89,7 +128,7 @@ contract SubmitTest {
         vm.roll(100);
         vm.warp(1000);
         phase = new Phase(100, 100, 1000, 1e17, 10);
-        stake = new MockStake();
+        stake = new MockStake(address(phase));
         memberNFT = new MockMemberNFT();
         submit = new Submit(address(phase), address(stake), address(memberNFT), 1e16);
 
@@ -143,6 +182,41 @@ contract SubmitTest {
 
         stake.setValidGovVotes(TOKEN, 1, 11);
         require(submit.canSubmit(TOKEN, 1), "11/1001 reaches the ceil threshold");
+    }
+
+    // ============ Round Scoping Tests ============
+
+    function testSubmitPowerIsReadFromTheCurrentRoundOnly() external {
+        uint256 roundOne = phase.currentPhase();
+        require(roundOne == 1, "fixture starts in round 1");
+
+        stake.setValidGovVotesAtRound(TOKEN, roundOne, 1, 100);
+        stake.setGlobalGovVotesAtRound(TOKEN, roundOne, 1000);
+        require(submit.canSubmit(TOKEN, 1), "round 1 has enough weight");
+
+        vm.roll(200);
+        uint256 roundTwo = phase.currentPhase();
+        require(roundTwo == roundOne + 1, "phase advanced");
+
+        stake.setValidGovVotesAtRound(TOKEN, roundTwo, 1, 9);
+        stake.setGlobalGovVotesAtRound(TOKEN, roundTwo, 1000);
+        require(!submit.canSubmit(TOKEN, 1), "round 1 weight must not carry into round 2");
+
+        stake.setValidGovVotesAtRound(TOKEN, roundOne, 1, 9);
+        stake.setValidGovVotesAtRound(TOKEN, roundTwo, 1, 100);
+        require(submit.canSubmit(TOKEN, 1), "round 2 weight must be used");
+
+        require(stake.validGovVotes(TOKEN, roundOne, 1) == 9, "round 1 record must stay");
+        require(stake.validGovVotes(TOKEN, roundTwo, 1) == 100, "round 2 record must stay");
+    }
+
+    function testStakeStandInRejectsFutureRounds() external {
+        uint256 currentRound = phase.currentPhase();
+        vm.expectRevert(abi.encodeWithSelector(IStakeErrors.RoundNotStarted.selector, currentRound + 1, currentRound));
+        stake.validGovVotes(TOKEN, currentRound + 1, 1);
+
+        vm.expectRevert(abi.encodeWithSelector(IStakeErrors.RoundNotStarted.selector, currentRound + 1, currentRound));
+        stake.totalValidGovVotes(TOKEN, currentRound + 1);
     }
 
     // ============ Proposal Creation Tests ============

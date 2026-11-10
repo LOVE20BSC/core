@@ -30,16 +30,21 @@ interface VoteVm {
 
 /// @notice Stake stand-in for the two reads Vote performs.
 /// @dev Both entry points stay `view` to match `IStake`, so the compiler emits STATICCALL and this
-///      mock cannot count invocations. Tests observe read behaviour by mutating the returned values
-///      from inside a Target callback instead (see `MockTarget`). `validBoostShares` keeps the
-///      real Stake round gate, so a Vote that asked for the wrong round would revert here.
+///      mock cannot count invocations; tests observe read behaviour through `MockTarget` instead.
+///      Load-bearing: an explicit per-round record must win over the `_default*` baseline and a
+///      not-yet-started round must revert. If either rule is dropped, the round-scoping tests stop
+///      proving anything while still passing.
 contract MockStake {
     error MockStakeReadDisabled();
 
     address public PHASE_ADDRESS;
 
-    mapping(address => mapping(uint256 => uint256)) private _validVotes;
-    mapping(address => uint256) private _globalVotes;
+    mapping(address => mapping(uint256 => uint256)) private _defaultValidVotes; // token => member => votes
+    mapping(address => uint256) private _defaultGlobalVotes; // token => votes
+    mapping(address => mapping(uint256 => mapping(uint256 => uint256))) private _validVotesByRound; // token => round => member => votes
+    mapping(address => mapping(uint256 => uint256)) private _globalVotesByRound; // token => round => votes
+    mapping(address => mapping(uint256 => mapping(uint256 => bool))) private _validVoteRecorded; // token => round => member
+    mapping(address => mapping(uint256 => bool)) private _globalVoteRecorded; // token => round
     mapping(address => mapping(uint256 => mapping(uint256 => uint256))) private _boost;
 
     bool public boostReadDisabled;
@@ -55,27 +60,47 @@ contract MockStake {
     }
 
     function setValidGovVotes(address tokenAddress, uint256 memberId, uint256 votes) external {
-        _validVotes[tokenAddress][memberId] = votes;
+        _defaultValidVotes[tokenAddress][memberId] = votes;
     }
 
     function setGlobalGovVotes(address tokenAddress, uint256 votes) external {
-        _globalVotes[tokenAddress] = votes;
+        _defaultGlobalVotes[tokenAddress] = votes;
+    }
+
+    function setValidGovVotesAtRound(address tokenAddress, uint256 round, uint256 memberId, uint256 votes)
+        external
+    {
+        _validVotesByRound[tokenAddress][round][memberId] = votes;
+        _validVoteRecorded[tokenAddress][round][memberId] = true;
+    }
+
+    function setGlobalGovVotesAtRound(address tokenAddress, uint256 round, uint256 votes) external {
+        _globalVotesByRound[tokenAddress][round] = votes;
+        _globalVoteRecorded[tokenAddress][round] = true;
     }
 
     function setBoost(address tokenAddress, uint256 round, uint256 memberId, uint256 boostShares) external {
         _boost[tokenAddress][round][memberId] = boostShares;
     }
 
-    function validGovVotes(address tokenAddress, uint256, uint256 memberId)
+    function validGovVotes(address tokenAddress, uint256 round, uint256 memberId)
         external
         view
         returns (uint256)
     {
-        return _validVotes[tokenAddress][memberId];
+        _checkRoundStarted(round);
+        if (_validVoteRecorded[tokenAddress][round][memberId]) {
+            return _validVotesByRound[tokenAddress][round][memberId];
+        }
+        return _defaultValidVotes[tokenAddress][memberId];
     }
 
-    function totalValidGovVotes(address tokenAddress, uint256) external view returns (uint256) {
-        return _globalVotes[tokenAddress];
+    function totalValidGovVotes(address tokenAddress, uint256 round) external view returns (uint256) {
+        _checkRoundStarted(round);
+        if (_globalVoteRecorded[tokenAddress][round]) {
+            return _globalVotesByRound[tokenAddress][round];
+        }
+        return _defaultGlobalVotes[tokenAddress];
     }
 
     function validBoostShares(address tokenAddress, uint256 round, uint256 memberId)
@@ -88,10 +113,13 @@ contract MockStake {
         if (boostReadDisabled) {
             revert MockStakeReadDisabled();
         }
-        if (round > IPhase(PHASE_ADDRESS).currentPhase()) {
-            revert IStakeErrors.RoundNotStarted(round, IPhase(PHASE_ADDRESS).currentPhase());
-        }
+        _checkRoundStarted(round);
         return _boost[tokenAddress][round][memberId];
+    }
+
+    function _checkRoundStarted(uint256 round) private view {
+        uint256 currentRound = IPhase(PHASE_ADDRESS).currentPhase();
+        if (round > currentRound) revert IStakeErrors.RoundNotStarted(round, currentRound);
     }
 }
 
@@ -667,6 +695,54 @@ contract VoteTest {
     }
 
     // ============ vote: check order ============
+
+    function testVoteAllowanceIsReadFromTheCurrentRoundOnly() external {
+        uint256 memberId = _memberIds[0];
+        uint256 roundOne = phase.currentPhase();
+        require(roundOne == 1, "fixture starts in round 1");
+
+        stake.setValidGovVotesAtRound(TOKEN, roundOne, memberId, 500);
+        _advanceRounds(1);
+        uint256 roundTwo = phase.currentPhase();
+        require(roundTwo == roundOne + 1, "phase advanced");
+
+        uint256 proposalId = _proposeNoCallback(TOKEN);
+        stake.setValidGovVotesAtRound(TOKEN, roundTwo, memberId, 0);
+        _expectRevertAs(
+            memberId,
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(1), new bytes[][](0))),
+            abi.encodeWithSelector(IVoteErrors.NoVotingPower.selector, TOKEN, memberId),
+            "round 1 allowance must not carry into round 2"
+        );
+
+        stake.setValidGovVotesAtRound(TOKEN, roundOne, memberId, 0);
+        stake.setValidGovVotesAtRound(TOKEN, roundTwo, memberId, 500);
+        _voteWithoutData(TOKEN, memberId, _singleton(proposalId), _singleton(1));
+        require(vote.voteAmountByMemberId(TOKEN, roundTwo, memberId) == 1, "round 2 vote recorded");
+        require(vote.voteAmountByMemberId(TOKEN, roundOne, memberId) == 0, "round 1 stays untouched");
+
+        require(stake.validGovVotes(TOKEN, roundOne, memberId) == 0, "round 1 record must stay");
+        require(stake.validGovVotes(TOKEN, roundTwo, memberId) == 500, "round 2 record must stay");
+    }
+
+    function testStakeStandInRejectsFutureRounds() external {
+        uint256 currentRound = phase.currentPhase();
+        bytes memory expected =
+            abi.encodeWithSelector(IStakeErrors.RoundNotStarted.selector, currentRound + 1, currentRound);
+
+        _expectRevertOn(
+            address(stake),
+            abi.encodeCall(stake.validGovVotes, (TOKEN, currentRound + 1, _memberIds[0])),
+            expected,
+            "future round votes"
+        );
+        _expectRevertOn(
+            address(stake),
+            abi.encodeCall(stake.totalValidGovVotes, (TOKEN, currentRound + 1)),
+            expected,
+            "future round total"
+        );
+    }
 
     function testOwnershipIsCheckedBeforeEligibility() external {
         uint256 memberId = _memberIds[0];
