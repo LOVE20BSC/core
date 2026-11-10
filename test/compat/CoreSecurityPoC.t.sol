@@ -213,6 +213,40 @@ contract CoreSecurityPoC {
 
     /// @notice Launch reuses a pair that already exists for the predicted token address: the token
     ///         is still registered and stakeable, and no second pair is created.
+    /// @notice Load-bearing: the submit gate is a live-denominator check, so raising a single
+    ///         member's promised waiting period with 1 wei of boost lifts the threshold above every
+    ///         smaller member's weight. This pins the accepted design (competitive, both sides can
+    ///         raise their own lock), not a defect: changing the multiplier or the threshold basis
+    ///         must update this expectation deliberately.
+    function test_oneWeiBoostRaisesTheSubmitGateAboveOtherMembers() public {
+        _mintMember(m1, "Alice");
+        _mintMember(m2, "Bob");
+        _mintMember(m3, "Carol");
+        _mintMember(m4, "Dave");
+        _stake(m1, 1, 1e20, WAIT_MIN);
+        _stake(m2, 2, 1e20, WAIT_MIN);
+        _stake(m3, 3, 1e20, WAIT_MIN);
+        _stake(m4, 4, 1e20, WAIT_MIN);
+
+        uint256 round = phase.currentPhase();
+        _true(submit.canSubmit(address(token), 2), "m2 may submit before");
+
+        vm.startPrank(m1);
+        token.approve(address(stake), 1);
+        stake.stakeBoost(address(token), 1, WAIT_MAX, 1);
+        vm.stopPrank();
+
+        uint256 total = stake.totalValidGovVotes(address(token), round);
+        _true(stake.validGovVotes(address(token), round, 1) * 100 >= total * 90, "m1 holds >= 90%");
+        _true(submit.canSubmit(address(token), 1), "m1 keeps the gate");
+        _true(!submit.canSubmit(address(token), 2), "m2 lost the gate");
+        _true(!submit.canSubmit(address(token), 3), "m3 lost the gate");
+        _true(!submit.canSubmit(address(token), 4), "m4 lost the gate");
+
+        _advancePhase();
+        _true(!submit.canSubmit(address(token), 2), "m2 still excluded next round");
+    }
+
     function test_launchReusesPrecreatedPair() public {
         _mintMember(m1, "Alice");
         vm.prank(address(mint));
