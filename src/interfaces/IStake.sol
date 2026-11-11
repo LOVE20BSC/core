@@ -6,6 +6,7 @@ struct MemberStake {
     uint256 boostShares;
     uint256 promisedWaitingPhases;
     uint256 unlockRequestPhase;
+    uint256 firstGovVoteRound;
 }
 
 struct TotalStake {
@@ -14,6 +15,7 @@ struct TotalStake {
     uint256 lastFeeLp;
     uint256 lastSqrtKOfLp;
     uint256 totalBoostShares;
+    uint256 firstGovVoteRound;
 }
 
 interface IStakeErrors {
@@ -213,7 +215,8 @@ interface IStake is IStakeErrors, IStakeEvents {
             uint256 promisedWaitingPhases,
             uint256 unlockRequestPhase,
             uint256 tokenAmountForLiquidity,
-            uint256 parentTokenAmountForLiquidity
+            uint256 parentTokenAmountForLiquidity,
+            uint256 firstGovVoteRound
         );
     function validGovVotes(address tokenAddress, uint256 round, uint256 memberId) external view returns (uint256);
     function totalValidGovVotes(address tokenAddress, uint256 round) external view returns (uint256);
@@ -227,7 +230,8 @@ interface IStake is IStakeErrors, IStakeEvents {
             uint256 feeLp,
             uint256 totalBoostShares,
             uint256 tokenAmountForLiquidity,
-            uint256 parentTokenAmountForLiquidity
+            uint256 parentTokenAmountForLiquidity,
+            uint256 firstGovVoteRound
         );
     function canWithdraw(address tokenAddress, uint256 memberId) external view returns (bool);
     function validBoostShares(

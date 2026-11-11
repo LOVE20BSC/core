@@ -265,11 +265,11 @@ contract StakeDonationTest is Test {
     }
 
     function _withdrawableLp() internal view returns (uint256 withdrawable) {
-        (,, withdrawable,,,,) = stake.totalStake(address(childToken));
+        (,, withdrawable,,,,,) = stake.totalStake(address(childToken));
     }
 
     function _feeLp() internal view returns (uint256 fee) {
-        (,,, fee,,,) = stake.totalStake(address(childToken));
+        (,,, fee,,,,) = stake.totalStake(address(childToken));
     }
 
     function _stakedLpSqrtK(uint256 lpAmount) internal view returns (uint256) {
@@ -658,7 +658,7 @@ contract StakeDonationTest is Test {
         stake.stakeLiquidity(address(smallToken), 100e18, 100e18, 1e18, 1, stakerMemberId);
         vm.stopPrank();
 
-        (uint256 totalLiquidityShares, uint256 totalLp,, uint256 feeLpBefore,,,) =
+        (uint256 totalLiquidityShares, uint256 totalLp,, uint256 feeLpBefore,,,,) =
             stake.totalStake(address(smallToken));
         uint256 settlementUnit = Math.mulDiv(smallPair.totalSupply(), FEE_SETTLEMENT_RATIO, 1e18);
         assertGt(totalLiquidityShares, 0, "stake booked");
@@ -673,7 +673,7 @@ contract StakeDonationTest is Test {
         vm.recordLogs();
         stake.settleFees(address(smallToken));
 
-        (, uint256 totalLpAfter, uint256 withdrawableAfter, uint256 feeLpAfter,,,) =
+        (, uint256 totalLpAfter, uint256 withdrawableAfter, uint256 feeLpAfter,,,,) =
             stake.totalStake(address(smallToken));
         assertGt(feeLpAfter, 0, "growth reclassified");
         assertLt(feeLpAfter, settlementUnit, "fee still below one unit");
@@ -715,7 +715,7 @@ contract StakeDonationTest is Test {
         stake.stakeLiquidity(address(boundaryToken), 1, 1, 1e18, 1, stakerMemberId);
         vm.stopPrank();
 
-        (uint256 totalLiquidityShares, uint256 totalLp,, uint256 feeLpBefore,,,) =
+        (uint256 totalLiquidityShares, uint256 totalLp,, uint256 feeLpBefore,,,,) =
             stake.totalStake(address(boundaryToken));
         uint256 settlementUnit = Math.mulDiv(boundaryPair.totalSupply(), FEE_SETTLEMENT_RATIO, 1e18);
         assertEq(totalLiquidityShares, 1, "community shares");
@@ -731,7 +731,7 @@ contract StakeDonationTest is Test {
         vm.recordLogs();
         stake.settleFees(address(boundaryToken));
 
-        (, uint256 totalLpAfter, uint256 withdrawableAfter, uint256 feeLpAfter,,,) =
+        (, uint256 totalLpAfter, uint256 withdrawableAfter, uint256 feeLpAfter,,,,) =
             stake.totalStake(address(boundaryToken));
         assertEq(feeLpAfter, 0, "fee settled");
         assertEq(withdrawableAfter, 0, "no withdrawable LP left");

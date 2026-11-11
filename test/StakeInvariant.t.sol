@@ -132,7 +132,7 @@ contract StakeInvariantTest {
     function stakeLiquidity(uint256 memberIndex, uint256 tokenAmount, uint256 parentAmount, uint256 phases) public {
         memberIndex = bound(memberIndex, 0, MEMBER_COUNT - 1);
         uint256 memberId = _memberIds[memberIndex];
-        (, , uint256 currentPhases, uint256 unlockRequestPhase, , ) = stake.memberStake(address(token), memberId);
+        (, , uint256 currentPhases, uint256 unlockRequestPhase, , ,) = stake.memberStake(address(token), memberId);
         if (unlockRequestPhase != 0) return;
 
         tokenAmount = bound(tokenAmount, 1e15, 1e20);
@@ -146,7 +146,7 @@ contract StakeInvariantTest {
     function stakeBoost(uint256 memberIndex, uint256 boostAmount, uint256 phases) public {
         memberIndex = bound(memberIndex, 0, MEMBER_COUNT - 1);
         uint256 memberId = _memberIds[memberIndex];
-        (uint256 liquidityShares, , uint256 currentPhases, uint256 unlockRequestPhase, , ) =
+        (uint256 liquidityShares, , uint256 currentPhases, uint256 unlockRequestPhase, , ,) =
             stake.memberStake(address(token), memberId);
         if (liquidityShares == 0 || unlockRequestPhase != 0) return;
 
@@ -160,7 +160,7 @@ contract StakeInvariantTest {
     function unlock(uint256 memberIndex) public {
         memberIndex = bound(memberIndex, 0, MEMBER_COUNT - 1);
         uint256 memberId = _memberIds[memberIndex];
-        (uint256 liquidityShares, , , uint256 unlockRequestPhase, , ) = stake.memberStake(address(token), memberId);
+        (uint256 liquidityShares, , , uint256 unlockRequestPhase, , ,) = stake.memberStake(address(token), memberId);
         if (liquidityShares == 0 || unlockRequestPhase != 0) return;
 
         vm.prank(_members[memberIndex]);
@@ -182,7 +182,7 @@ contract StakeInvariantTest {
         if (sourceIndex == targetIndex) return;
 
         uint256 sourceMemberId = _memberIds[sourceIndex];
-        (uint256 liquidityShares, , , uint256 unlockRequestPhase, , ) =
+        (uint256 liquidityShares, , , uint256 unlockRequestPhase, , ,) =
             stake.memberStake(address(token), sourceMemberId);
         if (liquidityShares == 0 || unlockRequestPhase != 0) return;
 
@@ -207,26 +207,26 @@ contract StakeInvariantTest {
     function invariant_LiquiditySharesMatchMemberSum() public view {
         uint256 sum;
         for (uint256 i = 0; i < MEMBER_COUNT; i++) {
-            (uint256 liquidityShares,,,,,) = stake.memberStake(address(token), _memberIds[i]);
+            (uint256 liquidityShares,,,,,,) = stake.memberStake(address(token), _memberIds[i]);
             sum += liquidityShares;
         }
-        (uint256 totalLiquidityShares,,,,,,) = stake.totalStake(address(token));
+        (uint256 totalLiquidityShares,,,,,,,) = stake.totalStake(address(token));
         assert(sum == totalLiquidityShares);
     }
 
     function invariant_BoostSharesMatchMemberSum() public view {
         uint256 sum;
         for (uint256 i = 0; i < MEMBER_COUNT; i++) {
-            (, uint256 boostShares,,,,) = stake.memberStake(address(token), _memberIds[i]);
+            (, uint256 boostShares,,,,,) = stake.memberStake(address(token), _memberIds[i]);
             sum += boostShares;
         }
-        (,,,, uint256 totalBoostShares,,) = stake.totalStake(address(token));
+        (,,,, uint256 totalBoostShares,,,) = stake.totalStake(address(token));
         assert(sum == totalBoostShares);
     }
 
     /// @notice Every recorded boost share is still backed by a token the contract actually holds.
     function invariant_BoostSharesAreFullyBacked() public view {
-        (,,,, uint256 totalBoostShares,,) = stake.totalStake(address(token));
+        (,,,, uint256 totalBoostShares,,,) = stake.totalStake(address(token));
         assert(token.balanceOf(address(stake)) >= totalBoostShares);
     }
 
@@ -235,7 +235,7 @@ contract StakeInvariantTest {
     /// @notice The accounted LP can never exceed the LP the contract holds. Donations only widen the
     ///         gap; nothing may narrow it below zero.
     function invariant_AccountedLpWithinHeldBalance() public view {
-        (, uint256 totalLp,,,,,) = stake.totalStake(address(token));
+        (, uint256 totalLp,,,,,,) = stake.totalStake(address(token));
         assert(totalLp <= pair.balanceOf(address(stake)));
     }
 
@@ -245,7 +245,7 @@ contract StakeInvariantTest {
     function invariant_PrincipalLedgerWithinHeldTokens() public view {
         uint256 principal = stake.liquidityTokenAmount(address(token));
         (uint256 reserveToken,,) = pair.getReserves();
-        (,,,, uint256 totalBoostShares,,) = stake.totalStake(address(token));
+        (,,,, uint256 totalBoostShares,,,) = stake.totalStake(address(token));
         assert(principal + totalBoostShares <= token.balanceOf(address(stake)) + reserveToken);
     }
 
@@ -291,7 +291,7 @@ contract StakeInvariantTest {
     function invariant_UnlockZeroesTheCurrentRound() public view {
         uint256 round = phase.currentPhase();
         for (uint256 i = 0; i < MEMBER_COUNT; i++) {
-            (, , , uint256 unlockRequestPhase,,) = stake.memberStake(address(token), _memberIds[i]);
+            (, , , uint256 unlockRequestPhase,,,) = stake.memberStake(address(token), _memberIds[i]);
             if (unlockRequestPhase == 0) continue;
             assert(stake.validGovVotes(address(token), round, _memberIds[i]) == 0);
             assert(stake.validBoostShares(address(token), round, _memberIds[i]) == 0);
@@ -303,7 +303,7 @@ contract StakeInvariantTest {
     function invariant_BoostDoesNotMintVotesWithoutLiquidity() public view {
         uint256 round = phase.currentPhase();
         for (uint256 i = 0; i < MEMBER_COUNT; i++) {
-            (uint256 liquidityShares,,,,,) = stake.memberStake(address(token), _memberIds[i]);
+            (uint256 liquidityShares,,,,,,) = stake.memberStake(address(token), _memberIds[i]);
             if (liquidityShares != 0) continue;
             assert(stake.validGovVotes(address(token), round, _memberIds[i]) == 0);
         }
@@ -317,11 +317,11 @@ contract StakeInvariantTest {
         stakeLiquidity(0, 5e17, 5e17, WAIT_MIN);
         stakeLiquidity(1, 1e18, 3e17, WAIT_MIN);
 
-        (, , , uint256 unlockRequestPhase,,) = stake.memberStake(address(token), _memberIds[0]);
+        (, , , uint256 unlockRequestPhase,,,) = stake.memberStake(address(token), _memberIds[0]);
         require(unlockRequestPhase == 0, "position open");
 
         unlock(0);
-        (, , , unlockRequestPhase,,) = stake.memberStake(address(token), _memberIds[0]);
+        (, , , unlockRequestPhase,,,) = stake.memberStake(address(token), _memberIds[0]);
         require(unlockRequestPhase != 0, "unlock recorded");
 
         advanceRound(1);

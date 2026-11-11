@@ -309,7 +309,7 @@ contract CoreSecurityPoC {
 
         _advancePhase();
         bot.mergeStake();
-        (uint256 sharesAfterMerge,,,,,) = stake.memberStake(address(token), botId);
+        (uint256 sharesAfterMerge,,,,,,) = stake.memberStake(address(token), botId);
         _eq(sharesAfterMerge, 0, "merge succeeds in a fresh round");
     }
 
@@ -330,7 +330,7 @@ contract CoreSecurityPoC {
         stake.stakeBoost(address(token), 1.5e17, WAIT_MIN, 2);
         vm.stopPrank();
 
-        (, , , , uint256 totalBoostShares, ,) = stake.totalStake(address(token));
+        (, , , , uint256 totalBoostShares, ,,) = stake.totalStake(address(token));
         _eq(totalBoostShares, 3e17, "boost recorded");
         _eq(token.balanceOf(address(stake)), 3e17, "boost is held");
 
@@ -339,7 +339,7 @@ contract CoreSecurityPoC {
 
         stake.settleFees(address(token));
 
-        (, , , , uint256 boostAfter, ,) = stake.totalStake(address(token));
+        (, , , , uint256 boostAfter, ,,) = stake.totalStake(address(token));
         _eq(boostAfter, 3e17, "boost record untouched by settlement");
         _true(token.balanceOf(address(stake)) >= 3e17, "boost still fully backed after settlement");
     }

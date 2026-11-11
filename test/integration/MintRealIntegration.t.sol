@@ -1413,8 +1413,8 @@ contract MintRealIntegrationTest {
         vm.stopPrank();
 
         // Query initial stake amounts
-        (uint256 m1LiqBefore, uint256 m1BoostBefore,,,,) = stake.memberStake(address(token), 1);
-        (uint256 m2LiqBefore, uint256 m2BoostBefore,,,,) = stake.memberStake(address(token), 2);
+        (uint256 m1LiqBefore, uint256 m1BoostBefore,,,,,) = stake.memberStake(address(token), 1);
+        (uint256 m2LiqBefore, uint256 m2BoostBefore,,,,,) = stake.memberStake(address(token), 2);
 
         assertTrue(m1LiqBefore > 0, "Member 1 must have liquidity shares");
         assertTrue(m2LiqBefore > 0, "Member 2 must have liquidity shares");
@@ -1424,12 +1424,12 @@ contract MintRealIntegrationTest {
         stake.mergeStake(address(token), 1, 2);
 
         // Verify source stake was cleared
-        (uint256 m1LiqAfter, uint256 m1BoostAfter,,,,) = stake.memberStake(address(token), 1);
+        (uint256 m1LiqAfter, uint256 m1BoostAfter,,,,,) = stake.memberStake(address(token), 1);
         assertEq(m1LiqAfter, 0, "Source liquidity must be zero");
         assertEq(m1BoostAfter, 0, "Source boost must be zero");
 
         // Verify target stake increased
-        (uint256 m2LiqAfter, uint256 m2BoostAfter,,,,) = stake.memberStake(address(token), 2);
+        (uint256 m2LiqAfter, uint256 m2BoostAfter,,,,,) = stake.memberStake(address(token), 2);
         assertEq(m2LiqAfter, m2LiqBefore + m1LiqBefore, "Target liquidity must increase");
         assertEq(m2BoostAfter, m2BoostBefore + m1BoostBefore, "Target boost must increase");
     }

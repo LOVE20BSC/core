@@ -384,7 +384,8 @@ contract Stake is IStake {
             uint256 promisedWaitingPhases,
             uint256 unlockRequestPhase,
             uint256 tokenAmountForLiquidity,
-            uint256 parentTokenAmountForLiquidity
+            uint256 parentTokenAmountForLiquidity,
+            uint256 firstGovVoteRound
         )
     {
         MemberStake storage member = _memberStake[tokenAddress][memberId];
@@ -392,6 +393,7 @@ contract Stake is IStake {
         boostShares = member.boostShares;
         promisedWaitingPhases = member.promisedWaitingPhases;
         unlockRequestPhase = member.unlockRequestPhase;
+        firstGovVoteRound = member.firstGovVoteRound;
 
         TotalStake storage totals = _totalStake[tokenAddress];
         address pair = _pairAddressByTokenAddress[tokenAddress];
@@ -420,16 +422,20 @@ contract Stake is IStake {
             uint256 feeLp,
             uint256 totalBoostShares,
             uint256 tokenAmountForLiquidity,
-            uint256 parentTokenAmountForLiquidity
+            uint256 parentTokenAmountForLiquidity,
+            uint256 firstGovVoteRound
         )
     {
         TotalStake storage totals = _totalStake[tokenAddress];
         totalLiquidityShares = totals.totalLiquidityShares;
         totalLp = totals.lastFeeLp + totals.lastWithdrawableLp;
         totalBoostShares = totals.totalBoostShares;
+        firstGovVoteRound = totals.firstGovVoteRound;
 
         address pair = _pairAddressByTokenAddress[tokenAddress];
-        if (pair == address(0)) return (totalLiquidityShares, totalLp, 0, 0, totalBoostShares, 0, 0);
+        if (pair == address(0)) {
+            return (totalLiquidityShares, totalLp, 0, 0, totalBoostShares, 0, 0, firstGovVoteRound);
+        }
 
         PairSnapshot memory snapshot = _pairSnapshot(pair, tokenAddress);
         (feeLp, withdrawableLp, ) = _previewReclassification(totals, snapshot);
@@ -627,6 +633,7 @@ contract Stake is IStake {
         if (targetIsEmpty) {
             target.promisedWaitingPhases = merged.prevSourcePromisedWaitingPhases;
         }
+        if (target.firstGovVoteRound == 0) target.firstGovVoteRound = round;
 
         uint256 govVotesAdded = _govVotesOf(target) - govVotesBefore;
         if (merged.prevSourceGovVotes > 0) {
@@ -671,6 +678,9 @@ contract Stake is IStake {
 
         govVotesAdded = (member.liquidityShares + liquiditySharesAdded) * promisedWaitingPhases
             - _govVotesOf(member);
+
+        if (member.firstGovVoteRound == 0 && liquiditySharesAdded != 0) member.firstGovVoteRound = round;
+        if (totals.firstGovVoteRound == 0 && liquiditySharesAdded != 0) totals.firstGovVoteRound = round;
 
         member.liquidityShares += liquiditySharesAdded;
         member.promisedWaitingPhases = promisedWaitingPhases;
