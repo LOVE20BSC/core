@@ -381,33 +381,30 @@ contract MemberNFTTest {
         require(_revertArg(data) == id, "duplicate id");
     }
 
-    function testTestPrefixAppliedWhenFirstTokenSymbolStartsWithTest() public {
+    function testNameIsStoredAsSubmittedWhenFirstTokenSymbolStartsWithTest() public {
         LOVE20Token testToken = _newToken("TestLOVE");
         MemberNFT testNft =
             new MemberNFT(BASE_DIVISOR, BYTES_THRESHOLD, MULTIPLIER, MAX_NAME_LENGTH, address(testToken));
         require(testToken.transfer(address(alice), 10 ether), "fund alice");
         alice.approveToken(address(testToken), address(testNft), type(uint256).max);
 
-        uint256 shortQuote = testNft.calculateMintCost("abc");
-        uint256 prefixedQuote = testNft.calculateMintCost("Testabc");
-        require(shortQuote == _quoteFor(testToken, "abc"), "quote without prefix");
-        require(prefixedQuote == _quoteFor(testToken, "Testabc"), "quote with prefix");
-        require(shortQuote > prefixedQuote, "shorter name costs more");
+        uint256 quote = testNft.calculateMintCost("abc");
+        require(quote == _quoteFor(testToken, "abc"), "quote follows submitted length");
+        require(quote > testNft.calculateMintCost("Testabc"), "quote is not based on a prefixed name");
 
         (uint256 id, uint256 cost) = alice.mint(testNft, "abc");
-        require(keccak256(bytes(testNft.memberName(id))) == keccak256("Testabc"), "prefixed name");
-        require(cost == prefixedQuote, "cost uses prefixed length");
-        require(testNft.memberId("testabc") == id, "normalized lookup");
-        require(testNft.isNameUsed("TESTABC"), "case-insensitive lookup");
+        require(keccak256(bytes(testNft.memberName(id))) == keccak256("abc"), "name stored as submitted");
+        require(cost == quote, "cost follows submitted length");
+        require(testNft.memberId("abc") == id, "lookup by submitted name");
+        require(testNft.isNameUsed("ABC"), "case-insensitive lookup");
+        require(!testNft.isNameUsed("Testabc"), "prefixed variant stays unused");
 
-        (uint256 alreadyPrefixed, ) = alice.mint(testNft, "Testxyz");
-        require(keccak256(bytes(testNft.memberName(alreadyPrefixed))) == keccak256("Testxyz"), "no double prefix");
+        (uint256 explicit, ) = alice.mint(testNft, "Testxyz");
+        require(keccak256(bytes(testNft.memberName(explicit))) == keccak256("Testxyz"), "explicit prefix preserved");
+        require(testNft.memberId("testxyz") == explicit, "explicit prefix lookup");
 
         (uint256 shortName, ) = alice.mint(testNft, "Tes");
-        require(keccak256(bytes(testNft.memberName(shortName))) == keccak256("TestTes"), "short name prefixed");
-
-        (uint256 plain, ) = alice.mint(nft, "abc");
-        require(keccak256(bytes(nft.memberName(plain))) == keccak256("abc"), "no prefix for other symbols");
+        require(keccak256(bytes(testNft.memberName(shortName))) == keccak256("Tes"), "short name unchanged");
     }
 
     function testEnumerableViewsTrackTokensAndOwners() public {

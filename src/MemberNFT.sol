@@ -15,8 +15,6 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     using Pagination for address[];
     using SafeERC20 for IERC20;
 
-    uint256 private constant TEST_PREFIX_BYTES = 4;
-
     address public LOVE20_TOKEN_ADDRESS;
     uint256 public immutable BASE_DIVISOR;
     uint256 public immutable BYTES_THRESHOLD;
@@ -56,12 +54,10 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
     function mint(
         string calldata name
     ) external returns (uint256 tokenId, uint256 mintCost) {
-        string memory prefixedName = _addTestPrefixIfNeeded(name);
+        string memory normalizedName = _checkName(name);
 
-        string memory normalizedName = _checkName(prefixedName);
-
-        mintCost = calculateMintCost(prefixedName);
-        tokenId = _mintMember(msg.sender, prefixedName, normalizedName, mintCost);
+        mintCost = calculateMintCost(name);
+        tokenId = _mintMember(msg.sender, name, normalizedName, mintCost);
         return (tokenId, mintCost);
     }
 
@@ -146,31 +142,6 @@ contract MemberNFT is ERC721Enumerable, IMemberNFT {
         external view returns (address[] memory holderList, uint256 totalCount)
     {
         return _holders.paginate(offset, limit, reverse);
-    }
-
-    function _addTestPrefixIfNeeded(
-        string memory name
-    ) internal view returns (string memory) {
-        bytes memory symbolBytes = bytes(ILOVE20Token(LOVE20_TOKEN_ADDRESS).symbol());
-        if (
-            symbolBytes.length >= TEST_PREFIX_BYTES &&
-            symbolBytes[0] == "T" &&
-            symbolBytes[1] == "e" &&
-            symbolBytes[2] == "s" &&
-            symbolBytes[3] == "t"
-        ) {
-            bytes memory nameBytes = bytes(name);
-            if (
-                nameBytes.length < TEST_PREFIX_BYTES ||
-                nameBytes[0] != "T" ||
-                nameBytes[1] != "e" ||
-                nameBytes[2] != "s" ||
-                nameBytes[3] != "t"
-            ) {
-                return string(abi.encodePacked("Test", name));
-            }
-        }
-        return name;
     }
 
     function _addHolder(address holder) internal {
