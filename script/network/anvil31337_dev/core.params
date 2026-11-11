@@ -1,12 +1,16 @@
 # Dev/test profile: values are tuned so Phase and issuance advance within minutes; they are not the
 # production deployment values, which are the examples in docs/whitepaper-core.md appendix A.
-# LOVE20Token (the first token; LAUNCH_AMOUNT/MAX_SUPPLY also apply to every launched token)
+# LOVE20Token (the genesis token; LAUNCH_AMOUNT/MAX_SUPPLY also apply to every launched token)
 TOKEN_NAME=TestLOVE20@WETH
 TOKEN_SYMBOL=TestLOVE20
-LAUNCH_AMOUNT=1e27                      # per token, 1e9 tokens
+LAUNCH_AMOUNT=1e27                      # per token, 1e9 tokens; must be >= 1e18 (TOTAL_SHARE)
 MAX_SUPPLY=1e28                         # 1e10 tokens
 # Deploy wallet (anvil default account).
-DISTRIBUTOR_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+# The genesis token's first supply is minted to the AirdropDistributor deployed by 11_deploy.sh;
+# DISTRIBUTOR_ADDRESS is gone - the distributor address is predicted (nonce+1) and fixed by the
+# deployment order, not configured.
+GENESIS_AIRDROP_MERKLE_ROOT=0x05e37b2c26977999e91c3952b8ebc871ab708ec54be5280b9b787a3c9f92b230
+GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS=1     # 首币可领取轮 = max(currentPhase,1) + 该值；<= 1000
 # Root parent token is read from Router.WETH(); do not configure it here.
 
 # MemberNFT

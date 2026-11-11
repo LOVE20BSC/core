@@ -46,7 +46,7 @@ params_load "$NETWORK_DIR/addresses.core.params"
 # The address file's key set must equal the expected contract set: a renamed key would leave later
 # variables silently empty and fail much later with an unhelpful message, so assert it here.
 address_file="$NETWORK_DIR/addresses.core.params"
-expected_keys="LAUNCH_ADDRESS LOVE20_TOKEN_ADDRESS MEMBER_NFT_ADDRESS MINT_ADDRESS PHASE_ADDRESS STAKE_ADDRESS SUBMIT_ADDRESS VOTE_ADDRESS"
+expected_keys="AIRDROP_DISTRIBUTOR_ADDRESS LAUNCH_ADDRESS LOVE20_TOKEN_ADDRESS MEMBER_NFT_ADDRESS MINT_ADDRESS PHASE_ADDRESS STAKE_ADDRESS SUBMIT_ADDRESS VOTE_ADDRESS"
 actual_keys=$(grep -oE '^[A-Z0-9_]+=' "$address_file" | sed 's/=$//' | sort | tr '\n' ' ' || true)
 if [ "$actual_keys" != "$(printf '%s\n' $expected_keys | sort | tr '\n' ' ')" ]; then
     echo "Error: $address_file key set mismatch"
@@ -78,7 +78,8 @@ echo -e "${CYAN}╚════════════════════�
 echo ""
 
 # Every contract address must be set.
-if [ -z "${LOVE20_TOKEN_ADDRESS:-}" ] || [ -z "${MEMBER_NFT_ADDRESS:-}" ] || \
+if [ -z "${LOVE20_TOKEN_ADDRESS:-}" ] || [ -z "${AIRDROP_DISTRIBUTOR_ADDRESS:-}" ] || \
+   [ -z "${MEMBER_NFT_ADDRESS:-}" ] || \
    [ -z "${PHASE_ADDRESS:-}" ] || [ -z "${LAUNCH_ADDRESS:-}" ] || \
    [ -z "${MINT_ADDRESS:-}" ] || [ -z "${STAKE_ADDRESS:-}" ] || \
    [ -z "${SUBMIT_ADDRESS:-}" ] || [ -z "${VOTE_ADDRESS:-}" ]; then
@@ -145,7 +146,7 @@ print_contract_header() {
     local name=$2
     local address=$3
     echo ""
-    echo -e "${BLUE}[$num/8]${NC} ${CYAN}${name}${NC}"
+    echo -e "${BLUE}[$num/9]${NC} ${CYAN}${name}${NC}"
     echo -e "${GRAY}      ${address}${NC}"
 }
 
@@ -174,7 +175,7 @@ ACTUAL_TOTAL_SUPPLY=$(cast call "$LOVE20_TOKEN_ADDRESS" "totalSupply()(uint256)"
 # mint, burn or transfer: this step is idempotent read-only, not a timeless invariant.
 verify_value "totalSupply" "$LAUNCH_AMOUNT" "$ACTUAL_TOTAL_SUPPLY" || ((FAILED+=1))
 
-ACTUAL_DISTRIBUTOR_BALANCE=$(cast call "$LOVE20_TOKEN_ADDRESS" "balanceOf(address)(uint256)" "$DISTRIBUTOR_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+ACTUAL_DISTRIBUTOR_BALANCE=$(cast call "$LOVE20_TOKEN_ADDRESS" "balanceOf(address)(uint256)" "$AIRDROP_DISTRIBUTOR_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "distributor balance" "$LAUNCH_AMOUNT" "$ACTUAL_DISTRIBUTOR_BALANCE" || ((FAILED+=1))
 
 ACTUAL_PARENT=$(cast call "$LOVE20_TOKEN_ADDRESS" "PARENT_TOKEN_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
@@ -384,6 +385,66 @@ verify_value "PHASE_ADDRESS" "$PHASE_ADDRESS" "$ACTUAL_VOTE_PHASE" || ((FAILED+=
 ACTUAL_VOTE_MEMBER=$(cast call "$VOTE_ADDRESS" "MEMBER_NFT_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "MEMBER_NFT_ADDRESS" "$MEMBER_NFT_ADDRESS" "$ACTUAL_VOTE_MEMBER" || ((FAILED+=1))
 
+# 9. AirdropDistributor.
+print_contract_header "9" "AirdropDistributor" "$AIRDROP_DISTRIBUTOR_ADDRESS"
+verify_deployed "AirdropDistributor" "$AIRDROP_DISTRIBUTOR_ADDRESS" || ((FAILED+=1))
+
+ACTUAL_AIRDROP_LAUNCH=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "LAUNCH_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "LAUNCH_ADDRESS" "$LAUNCH_ADDRESS" "$ACTUAL_AIRDROP_LAUNCH" || ((FAILED+=1))
+
+ACTUAL_AIRDROP_PHASE=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "PHASE_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "PHASE_ADDRESS" "$PHASE_ADDRESS" "$ACTUAL_AIRDROP_PHASE" || ((FAILED+=1))
+
+# The genesis token's initial supply is minted to this distributor and stays there until claimants
+# withdraw it, so the token balance check in section 1 already binds token and distributor together.
+ACTUAL_TOTAL_SHARE=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "TOTAL_SHARE()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "TOTAL_SHARE" "1000000000000000000" "$ACTUAL_TOTAL_SHARE" || ((FAILED+=1))
+
+ACTUAL_MAX_CLAIM_DELAY=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "MAX_CLAIM_DELAY_ROUNDS()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "MAX_CLAIM_DELAY_ROUNDS" "1000" "$ACTUAL_MAX_CLAIM_DELAY" || ((FAILED+=1))
+
+ACTUAL_GENESIS_ROOT=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "merkleRootByTokenAddress(address)(bytes32)" "$LOVE20_TOKEN_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "genesis merkle root" "$GENESIS_AIRDROP_MERKLE_ROOT" "$ACTUAL_GENESIS_ROOT" || ((FAILED+=1))
+
+# claimedShare is 0 only while nobody has claimed the genesis token: this step is an idempotent
+# read-only check of the deployment, not a timeless invariant.
+ACTUAL_GENESIS_CLAIMED_SHARE=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "claimedShareByTokenAddress(address)(uint256)" "$LOVE20_TOKEN_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "genesis claimed share" "0" "$ACTUAL_GENESIS_CLAIMED_SHARE" || ((FAILED+=1))
+
+ACTUAL_GENESIS_REMAINING_SHARE=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "remainingShareByTokenAddress(address)(uint256)" "$LOVE20_TOKEN_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "genesis remaining share" "1000000000000000000" "$ACTUAL_GENESIS_REMAINING_SHARE" || ((FAILED+=1))
+
+# AirdropDistributor records `max(round at its deployment block, 1) + delay` at construction time and
+# never updates it, so the expected value must NOT be recomputed from the current round: once Phase
+# advances past the deployment round this script would compare a stored past value against a moving
+# expectation and report a false failure on every re-run. The exact equality is asserted at deploy
+# time by `DeployCore._validateDeployment`, which reads the round in the same block. Here the check is
+# time-invariant: the base round was a real past-or-current round and never below the clamp floor.
+ACTUAL_CLAIMABLE_FROM=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "claimableFromRoundByTokenAddress(address)(uint256)" "$LOVE20_TOKEN_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+ACTUAL_CLAIMABLE_FROM=$(normalize_output "$ACTUAL_CLAIMABLE_FROM")
+ACTUAL_CURRENT_PHASE=$(cast call "$PHASE_ADDRESS" "currentPhase()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+ACTUAL_CURRENT_PHASE=$(normalize_output "$ACTUAL_CURRENT_PHASE")
+# 18 digits is below the signed 64-bit limit, so the arithmetic below cannot wrap; a longer value or
+# a failed read is reported instead of producing a bogus expected round.
+if [[ ! "$ACTUAL_CLAIMABLE_FROM" =~ ^[0-9]{1,18}$ ]] || [[ ! "$ACTUAL_CURRENT_PHASE" =~ ^[0-9]{1,18}$ ]]; then
+    echo -e "  ${RED}✗${NC} Failed to read genesis claimable round / currentPhase (${ACTUAL_CLAIMABLE_FROM} / ${ACTUAL_CURRENT_PHASE})"
+    ((FAILED+=1))
+else
+    # While Phase has not started, the clamp makes the stored value exactly `1 + delay`.
+    current_base_round=$ACTUAL_CURRENT_PHASE
+    if [ "$current_base_round" -eq 0 ]; then
+        current_base_round=1
+    fi
+    min_claimable_from=$((1 + GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS))
+    max_claimable_from=$((current_base_round + GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS))
+    if [ "$ACTUAL_CLAIMABLE_FROM" -lt "$min_claimable_from" ] || [ "$ACTUAL_CLAIMABLE_FROM" -gt "$max_claimable_from" ]; then
+        echo -e "  ${RED}✗${NC} genesis claimable round out of range: expected ${min_claimable_from}..${max_claimable_from}, got ${ACTUAL_CLAIMABLE_FROM}"
+        ((FAILED+=1))
+    else
+        echo -e "  ${GREEN}✓${NC} genesis claimable round: ${ACTUAL_CLAIMABLE_FROM} (within ${min_claimable_from}..${max_claimable_from})"
+    fi
+fi
+
 # ========================================
 # Boundary value checks (safety).
 # ========================================
@@ -479,12 +540,21 @@ for pair in \
     "PROMISED_WAITING_PHASES_MIN:$ACTUAL_WAITING_MIN" \
     "BOOST_STAKE_SUPPLY_FACTOR:$ACTUAL_BOOST_SUPPLY_FACTOR" \
     "BOOST_STAKE_MULTIPLIER:$ACTUAL_BOOST_MULTIPLIER" \
-    "FEE_SETTLEMENT_RATIO:$ACTUAL_FEE_RATIO"; do
+    "FEE_SETTLEMENT_RATIO:$ACTUAL_FEE_RATIO" \
+    "GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS:$GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS"; do
     verify_positive "${pair%%:*}" "${pair#*:}" || ((FAILED+=1))
 done
 
 verify_boundary "PHASE_ADJUST_THRESHOLD" "$ACTUAL_ADJUST_THRESHOLD" "1000000000000000000" || ((FAILED+=1))
 verify_boundary "SUBMIT_MIN_RATIO" "$ACTUAL_MIN_RATIO" "1000000000000000000" || ((FAILED+=1))
+# LAUNCH_AMOUNT >= TOTAL_SHARE is what lets AirdropDistributor skip an amount == 0 check on claim:
+# with share >= 1 and remainingShare <= 1e18, floor(balance * share / remainingShare) >= 1.
+if [ "$(decimal_cmp "$ACTUAL_LAUNCH_AMOUNT" "$ACTUAL_TOTAL_SHARE")" -lt 0 ]; then
+    echo -e "  ${RED}✗${NC} LAUNCH_AMOUNT < TOTAL_SHARE ($ACTUAL_LAUNCH_AMOUNT < $ACTUAL_TOTAL_SHARE)"
+    ((FAILED+=1))
+else
+    echo -e "  ${GREEN}✓${NC} LAUNCH_AMOUNT >= TOTAL_SHARE ($ACTUAL_LAUNCH_AMOUNT >= $ACTUAL_TOTAL_SHARE)"
+fi
 # Upper bound mirrors MAX_FEE_SETTLEMENT_RATIO in DeployCore.s.sol: 0.25%, below the pool fee.
 verify_boundary "FEE_SETTLEMENT_RATIO" "$ACTUAL_FEE_RATIO" "2500000000000000" || ((FAILED+=1))
 
@@ -529,8 +599,8 @@ if [ "$(decimal_cmp "$ACTUAL_WAITING_MIN" "$ACTUAL_WAITING_MAX")" -gt 0 ]; then
 else
     echo -e "  ${GREEN}✓${NC} PROMISED_WAITING_PHASES range is valid"
 fi
-if [ -z "${TOKEN_NAME:-}" ] || [ -z "${TOKEN_SYMBOL:-}" ] || [ "$DISTRIBUTOR_ADDRESS" = "0x0000000000000000000000000000000000000000" ]; then
-    echo -e "  ${RED}✗${NC} TOKEN_NAME / TOKEN_SYMBOL / DISTRIBUTOR_ADDRESS is empty"
+if [ -z "${TOKEN_NAME:-}" ] || [ -z "${TOKEN_SYMBOL:-}" ] || [ "$AIRDROP_DISTRIBUTOR_ADDRESS" = "0x0000000000000000000000000000000000000000" ]; then
+    echo -e "  ${RED}✗${NC} TOKEN_NAME / TOKEN_SYMBOL / AIRDROP_DISTRIBUTOR_ADDRESS is empty"
     ((FAILED+=1))
 else
     echo -e "  ${GREEN}✓${NC} token name, symbol and distributor are set"

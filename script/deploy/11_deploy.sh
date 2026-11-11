@@ -81,12 +81,12 @@ echo "=== Deploying Core Contracts to $network ==="
 echo "  RPC_URL: $RPC_URL"
 echo "  CHAIN_ID: $CHAIN_ID"
 
-# The eight core addresses are extracted from the deployment log and validated one by one; any
+# The nine core addresses are extracted from the deployment log and validated one by one; any
 # missing entry fails the step instead of writing a half-filled address file.
 require_core_addresses() {
     local field
-    for field in LOVE20_TOKEN_ADDRESS MEMBER_NFT_ADDRESS PHASE_ADDRESS LAUNCH_ADDRESS \
-        MINT_ADDRESS STAKE_ADDRESS SUBMIT_ADDRESS VOTE_ADDRESS; do
+    for field in LOVE20_TOKEN_ADDRESS AIRDROP_DISTRIBUTOR_ADDRESS MEMBER_NFT_ADDRESS PHASE_ADDRESS \
+        LAUNCH_ADDRESS MINT_ADDRESS STAKE_ADDRESS SUBMIT_ADDRESS VOTE_ADDRESS; do
         if [[ ! ${!field:-} =~ ^0x[0-9a-fA-F]{40}$ ]] || [[ ${!field:-} = 0x0000000000000000000000000000000000000000 ]]; then
             echo "Error: Missing or invalid $field extracted from deployment log"
             exit 1
@@ -133,6 +133,7 @@ rm -f "$PASSWORD_FILE"
 # non-matching grep would silently abort the pipeline under set -e, so every lookup tolerates
 # failure and missing entries are reported by require_core_addresses.
 LOVE20_TOKEN_ADDRESS=$(grep "LOVE20_TOKEN_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 | xargs || true)
+AIRDROP_DISTRIBUTOR_ADDRESS=$(grep "AIRDROP_DISTRIBUTOR_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 | xargs || true)
 MEMBER_NFT_ADDRESS=$(grep "MEMBER_NFT_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 | xargs || true)
 PHASE_ADDRESS=$(grep "PHASE_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 | xargs || true)
 LAUNCH_ADDRESS=$(grep "LAUNCH_ADDRESS=" "$DEPLOY_LOG" | tail -1 | cut -d'=' -f2 | xargs || true)
@@ -157,6 +158,7 @@ fi
 # Write the address file.
 cat > "$ADDRESS_TMP" <<EOFADDR
 LOVE20_TOKEN_ADDRESS=$LOVE20_TOKEN_ADDRESS
+AIRDROP_DISTRIBUTOR_ADDRESS=$AIRDROP_DISTRIBUTOR_ADDRESS
 MEMBER_NFT_ADDRESS=$MEMBER_NFT_ADDRESS
 PHASE_ADDRESS=$PHASE_ADDRESS
 LAUNCH_ADDRESS=$LAUNCH_ADDRESS

@@ -187,9 +187,11 @@ CONSTRUCTOR_SLOTS = {
     "Phase": ["PHASE_ORIGIN_BLOCKS", "PHASE_ORIGIN_PHASE_BLOCKS", "PHASE_TARGET_SECONDS",
               "PHASE_ADJUST_THRESHOLD", "PHASE_SYNC_OBSERVATION_LIMIT"],
     "LOVE20Token": ["TOKEN_NAME", "TOKEN_SYMBOL", "LAUNCH_AMOUNT", "MAX_SUPPLY",
-                    "DISTRIBUTOR_ADDRESS", "MINT_ADDRESS", "WETH_ADDRESS"],
+                    "AIRDROP_DISTRIBUTOR_ADDRESS", "MINT_ADDRESS", "WETH_ADDRESS"],
+    "AirdropDistributor": ["LAUNCH_ADDRESS", "PHASE_ADDRESS", "LOVE20_TOKEN_ADDRESS",
+                           "GENESIS_AIRDROP_MERKLE_ROOT", "GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS"],
     "Launch": ["MINT_ADDRESS", "MEMBER_NFT_ADDRESS", "WETH_ADDRESS", "FACTORY_ADDRESS",
-               "DISTRIBUTOR_ADDRESS", "LAUNCH_COUNT_THRESHOLD_RATIO", "MAX_LAUNCH_COUNT",
+               "AIRDROP_DISTRIBUTOR_ADDRESS", "LAUNCH_COUNT_THRESHOLD_RATIO", "MAX_LAUNCH_COUNT",
                "TOKEN_SYMBOL_LENGTH", "LAUNCH_AMOUNT", "MAX_SUPPLY", "TOKEN_NAME", "TOKEN_SYMBOL"],
     "Submit": ["PHASE_ADDRESS", "STAKE_ADDRESS", "MEMBER_NFT_ADDRESS", "SUBMIT_MIN_RATIO"],
     "Vote": ["PHASE_ADDRESS", "STAKE_ADDRESS", "SUBMIT_ADDRESS", "MEMBER_NFT_ADDRESS"],
@@ -202,7 +204,22 @@ CONSTRUCTOR_SLOTS = {
              "ROUND_REWARD_PROPOSAL_RATIO"],
 }
 
+# Contract name -> source path, used for `forge verify-contract` (31_verify.sh). AirdropDistributor is
+# the only contract outside src/ root: it lives in src/distributor/.
+CONTRACT_SOURCES = {
+    "MemberNFT": "src/MemberNFT.sol",
+    "Phase": "src/Phase.sol",
+    "Launch": "src/Launch.sol",
+    "LOVE20Token": "src/LOVE20Token.sol",
+    "AirdropDistributor": "src/distributor/AirdropDistributor.sol",
+    "Mint": "src/Mint.sol",
+    "Stake": "src/Stake.sol",
+    "Submit": "src/Submit.sol",
+    "Vote": "src/Vote.sol",
+}
+
 ADDRESS_VALUE = re.compile(r"0x[0-9a-fA-F]{40}")
+BYTES32_VALUE = re.compile(r"0x[0-9a-fA-F]{64}")
 UINT_VALUE = re.compile(r"0|[1-9][0-9]*")
 
 
@@ -252,6 +269,8 @@ def verify_constructor_arguments(repo: Path, contract: str, log: list, env: dict
     for index, (slot_type, key) in enumerate(zip(slot_types, keys)):
         if slot_type == "address":
             valid = ADDRESS_VALUE.fullmatch(env[key]) is not None
+        elif slot_type == "bytes32":
+            valid = BYTES32_VALUE.fullmatch(env[key]) is not None
         elif slot_type.startswith("uint"):
             valid = UINT_VALUE.fullmatch(env[key]) is not None
         elif slot_type in ("string", "bool", "bytes"):
@@ -312,14 +331,17 @@ def main():
             stub.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + " "
                             + shlex.quote(str(Path(__file__).resolve())) + " --fake " + tool + ' "$@"\n')
             stub.chmod(0o755)
-        names = ["LOVE20_TOKEN", "MEMBER_NFT", "PHASE", "LAUNCH", "MINT", "STAKE", "SUBMIT", "VOTE"]
+        names = ["LOVE20_TOKEN", "AIRDROP_DISTRIBUTOR", "MEMBER_NFT", "PHASE", "LAUNCH", "MINT", "STAKE",
+                 "SUBMIT", "VOTE"]
         env = {name + "_ADDRESS": f"0x{index + 10:040x}" for index, name in enumerate(names)}
         contracts = list(env)
         env.update({"CHAIN_ID": "97", "RPC_URL": "http://invalid.local", "ETHERSCAN_API_KEY": "test-key",
                     "WETH_ADDRESS": "0x" + "ab" * 20, "FACTORY_ADDRESS": "0x" + "cd" * 20,
                     "ROUTER_ADDRESS": "0x" + "ef" * 20, "TOKEN_NAME": "TestLOVE20@WETH", "TOKEN_SYMBOL": "TestLOVE20",
                     "LAUNCH_AMOUNT": "1000000000000000000000000000", "MAX_SUPPLY": "10000000000000000000000000000",
-                    "DISTRIBUTOR_ADDRESS": "0x" + "12" * 20, "MEMBER_BASE_DIVISOR": "100000000", "MEMBER_BYTES_THRESHOLD": "7",
+                    "GENESIS_AIRDROP_MERKLE_ROOT": "0x" + "3c" * 32,
+                    "GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS": "1",
+                    "MEMBER_BASE_DIVISOR": "100000000", "MEMBER_BYTES_THRESHOLD": "7",
                     "MEMBER_MULTIPLIER": "10", "MEMBER_MAX_NAME_LENGTH": "32", "PHASE_ORIGIN_BLOCKS": "1",
                     "PHASE_ORIGIN_PHASE_BLOCKS": "100", "PHASE_TARGET_SECONDS": "300",
                     "PHASE_ADJUST_THRESHOLD": "600000000000000000", "PHASE_SYNC_OBSERVATION_LIMIT": "100",
@@ -342,6 +364,17 @@ def main():
         getters("MEMBER_NFT", {key + "()(uint256)": "MEMBER_" + key for key in ("BASE_DIVISOR", "BYTES_THRESHOLD", "MULTIPLIER", "MAX_NAME_LENGTH")})
         getters("MEMBER_NFT", {"LOVE20_TOKEN_ADDRESS()(address)": "LOVE20_TOKEN_ADDRESS"})
         getters("PHASE", {key + "()(uint256)": "PHASE_" + key for key in ("ORIGIN_BLOCKS", "ORIGIN_PHASE_BLOCKS", "TARGET_SECONDS", "ADJUST_THRESHOLD", "SYNC_OBSERVATION_LIMIT")})
+        # 首币领取轮由部署脚本按「创世前夹取到 1，再加延迟」推导，21_check 用同一条规则复核：
+        # currentPhase()==0 → baseRound 1 + delay 1 == 2。
+        calls[env["PHASE_ADDRESS"].lower() + "/currentPhase()(uint256)"] = "0"
+        getters("AIRDROP_DISTRIBUTOR", {"LAUNCH_ADDRESS()(address)": "LAUNCH_ADDRESS",
+                "PHASE_ADDRESS()(address)": "PHASE_ADDRESS",
+                "TOTAL_SHARE()(uint256)": "1000000000000000000",
+                "MAX_CLAIM_DELAY_ROUNDS()(uint256)": "1000",
+                "merkleRootByTokenAddress(address)(bytes32)": "GENESIS_AIRDROP_MERKLE_ROOT",
+                "claimedShareByTokenAddress(address)(uint256)": "0",
+                "remainingShareByTokenAddress(address)(uint256)": "1000000000000000000",
+                "claimableFromRoundByTokenAddress(address)(uint256)": "2"})
         getters("LAUNCH", {key + "()(uint256)": key for key in ("LAUNCH_COUNT_THRESHOLD_RATIO", "MAX_LAUNCH_COUNT", "TOKEN_SYMBOL_LENGTH", "MAX_SUPPLY")})
         getters("LAUNCH", {"LAUNCH_AMOUNT()(uint256)": "LAUNCH_AMOUNT", "MAX_TOKEN_SYMBOL_LENGTH()(uint256)": "32",
                 "TEST_PREFIX_BYTES()(uint256)": "4",
@@ -360,8 +393,10 @@ def main():
         getters("STAKE", {"LIQUIDITY_TOKEN_EQUIVALENCE_FACTOR()(uint256)": "2"})
         getters("STAKE", {"ROUTER_ADDRESS()(address)": "ROUTER_ADDRESS", "PAIR_FACTORY_ADDRESS()(address)": "FACTORY_ADDRESS"})
         getters("SUBMIT", {"SUBMIT_MIN_RATIO()(uint256)": "SUBMIT_MIN_RATIO"})
-        dep_keys = {"mint": "MINT", "memberNFT": "MEMBER_NFT", "phase": "PHASE", "stake": "STAKE", "vote": "VOTE", "submit": "SUBMIT", "launch": "LAUNCH"}
-        for name, dependencies in {"MEMBER_NFT": [], "LAUNCH": ["mint", "memberNFT"], "MINT": ["vote", "submit", "launch", "memberNFT"],
+        dep_keys = {"mint": "MINT", "airdropDistributor": "AIRDROP_DISTRIBUTOR", "memberNFT": "MEMBER_NFT",
+                    "phase": "PHASE", "stake": "STAKE", "vote": "VOTE", "submit": "SUBMIT", "launch": "LAUNCH"}
+        for name, dependencies in {"MEMBER_NFT": [], "LAUNCH": ["mint", "memberNFT"], "AIRDROP_DISTRIBUTOR": ["launch", "phase"],
+                "MINT": ["vote", "submit", "launch", "memberNFT"],
                 "STAKE": ["phase", "memberNFT", "vote", "launch"], "SUBMIT": ["phase", "stake", "memberNFT"],
                 "VOTE": ["phase", "stake", "submit", "memberNFT"]}.items():
             getters(name, {dep_keys.get(dep, dep.upper()) + "_ADDRESS()(address)": dep_keys.get(dep, dep.upper()) + "_ADDRESS" for dep in dependencies})
@@ -427,7 +462,13 @@ def main():
                 ("LAUNCH", "FIRST_TOKEN_ADDRESS()(address)"), ("LAUNCH", "PAIR_FACTORY_ADDRESS()(address)"),
                 ("LAUNCH", "TOKEN_SYMBOL_LENGTH()(uint256)"), ("LAUNCH", "LAUNCH_AMOUNT()(uint256)"), ("LAUNCH", "MAX_SUPPLY()(uint256)"),
                 ("MEMBER_NFT", "MAX_NAME_LENGTH()(uint256)"), ("PHASE", "ORIGIN_BLOCKS()(uint256)"),
-                ("PHASE", "ORIGIN_PHASE_BLOCKS()(uint256)"), ("PHASE", "SYNC_OBSERVATION_LIMIT()(uint256)"), ("ROUTER", "WETH()(address)")]:
+                ("PHASE", "ORIGIN_PHASE_BLOCKS()(uint256)"), ("PHASE", "SYNC_OBSERVATION_LIMIT()(uint256)"), ("ROUTER", "WETH()(address)"),
+                ("AIRDROP_DISTRIBUTOR", "LAUNCH_ADDRESS()(address)"), ("AIRDROP_DISTRIBUTOR", "PHASE_ADDRESS()(address)"),
+                ("AIRDROP_DISTRIBUTOR", "TOTAL_SHARE()(uint256)"),
+                ("AIRDROP_DISTRIBUTOR", "MAX_CLAIM_DELAY_ROUNDS()(uint256)"),
+                ("AIRDROP_DISTRIBUTOR", "merkleRootByTokenAddress(address)(bytes32)"),
+                ("AIRDROP_DISTRIBUTOR", "remainingShareByTokenAddress(address)(uint256)"),
+                ("AIRDROP_DISTRIBUTOR", "claimableFromRoundByTokenAddress(address)(uint256)")]:
             wrong_value = "0x" + "98" * 20 if signature.endswith("(address)") else "999"
             run("21_check.sh", False, ("test",), BAD_CALL=env[contract + "_ADDRESS"].lower() + "/" + signature, BAD_VALUE=wrong_value)
         run("21_check.sh", False, ("test",), RPC_CODE_ERROR="1")
@@ -527,13 +568,17 @@ def main():
         kept_log.unlink()
         assert saved.read_text() == saved_before, saved.read_text()
         result, _ = run("31_verify.sh", False, ("test",), VERIFY_FAIL="src/MemberNFT.sol:MemberNFT")
-        assert "all 8 contracts" not in result.stdout
+        assert "all 9 contracts" not in result.stdout
         result, log = run("31_verify.sh", False, ("test",), VERIFY_FAIL="src/Vote.sol:Vote")
-        assert "all 8 contracts" not in result.stdout
-        assert len([call for call in log if call[:2] == ["forge", "verify-contract"]]) == 8
+        assert "all 9 contracts" not in result.stdout
+        assert len([call for call in log if call[:2] == ["forge", "verify-contract"]]) == 9
         _, log = run("31_verify.sh", args=("test",))
-        assert len([call for call in log if call[:2] == ["forge", "verify-contract"]]) == 8
-        # 8 组构造参数逐槽比对：签名顺序与类型来自编译产物，取值来自 CONSTRUCTOR_SLOTS。
+        assert len([call for call in log if call[:2] == ["forge", "verify-contract"]]) == 9
+        # 源码路径逐条比对：AirdropDistributor 不在 src/ 根目录，路径拼错时 verify-contract 会直接失败。
+        verified_sources = {call[3] for call in log if call[:2] == ["forge", "verify-contract"]}
+        expected_sources = {source + ":" + contract for contract, source in CONTRACT_SOURCES.items()}
+        assert verified_sources == expected_sources, (verified_sources ^ expected_sources)
+        # 9 组构造参数逐槽比对：签名顺序与类型来自编译产物，取值来自 CONSTRUCTOR_SLOTS。
         abi_calls = [call for call in log if call[:2] == ["cast", "abi-encode"]]
         assert len(abi_calls) == len(CONSTRUCTOR_SLOTS), (len(abi_calls), [call[2] for call in abi_calls])
         for contract in CONSTRUCTOR_SLOTS:

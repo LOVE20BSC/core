@@ -66,8 +66,8 @@ params_require_values "$VERIFIER_PARAMS" ETHERSCAN_VERIFIER_URL || exit 1
 
 require_core_addresses() {
     local field
-    for field in LOVE20_TOKEN_ADDRESS MEMBER_NFT_ADDRESS PHASE_ADDRESS LAUNCH_ADDRESS \
-        MINT_ADDRESS STAKE_ADDRESS SUBMIT_ADDRESS VOTE_ADDRESS; do
+    for field in LOVE20_TOKEN_ADDRESS AIRDROP_DISTRIBUTOR_ADDRESS MEMBER_NFT_ADDRESS PHASE_ADDRESS \
+        LAUNCH_ADDRESS MINT_ADDRESS STAKE_ADDRESS SUBMIT_ADDRESS VOTE_ADDRESS; do
         if [[ ! ${!field:-} =~ ^0x[0-9a-fA-F]{40}$ ]] || [[ ${!field:-} = 0x0000000000000000000000000000000000000000 ]]; then
             echo "Error: Missing or invalid $field in $NETWORK_DIR/addresses.core.params"
             exit 1
@@ -97,13 +97,19 @@ if ! PHASE_ARGS=$(cast abi-encode "constructor(uint256,uint256,uint256,uint256,u
 fi
 if ! TOKEN_ARGS=$(cast abi-encode "constructor(string,string,uint256,uint256,address,address,address)" \
     "$TOKEN_NAME" "$TOKEN_SYMBOL" "$LAUNCH_AMOUNT" "$MAX_SUPPLY" \
-    "$DISTRIBUTOR_ADDRESS" "$MINT_ADDRESS" "$ROOT_PARENT"); then
+    "$AIRDROP_DISTRIBUTOR_ADDRESS" "$MINT_ADDRESS" "$ROOT_PARENT"); then
     echo "Error: Failed to encode LOVE20Token constructor arguments"
+    exit 1
+fi
+if ! AIRDROP_ARGS=$(cast abi-encode "constructor(address,address,address,bytes32,uint256)" \
+    "$LAUNCH_ADDRESS" "$PHASE_ADDRESS" "$LOVE20_TOKEN_ADDRESS" \
+    "$GENESIS_AIRDROP_MERKLE_ROOT" "$GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS"); then
+    echo "Error: Failed to encode AirdropDistributor constructor arguments"
     exit 1
 fi
 if ! LAUNCH_ARGS=$(cast abi-encode \
     "constructor((address,address,address,address,address,uint256,uint256,uint256,uint256,uint256,string,string))" \
-    "($MINT_ADDRESS,$MEMBER_NFT_ADDRESS,$ROOT_PARENT,$FACTORY_ADDRESS,$DISTRIBUTOR_ADDRESS,$LAUNCH_COUNT_THRESHOLD_RATIO,\
+    "($MINT_ADDRESS,$MEMBER_NFT_ADDRESS,$ROOT_PARENT,$FACTORY_ADDRESS,$AIRDROP_DISTRIBUTOR_ADDRESS,$LAUNCH_COUNT_THRESHOLD_RATIO,\
 $MAX_LAUNCH_COUNT,$TOKEN_SYMBOL_LENGTH,$LAUNCH_AMOUNT,$MAX_SUPPLY,$TOKEN_NAME,$TOKEN_SYMBOL)"); then
     echo "Error: Failed to encode Launch constructor arguments"
     exit 1
@@ -135,18 +141,20 @@ fi
 
 COMMON_ARGS=(--chain "$CHAIN_ID" --verifier etherscan --verifier-url "$ETHERSCAN_VERIFIER_URL" --watch)
 verify_contract() {
-    local address=$1 name=$2
-    shift 2
+    local address=$1 source=$2 name=$3
+    shift 3
     echo "Verifying $name..."
-    forge verify-contract "$address" "src/$name.sol:$name" "${COMMON_ARGS[@]}" "$@"
+    forge verify-contract "$address" "$source:$name" "${COMMON_ARGS[@]}" "$@"
 }
 
-verify_contract "$MEMBER_NFT_ADDRESS" MemberNFT --constructor-args "$MEMBER_ARGS"
-verify_contract "$PHASE_ADDRESS" Phase --constructor-args "$PHASE_ARGS"
-verify_contract "$LAUNCH_ADDRESS" Launch --constructor-args "$LAUNCH_ARGS"
-verify_contract "$LOVE20_TOKEN_ADDRESS" LOVE20Token --constructor-args "$TOKEN_ARGS"
-verify_contract "$MINT_ADDRESS" Mint --constructor-args "$MINT_ARGS"
-verify_contract "$STAKE_ADDRESS" Stake --constructor-args "$STAKE_ARGS"
-verify_contract "$SUBMIT_ADDRESS" Submit --constructor-args "$SUBMIT_ARGS"
-verify_contract "$VOTE_ADDRESS" Vote --constructor-args "$VOTE_ARGS"
-echo "✓ Source verification succeeded for all 8 contracts"
+verify_contract "$MEMBER_NFT_ADDRESS" src/MemberNFT.sol MemberNFT --constructor-args "$MEMBER_ARGS"
+verify_contract "$PHASE_ADDRESS" src/Phase.sol Phase --constructor-args "$PHASE_ARGS"
+verify_contract "$LAUNCH_ADDRESS" src/Launch.sol Launch --constructor-args "$LAUNCH_ARGS"
+verify_contract "$LOVE20_TOKEN_ADDRESS" src/LOVE20Token.sol LOVE20Token --constructor-args "$TOKEN_ARGS"
+verify_contract "$AIRDROP_DISTRIBUTOR_ADDRESS" src/distributor/AirdropDistributor.sol AirdropDistributor \
+    --constructor-args "$AIRDROP_ARGS"
+verify_contract "$MINT_ADDRESS" src/Mint.sol Mint --constructor-args "$MINT_ARGS"
+verify_contract "$STAKE_ADDRESS" src/Stake.sol Stake --constructor-args "$STAKE_ARGS"
+verify_contract "$SUBMIT_ADDRESS" src/Submit.sol Submit --constructor-args "$SUBMIT_ARGS"
+verify_contract "$VOTE_ADDRESS" src/Vote.sol Vote --constructor-args "$VOTE_ARGS"
+echo "✓ Source verification succeeded for all 9 contracts"

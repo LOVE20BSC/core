@@ -3,6 +3,7 @@ pragma solidity =0.8.37;
 
 import {Test} from "@forge-std/Test.sol";
 import {DeployCore} from "../script/deploy/DeployCore.s.sol";
+import {IPhase} from "../src/interfaces/IPhase.sol";
 
 contract DeployCoreHarness is DeployCore {
     function _predictor() internal view override returns (address) {
@@ -18,6 +19,13 @@ contract DeployCoreHarness is DeployCore {
         returns (DeploymentAddresses memory addrs)
     {
         addrs = _deployContracts(config, rootParent);
+        _validateDeployment(config, rootParent, addrs);
+    }
+
+    function validateDeploymentForTest(CoreConfig memory config, address rootParent, DeploymentAddresses memory addrs)
+        external
+        view
+    {
         _validateDeployment(config, rootParent, addrs);
     }
 }
@@ -46,6 +54,7 @@ contract DeployCoreTest is Test {
         config.router = address(new MockRouter(rootParent, config.factory));
         DeployCore.DeploymentAddresses memory addrs = deployer.deployForTest(config, rootParent);
         require(addrs.token != address(0), "token deployed");
+        require(addrs.airdropDistributor != address(0), "airdrop distributor deployed");
         require(addrs.memberNFT != address(0), "member NFT deployed");
         require(addrs.phase != address(0), "phase deployed");
         require(addrs.launch != address(0), "launch deployed");
@@ -83,10 +92,65 @@ contract DeployCoreTest is Test {
         deployer.validateConfigForTest(config);
     }
 
-    function testRejectsZeroDistributor() public {
+    // Pins the deployment order (Phase +0, AirdropDistributor +1, Launch +2, MemberNFT +3, Stake +4,
+    // Submit +5, Vote +6, Mint +7) against the predictions the script actually used, and pins the
+    // genesis token to Launch's first CREATE. `_deployContracts` already requires each equality, so
+    // this test is the independent statement of the same table: it recomputes every address from the
+    // pre-deployment nonce instead of trusting the script's own arithmetic.
+    function testPredictedAddressesFollowDeploymentOrder() public {
         DeployCore.CoreConfig memory config = _validConfig();
-        config.distributor = address(0);
-        vm.expectRevert("Distributor must be nonzero");
+        config.factory = address(new MockFactory());
+        config.router = address(new MockRouter(rootParent, config.factory));
+
+        address creator = address(deployer);
+        uint256 nonce = vm.getNonce(creator);
+        address expectedAirdropDistributor = vm.computeCreateAddress(creator, nonce + 1);
+        address expectedLaunch = vm.computeCreateAddress(creator, nonce + 2);
+        address expectedMemberNFT = vm.computeCreateAddress(creator, nonce + 3);
+        address expectedVote = vm.computeCreateAddress(creator, nonce + 6);
+        address expectedMint = vm.computeCreateAddress(creator, nonce + 7);
+        // Launch's constructor performs exactly one CREATE; factory.createPair is an external call.
+        address expectedToken = vm.computeCreateAddress(expectedLaunch, 1);
+
+        DeployCore.DeploymentAddresses memory addrs = deployer.deployForTest(config, rootParent);
+
+        require(addrs.airdropDistributor == expectedAirdropDistributor, "airdrop distributor nonce+1");
+        require(addrs.launch == expectedLaunch, "launch nonce+2");
+        require(addrs.memberNFT == expectedMemberNFT, "member NFT nonce+3");
+        require(addrs.vote == expectedVote, "vote nonce+6");
+        require(addrs.mint == expectedMint, "mint nonce+7");
+        require(addrs.token == expectedToken, "genesis token is launch nonce 1");
+    }
+
+    // The genesis claim round is frozen at deployment, so re-running the deployment validation
+    // after Phase has advanced must still pass. Comparing against the live round instead would
+    // report a false mismatch on every late re-check and on any deployment whose broadcast window
+    // straddles a phase boundary.
+    function testGenesisClaimRoundValidationSurvivesPhaseAdvance() public {
+        DeployCore.CoreConfig memory config = _validConfig();
+        config.factory = address(new MockFactory());
+        config.router = address(new MockRouter(rootParent, config.factory));
+
+        DeployCore.DeploymentAddresses memory addrs = deployer.deployForTest(config, rootParent);
+        uint256 deployedRound = IPhase(addrs.phase).currentPhase();
+
+        vm.roll(block.number + config.phaseOriginPhaseBlocks * 5);
+        assertGt(IPhase(addrs.phase).currentPhase(), deployedRound, "phase advanced");
+
+        deployer.validateDeploymentForTest(config, rootParent, addrs);
+    }
+
+    function testRejectsZeroGenesisMerkleRoot() public {
+        DeployCore.CoreConfig memory config = _validConfig();
+        config.genesisMerkleRoot = bytes32(0);
+        vm.expectRevert("Genesis merkle root must be nonzero");
+        deployer.validateConfigForTest(config);
+    }
+
+    function testRejectsGenesisClaimDelayAboveMax() public {
+        DeployCore.CoreConfig memory config = _validConfig();
+        config.genesisClaimDelayRounds = 1001;
+        vm.expectRevert("Genesis claim delay rounds exceed MAX_CLAIM_DELAY_ROUNDS");
         deployer.validateConfigForTest(config);
     }
 
@@ -115,6 +179,19 @@ contract DeployCoreTest is Test {
         DeployCore.CoreConfig memory config = _validConfig();
         config.launchAmount = config.maxSupply + 1;
         vm.expectRevert("Launch amount out of range");
+        deployer.validateConfigForTest(config);
+    }
+
+    function testRejectsLaunchAmountBelowTotalShare() public {
+        DeployCore.CoreConfig memory config = _validConfig();
+        config.launchAmount = 1e18 - 1;
+        vm.expectRevert("Launch amount out of range");
+        deployer.validateConfigForTest(config);
+    }
+
+    function testAcceptsLaunchAmountAtTotalShare() public view {
+        DeployCore.CoreConfig memory config = _validConfig();
+        config.launchAmount = 1e18;
         deployer.validateConfigForTest(config);
     }
 
@@ -331,7 +408,8 @@ contract DeployCoreTest is Test {
             chainId: block.chainid,
             factory: factory,
             router: router,
-            distributor: address(0xD15),
+            genesisMerkleRoot: keccak256("genesis airdrop"),
+            genesisClaimDelayRounds: 1,
             tokenName: "Test LOVE20",
             tokenSymbol: "TestLOVE20",
             memberBaseDivisor: 100000000,

@@ -3,6 +3,8 @@ pragma solidity =0.8.37;
 
 import {Script} from "@forge-std/Script.sol";
 import {console2} from "@forge-std/console2.sol";
+import {AirdropDistributor} from "../../src/distributor/AirdropDistributor.sol";
+import {IAirdropDistributor} from "../../src/interfaces/distributor/IAirdropDistributor.sol";
 import {MemberNFT} from "../../src/MemberNFT.sol";
 import {Phase} from "../../src/Phase.sol";
 import {Launch} from "../../src/Launch.sol";
@@ -37,8 +39,14 @@ contract DeployCore is Script {
     // so a drift between the two contracts cannot pass unnoticed.
     uint256 internal constant MAX_TOKEN_SYMBOL_LENGTH = 32;
     uint256 internal constant TEST_PREFIX_BYTES = 4;
+    // Copies of the AirdropDistributor compile-time constants: the genesis share denominator must
+    // stay comparable to LAUNCH_AMOUNT (see _validateConfig) and the claim delay must stay inside
+    // the contract's own bound. _validateDeployment asserts both copies are equal afterwards.
+    uint256 internal constant TOTAL_SHARE = 1e18;
+    uint256 internal constant MAX_CLAIM_DELAY_ROUNDS = 1000;
     struct DeploymentAddresses {
         address token;
+        address airdropDistributor;
         address memberNFT;
         address phase;
         address launch;
@@ -52,7 +60,8 @@ contract DeployCore is Script {
         uint256 chainId;
         address factory;
         address router;
-        address distributor;
+        bytes32 genesisMerkleRoot;
+        uint256 genesisClaimDelayRounds;
         string tokenName;
         string tokenSymbol;
         uint256 memberBaseDivisor;
@@ -97,7 +106,8 @@ contract DeployCore is Script {
         config.chainId = vm.envUint("CHAIN_ID");
         config.factory = vm.envAddress("FACTORY_ADDRESS");
         config.router = vm.envAddress("ROUTER_ADDRESS");
-        config.distributor = vm.envAddress("DISTRIBUTOR_ADDRESS");
+        config.genesisMerkleRoot = vm.envBytes32("GENESIS_AIRDROP_MERKLE_ROOT");
+        config.genesisClaimDelayRounds = vm.envUint("GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS");
         config.tokenName = vm.envString("TOKEN_NAME");
         config.tokenSymbol = vm.envString("TOKEN_SYMBOL");
         config.memberBaseDivisor = vm.envUint("MEMBER_BASE_DIVISOR");
@@ -142,7 +152,11 @@ contract DeployCore is Script {
         );
         require(config.phaseSyncObservationLimit != 0, "Phase observation limit must be nonzero");
 
-        require(config.distributor != address(0), "Distributor must be nonzero");
+        require(config.genesisMerkleRoot != bytes32(0), "Genesis merkle root must be nonzero");
+        require(
+            config.genesisClaimDelayRounds <= MAX_CLAIM_DELAY_ROUNDS,
+            "Genesis claim delay rounds exceed MAX_CLAIM_DELAY_ROUNDS"
+        );
         require(bytes(config.tokenName).length != 0, "Token name must be nonempty");
         require(bytes(config.tokenSymbol).length != 0, "Token symbol must be nonempty");
         require(
@@ -155,7 +169,13 @@ contract DeployCore is Script {
             config.tokenSymbolLength + TEST_PREFIX_BYTES <= MAX_TOKEN_SYMBOL_LENGTH,
             "Token symbol length leaves no room for the Test prefix"
         );
-        require(config.launchAmount != 0 && config.launchAmount <= config.maxSupply, "Launch amount out of range");
+        // LAUNCH_AMOUNT >= TOTAL_SHARE is load-bearing for AirdropDistributor: it has no amount == 0
+        // check on claim because amount = floor(balance * share / remainingShare) >= 1 whenever
+        // share >= 1, remainingShare <= 1e18 and the balance is at least LAUNCH_AMOUNT.
+        require(
+            config.launchAmount >= TOTAL_SHARE && config.launchAmount <= config.maxSupply,
+            "Launch amount out of range"
+        );
 
         require(config.proposalRewardMinVoteRatio <= 1e18, "Proposal threshold exceeds 1e18");
         require(config.roundRewardGovRatio <= 1e18, "Round reward gov ratio exceeds 1e18");
@@ -182,7 +202,7 @@ contract DeployCore is Script {
         // DEX dependencies must be deployed contracts from the same deployment. The root parent
         // token is read from Router.WETH() and not registered again in core.params. The Factory is
         // used by Launch/Stake to create pools and the Router by the withdrawal swap; a mismatch
-        // between them does not revert during simulation and would broadcast 8 contracts for
+        // between them does not revert during simulation and would broadcast 9 contracts for
         // nothing (21_check.sh would only catch it afterwards).
         require(config.factory.code.length != 0, "Factory must be a deployed contract");
         require(config.router.code.length != 0, "Router must be a deployed contract");
@@ -196,9 +216,12 @@ contract DeployCore is Script {
     }
 
     struct PredictedAddresses {
+        address airdropDistributor;
+        address launch;
         address memberNFT;
         address vote;
         address mint;
+        address genesisToken;
     }
 
     function _deployContracts(CoreConfig memory config, address rootParent)
@@ -210,6 +233,9 @@ contract DeployCore is Script {
         addrs.phase = address(_deployPhase(config));
         console2.log("Phase deployed at:", addrs.phase);
 
+        addrs.airdropDistributor = _deployAirdropDistributor(config, addrs.phase, predicted);
+        console2.log("AirdropDistributor deployed at:", addrs.airdropDistributor);
+
         LaunchInitParams memory launchParams = LaunchInitParams({
             mintAddress: predicted.mint,
             memberNFTAddress: predicted.memberNFT,
@@ -220,13 +246,15 @@ contract DeployCore is Script {
             tokenSymbolLength: config.tokenSymbolLength,
             launchAmount: config.launchAmount,
             maxSupply: config.maxSupply,
-            distributor: config.distributor,
+            distributor: addrs.airdropDistributor,
             name: config.tokenName,
             symbol: config.tokenSymbol
         });
         addrs.launch = address(new Launch(launchParams));
+        require(addrs.launch == predicted.launch, "Launch address differs from the prediction");
         console2.log("Launch deployed at:", addrs.launch);
         addrs.token = Launch(addrs.launch).FIRST_TOKEN_ADDRESS();
+        require(addrs.token == predicted.genesisToken, "First token address differs from the prediction");
         console2.log("First LOVE20Token created at:", addrs.token);
 
         addrs.memberNFT = address(_deployMemberNFT(config, addrs.token));
@@ -276,14 +304,65 @@ contract DeployCore is Script {
         console2.log("Mint deployed at:", addrs.mint);
     }
 
+    // Deployment order is fixed: Phase (nonce+0), AirdropDistributor (+1), Launch (+2), MemberNFT
+    // (+3), Stake (+4), Submit (+5), Vote (+6), Mint (+7). Each contract below requires the address
+    // it was predicted at, so any drift in the broadcast order fails the whole run instead of
+    // leaving a half-bound deployment on chain.
+    /// @dev The AirdropDistributor is configured with the genesis token and merkle root at
+    ///      construction time, so it is deployed before the Launch that creates that token: both
+    ///      addresses come from the prediction and are reconciled here.
+    ///
+    ///      The constructor records `clamp(currentPhase()) + delay`, and it may observe a
+    ///      different phase than the reads around this call: every deployment is its own
+    ///      transaction, so a phase boundary can fall inside the broadcast window. Bracket the
+    ///      phase instead of sampling it once — rounds only increase, so the constructor's round
+    ///      lies in `[phaseBefore, phaseAfter]`, and that interval is a single round for any
+    ///      deployment that does not straddle a boundary.
+    function _deployAirdropDistributor(
+        CoreConfig memory config,
+        address phaseAddress,
+        PredictedAddresses memory predicted
+    ) private returns (address airdropDistributor) {
+        uint256 phaseBefore = IPhase(phaseAddress).currentPhase();
+        airdropDistributor = address(
+            new AirdropDistributor(
+                predicted.launch,
+                phaseAddress,
+                predicted.genesisToken,
+                config.genesisMerkleRoot,
+                config.genesisClaimDelayRounds
+            )
+        );
+        require(
+            airdropDistributor == predicted.airdropDistributor,
+            "AirdropDistributor address differs from the prediction"
+        );
+        uint256 phaseAfter = IPhase(phaseAddress).currentPhase();
+        uint256 claimableFromRound =
+            IAirdropDistributor(airdropDistributor).claimableFromRoundByTokenAddress(predicted.genesisToken);
+        require(
+            claimableFromRound >= (phaseBefore == 0 ? 1 : phaseBefore) + config.genesisClaimDelayRounds
+                && claimableFromRound
+                    <= (phaseAfter == 0 ? 1 : phaseAfter) + config.genesisClaimDelayRounds,
+            "AirdropDistributor genesis claim round mismatch"
+        );
+    }
+
     function _predictAddresses() private view returns (PredictedAddresses memory predicted) {
         address creator = _predictor();
         uint256 nonce = vm.getNonce(creator);
-        predicted.memberNFT = vm.computeCreateAddress(creator, nonce + 2);
-        predicted.vote = vm.computeCreateAddress(creator, nonce + 5);
-        predicted.mint = vm.computeCreateAddress(creator, nonce + 6);
+        predicted.airdropDistributor = vm.computeCreateAddress(creator, nonce + 1);
+        predicted.launch = vm.computeCreateAddress(creator, nonce + 2);
+        predicted.memberNFT = vm.computeCreateAddress(creator, nonce + 3);
+        predicted.vote = vm.computeCreateAddress(creator, nonce + 6);
+        predicted.mint = vm.computeCreateAddress(creator, nonce + 7);
+        // Launch's constructor performs exactly one CREATE (the genesis LOVE20Token); factory.createPair
+        // is an external call and does not consume Launch's nonce, so the token is nonce 1.
+        predicted.genesisToken = vm.computeCreateAddress(predicted.launch, 1);
         require(
-            predicted.memberNFT != address(0) && predicted.vote != address(0) && predicted.mint != address(0),
+            predicted.airdropDistributor != address(0) && predicted.launch != address(0)
+                && predicted.memberNFT != address(0) && predicted.vote != address(0)
+                && predicted.mint != address(0) && predicted.genesisToken != address(0),
             "Predicted address is zero"
         );
     }
@@ -317,6 +396,7 @@ contract DeployCore is Script {
         view
     {
         require(addrs.token.code.length != 0, "LOVE20Token is not a contract");
+        require(addrs.airdropDistributor.code.length != 0, "AirdropDistributor is not a contract");
         require(addrs.memberNFT.code.length != 0, "MemberNFT is not a contract");
         require(addrs.phase.code.length != 0, "Phase is not a contract");
         require(addrs.launch.code.length != 0, "Launch is not a contract");
@@ -333,7 +413,12 @@ contract DeployCore is Script {
         require(token.PARENT_TOKEN_ADDRESS() == rootParent, "Token parent mismatch");
         require(token.totalSupply() == config.launchAmount, "Token launch amount mismatch");
         // forge-lint: disable-next-item(incorrect-strict-equality)
-        require(token.balanceOf(config.distributor) == config.launchAmount, "Token distributor balance mismatch");
+        require(
+            token.balanceOf(addrs.airdropDistributor) == config.launchAmount,
+            "Token distributor balance mismatch"
+        );
+
+        _validateAirdropDistributor(config, addrs);
 
         IMemberNFT memberNFT = IMemberNFT(addrs.memberNFT);
         require(memberNFT.LOVE20_TOKEN_ADDRESS() == addrs.token, "MemberNFT token mismatch");
@@ -448,9 +533,43 @@ contract DeployCore is Script {
         require(vote.MEMBER_NFT_ADDRESS() == addrs.memberNFT, "Vote member NFT mismatch");
     }
 
+    /// @dev Separate from `_validateDeployment` because that function already carries the whole
+    ///      deployment graph and adding these locals to it does not compile.
+    function _validateAirdropDistributor(CoreConfig memory config, DeploymentAddresses memory addrs)
+        private
+        view
+    {
+        IAirdropDistributor airdropDistributor = IAirdropDistributor(addrs.airdropDistributor);
+        require(airdropDistributor.LAUNCH_ADDRESS() == addrs.launch, "AirdropDistributor launch mismatch");
+        require(airdropDistributor.PHASE_ADDRESS() == addrs.phase, "AirdropDistributor phase mismatch");
+        require(airdropDistributor.TOTAL_SHARE() == TOTAL_SHARE, "AirdropDistributor total share mismatch");
+        require(
+            airdropDistributor.MAX_CLAIM_DELAY_ROUNDS() == MAX_CLAIM_DELAY_ROUNDS,
+            "AirdropDistributor max claim delay mismatch"
+        );
+        require(
+            airdropDistributor.merkleRootByTokenAddress(addrs.token) == config.genesisMerkleRoot,
+            "AirdropDistributor genesis merkle root mismatch"
+        );
+
+        // The genesis claim round was frozen at deployment and the current round may have moved
+        // since; the exact bracket is asserted in `_deployAirdropDistributor`, where both ends are
+        // read around the deployment. Here only the time-invariant bounds are checked: the recorded
+        // base round is at least the clamp floor and no later than the round reached by now.
+        uint256 currentRound = IPhase(addrs.phase).currentPhase();
+        uint256 claimableFromRound = airdropDistributor.claimableFromRoundByTokenAddress(addrs.token);
+        require(
+            claimableFromRound >= 1 + config.genesisClaimDelayRounds
+                && claimableFromRound
+                    <= (currentRound == 0 ? 1 : currentRound) + config.genesisClaimDelayRounds,
+            "AirdropDistributor genesis claim round mismatch"
+        );
+    }
+
     function _logDeploymentSummary(DeploymentAddresses memory addrs) private pure {
         console2.log("\n=== Deployment Summary ===");
         console2.log("LOVE20_TOKEN_ADDRESS=", addrs.token);
+        console2.log("AIRDROP_DISTRIBUTOR_ADDRESS=", addrs.airdropDistributor);
         console2.log("MEMBER_NFT_ADDRESS=", addrs.memberNFT);
         console2.log("PHASE_ADDRESS=", addrs.phase);
         console2.log("LAUNCH_ADDRESS=", addrs.launch);

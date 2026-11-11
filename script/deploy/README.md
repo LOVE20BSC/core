@@ -73,9 +73,12 @@ ROUTER_ADDRESS=0x...     # dex 部署的 Uniswap V2 Router02
 # LOVE20Token（首币；LAUNCH_AMOUNT / MAX_SUPPLY 同时决定此后每个子币的铸造量与上限）
 TOKEN_NAME=LOVE@WBNB                          # 首币名称，惯例为 <首币符号>@<根父币符号>
 TOKEN_SYMBOL=LOVE                             # 首币符号；以 "Test" 开头时，子币符号自动加 "Test" 前缀
-LAUNCH_AMOUNT=1e27                           # 每个代币的首批供应，10亿枚（18位小数）
+LAUNCH_AMOUNT=1e27                           # 每个代币的首批供应，10亿枚（18位小数）；不得小于 1e18
 MAX_SUPPLY=1e28                              # 每个代币的供应上限，100亿枚（18位小数）
-DISTRIBUTOR_ADDRESS=0xYourDeployerAddressHere  # 首批供应接收地址
+
+# 首币空投（distributor 为首币首批供应的接收方，由部署顺序决定，不再配置地址）
+GENESIS_AIRDROP_MERKLE_ROOT=0x...            # 首币份额 Merkle Root；零值在广播前失败
+GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS=1         # 首币可领取轮 = max(currentPhase,1) + 该值；须 <= 1000
 
 # MemberNFT
 MEMBER_BASE_DIVISOR=1e8
@@ -121,10 +124,13 @@ FEE_SETTLEMENT_RATIO=25e14   # 0.25%，即上界 MAX_FEE_SETTLEMENT_RATIO（源�
 
 本仓没有必填键断言：core 的部署参数没有「缺键即静默改变行为」的成员，缺键一律由 `vm.envUint` 在广播前失败；因此三个步骤只做 `params_unset_all`，不调用 `params_require_keys` / `params_require_values`。
 
-`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；全部部署期静态参数由 `DeployCore` 在广播前校验，部署后再由 `_validateDeployment` 逐项核对完整绑定图（含 `Launch.MAX_TOKEN_SYMBOL_LENGTH` 与广播前副本相等），`21_check.sh` 独立复核（含首币 `totalSupply`、`DISTRIBUTOR_ADDRESS` 余额，以及 `TOKEN_SYMBOL_LENGTH + TEST_PREFIX_BYTES <= MAX_TOKEN_SYMBOL_LENGTH` 的 Test 前缀余量，两者均从链上读取）：MemberNFT 四项非零、Phase 五项非零且 `ADJUST_THRESHOLD <= 1e18`、`0 < LAUNCH_COUNT_THRESHOLD_RATIO <= 1e18`、`MAX_LAUNCH_COUNT/TOKEN_SYMBOL_LENGTH` 非零、`0 < LAUNCH_AMOUNT <= MAX_SUPPLY`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、两项激励比例之和 `<= 1e18`、`BOOST_STAKE_SUPPLY_FACTOR > 0`（建议 1–10，非校验条件）、`BOOST_STAKE_MULTIPLIER > 0`（建议 1–20，非校验条件）、`0 < SUBMIT_MIN_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN > 0` 且 `<= MAX`、`0 < FEE_SETTLEMENT_RATIO <= 0.25%`（`MAX_FEE_SETTLEMENT_RATIO`）。合约构造函数只保存配置，不做静态零值校验；依赖代码与派生值由部署脚本核对。
+`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；全部部署期静态参数由 `DeployCore` 在广播前校验，部署后再由 `_validateDeployment` 逐项核对完整绑定图（含 `Launch.MAX_TOKEN_SYMBOL_LENGTH` 与广播前副本相等），`21_check.sh` 独立复核（含首币 `totalSupply`、首币在 `AIRDROP_DISTRIBUTOR_ADDRESS` 的余额、首币的 Merkle Root 与可领取轮，以及 `TOKEN_SYMBOL_LENGTH + TEST_PREFIX_BYTES <= MAX_TOKEN_SYMBOL_LENGTH` 的 Test 前缀余量，金额与轮次从链上读取）：MemberNFT 四项非零、Phase 五项非零且 `ADJUST_THRESHOLD <= 1e18`、`0 < LAUNCH_COUNT_THRESHOLD_RATIO <= 1e18`、`MAX_LAUNCH_COUNT/TOKEN_SYMBOL_LENGTH` 非零、`1e18 <= LAUNCH_AMOUNT <= MAX_SUPPLY`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、两项激励比例之和 `<= 1e18`、`BOOST_STAKE_SUPPLY_FACTOR > 0`（建议 1–10，非校验条件）、`BOOST_STAKE_MULTIPLIER > 0`（建议 1–20，非校验条件）、`0 < SUBMIT_MIN_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN > 0` 且 `<= MAX`、`0 < FEE_SETTLEMENT_RATIO <= 0.25%`（`MAX_FEE_SETTLEMENT_RATIO`）、`GENESIS_AIRDROP_MERKLE_ROOT != 0` 且 `GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS <= 1000`（`AirdropDistributor.MAX_CLAIM_DELAY_ROUNDS`）。合约构造函数只保存配置，不做静态零值校验；依赖代码与派生值由部署脚本核对。
+
+`LAUNCH_AMOUNT >= 1e18`（= `AirdropDistributor.TOTAL_SHARE`）是**承重**约束：它是「`claim` 不检查 `amount == 0`」的前提——份额 `share >= 1`、剩余份额 `remainingShare <= 1e18` 时，`amount = floor(balance × share ÷ remainingShare) >= 1`。链下生成器必须把份额精确归一到 `1e18`。
 
 **重要参数说明：**
-- `DISTRIBUTOR_ADDRESS`: 设置为部署钱包地址，接收首币的首批供应
+- `GENESIS_AIRDROP_MERKLE_ROOT` / `GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS`: 首币空投配置，构造 `AirdropDistributor` 时一次写入；`merkleRoot` 填错等于该批首币永久锁死（链上无法验证叶子之和），部署前必须在链下复核
+- `DISTRIBUTOR_ADDRESS` 已删除：首币首批供应的接收方是 `AirdropDistributor`，其地址由部署顺序固定（预测 `nonce+1`）并在部署后 `require` 核对，不再由配置注入。历史 `core.params` 里残留该键不会报错（`params.sh` 无键表），但已无任何读取方
 - 首币的 minter 自动绑定本次部署的 Mint 地址，部署参数中没有 minter 项。
 - 根父币（WETH）无需配置：`DeployCore` 从 `Router.WETH()` 读取，BSC 主网/测试网即官方 WBNB，Anvil 本地即 dex 部署的 WETH9。
 - `PHASE_ORIGIN_PHASE_BLOCKS`: 以目标链实测出块间隔估算；不要将固定的“3 秒一块”当作发布依据。
@@ -160,7 +166,7 @@ DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2，Factory 的 `feeTo
 | `21_check.sh` | `network.params`、`addresses.uniswapv2.params`、`core.params`、`addresses.core.params` |
 | `31_verify.sh` | `network.params`、`verifier.params`、`addresses.uniswapv2.params`、`core.params`、`addresses.core.params` |
 
-各步骤自行载入自己的输入（见上表），dex 的地址文件与 `core.params` 之间无引用关系，载入顺序不再敏感。`21_check.sh` 另断言 `addresses.core.params` 的键集合等于 8 个期望合约键。
+各步骤自行载入自己的输入（见上表），dex 的地址文件与 `core.params` 之间无引用关系，载入顺序不再敏感。`21_check.sh` 另断言 `addresses.core.params` 的键集合等于 9 个期望合约键。
 
 ```bash
 # 部署
@@ -186,7 +192,7 @@ DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2，Factory 的 `feeTo
 ./script/deploy/31_verify.sh anvil31337_dev
 ```
 
-使用 Etherscan V2 API Key。缺少 Key、构造参数错误或任何一份合约验证失败均返回非零；链列在 `verifier.params` 的 `VERIFY_SKIP_CHAIN_IDS` 时跳过并返回 0；只有 8 份全部成功才显示完成。API 入口依据 [Etherscan 官方文档](https://docs.etherscan.io/make-your-first-call)。
+使用 Etherscan V2 API Key。缺少 Key、构造参数错误或任何一份合约验证失败均返回非零；链列在 `verifier.params` 的 `VERIFY_SKIP_CHAIN_IDS` 时跳过并返回 0；只有 9 份全部成功才显示完成（`AirdropDistributor` 源码路径为 `src/distributor/AirdropDistributor.sol`）。API 入口依据 [Etherscan 官方文档](https://docs.etherscan.io/make-your-first-call)。
 
 `ETHERSCAN_API_KEY` 是 `network.params` 的一个键，和 `CHAIN_ID`、`RPC_URL` 一样只从文件取值：步骤脚本载入该文件时文件值（包括空值）覆盖调用方的同名环境变量，因此 `ETHERSCAN_API_KEY=xxx ./31_verify.sh` 不生效。该键是凭据，仓库里只放空值，本地或 CI 运行前再填。
 
@@ -196,6 +202,7 @@ DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2，Factory 的 `feeTo
 
 ```bash
 LOVE20_TOKEN_ADDRESS=0x...
+AIRDROP_DISTRIBUTOR_ADDRESS=0x...
 MEMBER_NFT_ADDRESS=0x...
 PHASE_ADDRESS=0x...
 LAUNCH_ADDRESS=0x...
@@ -207,9 +214,11 @@ VOTE_ADDRESS=0x...
 
 ## 常见问题
 
-### 1. 首币 minter 绑定问题
+### 1. 首币 minter 与 distributor 绑定问题
 
 `DeployCore` 先部署 `Launch`，由其构造函数创建首币并写入预测的 Mint 地址；Mint 最后部署，部署后回读 `Token.MINTER` 与 `Launch.MINT_ADDRESS` 核对。Token 没有 `setMinter`，错误绑定必须重新部署。开源验证使用本次部署地址文件里的 `MINT_ADDRESS`。
+
+首币的 distributor 同样是预测地址：部署顺序固定为 `Phase`(+0) → `AirdropDistributor`(+1) → `Launch`(+2) → `MemberNFT`(+3) → `Stake`(+4) → `Submit`(+5) → `Vote`(+6) → `Mint`(+7)，首币地址预测为 `computeCreateAddress(launch, 1)`（`Launch` 构造函数只有一处 `new`；`factory.createPair` 是外部调用不消耗 nonce）。每个预测地址在部署后都 `require` 核对，任一不符即整笔失败。
 
 ### 2. 根父币（WETH）配置
 
