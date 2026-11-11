@@ -24,7 +24,8 @@ Core 负责 MemberNFT、Phase、Stake、Proposal、Vote、Mint、LOVE20Token 和
 - `src/Submit.sol`：已完成 BSC 版 Proposal 创建与推举，含创建与推举两个 Target 回调。
 - `src/Vote.sol`：已完成 BSC 版本轮投票、票数上限与加速快照，含投票回调。
 - `src/Mint.sol`：已完成 BSC 版轮次池准备（含无许可入口）、治理与 Proposal 结算、发射额度生成。
-- `src/interfaces/`：与冻结自有声明保持一致，标准能力通过 OpenZeppelin 继承补齐。
+- `src/distributor/AirdropDistributor.sol`：已完成 BSC 版 Merkle 快照分发，按份额比例动态分配并支持按轮次延迟领取；同一实例服务首币与普通发射的子币，各子币配置与领取账本互相隔离。份额分母固定为 `1e18`，链下快照必须归一化到精确 `1e18`。
+- `src/interfaces/`：与冻结自有声明保持一致，标准能力通过 OpenZeppelin 继承补齐；分发扩展点接口放在 `src/interfaces/distributor/`。
 - `test/compat/`：真实 V2 子集 `RealV2.sol` 与前序审计修复的回归证据 `CoreSecurityPoC.t.sol`，随 `forge test` 在 CI 执行。
 
 每个提交只做一个行为变化，并附带编译、测试和 ABI 差异说明。

@@ -3,7 +3,7 @@ pragma solidity =0.8.37;
 
 import {Launch} from "../src/Launch.sol";
 import {ILaunch, ILaunchErrors, LaunchInitParams, DistributorMode} from "../src/interfaces/ILaunch.sol";
-import {ILaunchDistributor} from "../src/interfaces/ILaunchDistributor.sol";
+import {ILaunchDistributor} from "../src/interfaces/distributor/ILaunchDistributor.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {MemberNFT} from "../src/MemberNFT.sol";
 import {IMemberNFTErrors} from "../src/interfaces/IMemberNFT.sol";

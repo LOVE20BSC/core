@@ -23,3 +23,5 @@ StakesMerged core.stake
 ProposalCreated core.proposal
 ProposalSubmitted core.proposal
 VoteCast core.proposal
+AirdropClaimed core.distributor
+AirdropConfigured core.distributor

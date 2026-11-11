@@ -2,7 +2,7 @@
 pragma solidity =0.8.37;
 
 import {ILaunch, DistributorMode, LaunchInitParams} from "./interfaces/ILaunch.sol";
-import {ILaunchDistributor} from "./interfaces/ILaunchDistributor.sol";
+import {ILaunchDistributor} from "./interfaces/distributor/ILaunchDistributor.sol";
 import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
 import {IUniswapV2Factory} from "./interfaces/UniswapV2/IUniswapV2Factory.sol";

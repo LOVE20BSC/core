@@ -1,0 +1,103 @@
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.37;
+
+import {ILaunchDistributor} from "./ILaunchDistributor.sol";
+
+struct AirdropInfo {
+    address tokenAddress;
+    bytes32 merkleRoot;
+    uint256 claimableFromRound;
+    uint256 claimedShare;
+    uint256 remainingShare;
+    uint256 contractBalance;
+}
+
+interface IAirdropDistributorEvents {
+    event AirdropConfigured(
+        address indexed tokenAddress,
+        bytes32 merkleRoot,
+        uint256 claimableFromRound
+    );
+    event AirdropClaimed(
+        address indexed tokenAddress,
+        address indexed claimer,
+        uint256 share,
+        uint256 amount,
+        uint256 remainingShare
+    );
+}
+
+interface IAirdropDistributorErrors {
+    error NotLaunchContract(address caller);
+    error InvalidDistributorDataCount(
+        uint256 count,
+        uint256 expectedCount
+    );
+    error InvalidDistributorDataLength(
+        uint256 length,
+        uint256 expectedLength
+    );
+    error TokenAlreadyConfigured(address tokenAddress);
+    error ZeroMerkleRoot();
+    error ClaimDelayRoundsExceeded(
+        uint256 claimDelayRounds,
+        uint256 maxClaimDelayRounds
+    );
+    error ClaimRoundNotReached(
+        address tokenAddress,
+        uint256 currentRound,
+        uint256 claimableFromRound
+    );
+    error TokenNotConfigured(address tokenAddress);
+    error AirdropAlreadyClaimed(
+        address tokenAddress,
+        address claimer
+    );
+    error ShareExceedsRemaining(
+        uint256 share,
+        uint256 remainingShare
+    );
+    error InvalidProof();
+}
+
+interface IAirdropDistributor is
+    ILaunchDistributor,
+    IAirdropDistributorEvents,
+    IAirdropDistributorErrors
+{
+    function LAUNCH_ADDRESS() external view returns (address);
+    function PHASE_ADDRESS() external view returns (address);
+    function TOTAL_SHARE() external view returns (uint256);
+    function MAX_CLAIM_DELAY_ROUNDS() external view returns (uint256);
+
+    function claim(
+        address tokenAddress,
+        uint256 share,
+        bytes32[] calldata proof
+    ) external returns (uint256 amount);
+
+    function merkleRootByTokenAddress(address tokenAddress) external view returns (bytes32);
+    function claimableFromRoundByTokenAddress(address tokenAddress) external view returns (uint256);
+    function claimedShareByTokenAddress(address tokenAddress) external view returns (uint256);
+    function isClaimedByTokenAddressByClaimer(
+        address tokenAddress,
+        address claimer
+    ) external view returns (bool);
+    function claimedAmountByTokenAddressByClaimer(
+        address tokenAddress,
+        address claimer
+    ) external view returns (uint256);
+    function remainingShareByTokenAddress(address tokenAddress) external view returns (uint256);
+    function claimableAmount(
+        address tokenAddress,
+        address claimer,
+        uint256 share,
+        bytes32[] calldata proof
+    ) external view returns (uint256 amount);
+    function leafHash(address claimer, uint256 share) external pure returns (bytes32);
+    function airdropInfos(
+        uint256 offset,
+        uint256 limit,
+        bool reverse
+    ) external view returns (AirdropInfo[] memory infos, uint256 totalCount);
+}

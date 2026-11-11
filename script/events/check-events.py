@@ -42,6 +42,7 @@ FAMILIES = {
     "core.phase": {"root": (), "round_after": ()},
     "core.stake": {"root": ("tokenAddress",), "round_after": ("tokenAddress",)},
     "core.proposal": {"root": ("tokenAddress",), "round_after": ("tokenAddress",)},
+    "core.distributor": {"root": ("tokenAddress",), "round_after": ("tokenAddress",)},
 }
 
 # Standard token events inherited from OZ are outside the spec (see §9) and carry no family.
