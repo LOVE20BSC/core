@@ -9,6 +9,7 @@ import {
 } from "../src/interfaces/distributor/IAirdropDistributor.sol";
 import {ILaunchDistributor} from "../src/interfaces/distributor/ILaunchDistributor.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
+import {AirdropDistributor} from "../src/distributor/AirdropDistributor.sol";
 import {Launch} from "../src/Launch.sol";
 import {DistributorMode} from "../src/interfaces/ILaunch.sol";
 
@@ -752,12 +753,25 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         require(bytes(info.snapshotUri).length == 0, "empty uri");
     }
 
-    function testAirdropInfoBeforeGenesisTokenExistsDoesNotRevert() external view {
-        // The genesis token is configured in AirdropDistributor's constructor, before Launch
-        // creates it. airdropInfo must still be readable at that point without balanceOf reverting.
-        AirdropInfo memory info = distributor.airdropInfo(address(firstToken));
-        require(info.merkleRoot == GENESIS_ROOT, "configured root readable");
-        require(info.remainingAmount == LAUNCH_AMOUNT, "balance readable once token exists");
+    function testAirdropInfoBeforeGenesisTokenExistsDoesNotRevert() external {
+        // AirdropDistributor configures the genesis token in its own constructor, and Launch only
+        // creates that token afterwards, so for a window the configured tokenAddress has no code.
+        // Build exactly that window: point the distributor at an address that is still empty.
+        AirdropDistributor fresh = new AirdropDistributor(
+            address(this), address(phase), address(0xF00D), GENESIS_ROOT, 0
+        );
+        require(address(0xF00D).code.length == 0, "target really has no code");
+
+        // balanceOf on a code-less address makes Solidity revert before try/catch could catch it,
+        // so a missing extcodesize guard would revert here instead of returning.
+        AirdropInfo memory pending = fresh.airdropInfo(address(0xF00D));
+        require(pending.merkleRoot == GENESIS_ROOT, "configured root stays readable");
+        require(pending.remainingAmount == 0, "unreadable balance reported as zero");
+        require(pending.totalRemainingShare == TOTAL_SHARE, "share side unaffected by missing token");
+
+        // Once the token exists the same call reports the real balance.
+        AirdropInfo memory live = distributor.airdropInfo(address(firstToken));
+        require(live.remainingAmount == LAUNCH_AMOUNT, "balance reported once token exists");
     }
 
     /// 取出某 token 的 AirdropClaimed 事件 data（去掉 indexed topic 中的 token 差异）

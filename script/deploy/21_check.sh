@@ -403,15 +403,24 @@ verify_value "TOTAL_SHARE" "1000000000000000000" "$ACTUAL_TOTAL_SHARE" || ((FAIL
 ACTUAL_MAX_CLAIM_DELAY=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "MAX_CLAIM_DELAY_ROUNDS()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "MAX_CLAIM_DELAY_ROUNDS" "1000" "$ACTUAL_MAX_CLAIM_DELAY" || ((FAILED+=1))
 
-# One tuple read covers every per-token field. `cast abi-decode --json` plus `jq` keeps the
-# parsing stable even when snapshotUri contains commas or quotes, which a plain comma split would
-# get wrong. Field order matches AirdropInfo: tokenAddress, merkleRoot, claimableFromRound,
+# One tuple read covers every per-token field. `cast call --json` is required here: without it cast
+# prints the already-decoded human string `(0x…, 0x…, 2, …)`, which `cast abi-decode` then rejects
+# with "invalid character '('" and every field silently becomes null. With `--json` the result is a
+# nested array (`[[field0, field1, …]]`) whose elements are plain strings, so `jq` can read them
+# safely — and stays correct when snapshotUri contains commas or quotes, which a plain comma split
+# would get wrong. Field order matches AirdropInfo: tokenAddress, merkleRoot, claimableFromRound,
 # totalClaimedShare, totalRemainingShare, totalClaimedAmount, remainingAmount, snapshotUri.
 AIRDROP_INFO_SIG="airdropInfo(address)((address,bytes32,uint256,uint256,uint256,uint256,uint256,string))"
-AIRDROP_INFO_RAW=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "$AIRDROP_INFO_SIG" "$LOVE20_TOKEN_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-AIRDROP_INFO_JSON=$(cast abi-decode --json "$AIRDROP_INFO_SIG" "$AIRDROP_INFO_RAW" 2>/dev/null || echo "ERROR")
+AIRDROP_INFO_JSON=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "$AIRDROP_INFO_SIG" "$LOVE20_TOKEN_ADDRESS" \
+    --rpc-url "$RPC_URL" --json 2>/dev/null || echo "ERROR")
 airdrop_field() {
-    printf '%s' "$AIRDROP_INFO_JSON" | jq -r ".data[0][$1]" 2>/dev/null || echo "ERROR"
+    # A failed or reverted call leaves AIRDROP_INFO_JSON as the bare word ERROR; jq would then fail
+    # with a parse error, so report ERROR explicitly instead of letting the field become empty.
+    if [ "$AIRDROP_INFO_JSON" = "ERROR" ]; then
+        echo "ERROR"
+        return 0
+    fi
+    printf '%s' "$AIRDROP_INFO_JSON" | jq -r ".[0][$1] // \"ERROR\"" 2>/dev/null || echo "ERROR"
 }
 ACTUAL_GENESIS_ROOT=$(airdrop_field 1)
 ACTUAL_CLAIMED_SHARE=$(airdrop_field 3)

@@ -32,24 +32,21 @@ def fake_tool(tool, args):
             print("0x01")
         elif args[0] == "call":
             key = args[1].lower() + "/" + args[2]
-            print(os.environ.get("BAD_VALUE", "ERROR") if key == os.environ.get("BAD_CALL") else data["calls"][key])
-        elif args[0] == "abi-decode":
-            # `21_check.sh` decodes the airdropInfo tuple to JSON once and reads fields with jq.
-            # Field order: tokenAddress, merkleRoot, claimableFromRound, totalClaimedShare,
-            # totalRemainingShare, totalClaimedAmount, remainingAmount, snapshotUri.
-            # BAD_CALL targets the tuple call, so a corrupted read must corrupt what this returns too:
-            # otherwise the injected failure would be invisible to the field assertions.
-            picked = dict(data["airdrop_info"])
-            bad_call = os.environ.get("BAD_CALL")
-            if bad_call and bad_call.split("/", 1)[1].startswith("airdropInfo("):
-                picked["merkleRoot"] = "0x" + "99" * 32
-                picked["totalRemainingShare"] = "1"
-            print(json.dumps({"schema_version": 1, "success": True,
-                              "data": [[picked["tokenAddress"], picked["merkleRoot"],
-                                        picked["claimableFromRound"], picked["totalClaimedShare"],
-                                        picked["totalRemainingShare"], picked["totalClaimedAmount"],
-                                        picked["remainingAmount"], picked["snapshotUri"]]],
-                              "errors": [], "warnings": []}))
+            value = (os.environ.get("BAD_VALUE", "ERROR") if key == os.environ.get("BAD_CALL")
+                     else data["calls"][key])
+            if "--json" in args:
+                # Real `cast call --json` on a struct return emits a nested array of plain strings.
+                # 21_check.sh depends on exactly that shape, so the stub must reproduce it: emitting
+                # the human-readable "(0x…, …)" string here is how a broken parser would go unnoticed.
+                # BAD_CALL targets this tuple, so the injected corruption has to reach the fields too,
+                # otherwise the negative case would pass without the script noticing anything.
+                fields = list(data["airdrop_info"]["fields"])
+                if key == os.environ.get("BAD_CALL"):
+                    fields[1] = "0x" + "99" * 32
+                    fields[4] = "1"
+                print(json.dumps([fields]))
+            else:
+                print(value)
         elif args[0] == "abi-encode":
             if os.environ.get("ABI_ENCODE_FAIL") == args[1]:
                 return 1
@@ -389,14 +386,15 @@ def main():
                 "TOTAL_SHARE()(uint256)": "1000000000000000000",
                 "MAX_CLAIM_DELAY_ROUNDS()(uint256)": "1000"})
         # 21_check 用一次 airdropInfo(address) tuple 覆盖全部按 token 的字段。
-        airdrop_info = {"tokenAddress": env["LOVE20_TOKEN_ADDRESS"],
-                        "merkleRoot": env["GENESIS_AIRDROP_MERKLE_ROOT"],
-                        "claimableFromRound": "2",
-                        "totalClaimedShare": "0",
-                        "totalRemainingShare": "1000000000000000000",
-                        "totalClaimedAmount": "0",
-                        "remainingAmount": env["LAUNCH_AMOUNT"],
-                        "snapshotUri": ""}
+        # Field order must match AirdropInfo exactly; 21_check.sh indexes into this array by position.
+        airdrop_info = {"fields": [env["LOVE20_TOKEN_ADDRESS"],
+                                   env["GENESIS_AIRDROP_MERKLE_ROOT"],
+                                   "2",
+                                   "0",
+                                   "1000000000000000000",
+                                   "0",
+                                   env["LAUNCH_AMOUNT"],
+                                   ""]}
         calls[env["AIRDROP_DISTRIBUTOR_ADDRESS"].lower()
               + "/airdropInfo(address)((address,bytes32,uint256,uint256,uint256,uint256,uint256,string))"] = "0x00"
         getters("LAUNCH", {key + "()(uint256)": key for key in ("LAUNCH_COUNT_THRESHOLD_RATIO", "MAX_LAUNCH_COUNT", "TOKEN_SYMBOL_LENGTH", "MAX_SUPPLY")})
