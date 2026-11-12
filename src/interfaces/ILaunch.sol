@@ -134,6 +134,10 @@ interface ILaunch is ILaunchErrors, ILaunchEvents {
         external
         view
         returns (address[] memory tokenList, uint256 totalCount);
+    function tokensByDistributor(address distributor, uint256 offset, uint256 limit, bool reverse)
+        external
+        view
+        returns (address[] memory tokenList, uint256 totalCount);
     function tokenAddressBySymbol(string calldata symbol) external view returns (address);
     function parentToken(address tokenAddress) external view returns (address);
 }

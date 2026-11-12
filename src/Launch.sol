@@ -44,6 +44,8 @@ contract Launch is ILaunch {
     mapping(string => address) internal _tokenAddressBySymbol;
     // parentTokenAddress => creation-ordered children
     mapping(address => address[]) internal _childTokens;
+    // distributor => creation-ordered tokens whose first supply was minted to the distributor
+    mapping(address => address[]) internal _tokensByDistributor;
 
     // tokenAddress => memberId => available integer launch count
     mapping(address => mapping(uint256 => uint256)) internal _remainingLaunchCount;
@@ -68,6 +70,7 @@ contract Launch is ILaunch {
         _parentTokenByTokenAddress[firstToken] = params.rootParentTokenAddress;
         _tokenAddressBySymbol[params.symbol] = firstToken;
         _childTokens[params.rootParentTokenAddress].push(firstToken);
+        _tokensByDistributor[params.distributor].push(firstToken);
 
         _ensurePair(firstToken, params.rootParentTokenAddress);
 
@@ -127,6 +130,7 @@ contract Launch is ILaunch {
         _parentTokenByTokenAddress[tokenAddress] = parentTokenAddress;
         _tokenAddressBySymbol[subTokenSymbol] = tokenAddress;
         _childTokens[parentTokenAddress].push(tokenAddress);
+        _tokensByDistributor[distributor].push(tokenAddress);
 
         _ensurePair(tokenAddress, parentTokenAddress);
 
@@ -218,6 +222,14 @@ contract Launch is ILaunch {
         return _childTokens[parentTokenAddress].paginate(offset, limit, reverse);
     }
 
+    function tokensByDistributor(address distributor, uint256 offset, uint256 limit, bool reverse)
+        external
+        view
+        returns (address[] memory tokenList, uint256 totalCount)
+    {
+        return _tokensByDistributor[distributor].paginate(offset, limit, reverse);
+    }
+
     function tokenAddressBySymbol(string calldata symbol) external view returns (address) {
         return _tokenAddressBySymbol[symbol];
     }
@@ -244,7 +256,7 @@ contract Launch is ILaunch {
     }
 
     /// @dev Load-bearing: called only after every launch ledger is written, so a factory that calls
-    ///      back into Launch finds the symbol, token and count ledgers already consistent.
+    ///      back into Launch finds the symbol, token, count and distributor ledgers already consistent.
     function _ensurePair(address tokenAddress, address parentTokenAddress) private {
         IUniswapV2Factory factory = IUniswapV2Factory(PAIR_FACTORY_ADDRESS);
         if (factory.getPair(tokenAddress, parentTokenAddress) == address(0)) {

@@ -74,6 +74,7 @@ contract CallbackDistributor {
     bool public observedRegistered;
     uint256 public observedLaunchCount;
     uint256 public observedBalance;
+    uint256 public observedDistributorTotal;
 
     function setRejectNextCall(bool value) external {
         rejectNextCall = value;
@@ -102,6 +103,7 @@ contract CallbackDistributor {
             observedRegistered = probe.isLOVE20Token(tokenAddress);
             observedLaunchCount = probe.remainingLaunchCount(parentTokenAddress, launcherMemberId);
             observedBalance = IERC20(tokenAddress).balanceOf(address(this));
+            (, observedDistributorTotal) = probe.tokensByDistributor(address(this), 0, 0, false);
         }
         callCount += 1;
     }
@@ -1607,6 +1609,99 @@ contract LaunchTest {
         require(total == 3 && list[2] == grandChild, "nested token order");
     }
 
+    function testTokensByDistributorIncludesGenesisToken() public view {
+        // 构造函数里的 distributor 是 LaunchInitParams.distributor（本测试合约），首币必须入列
+        (address[] memory list, uint256 total) = launch.tokensByDistributor(address(this), 0, 10, false);
+        require(total == 1 && list.length == 1, "genesis distributor has one token");
+        require(list[0] == address(firstToken), "genesis token indexed by its distributor");
+
+        // 尚未向该 distributor 发射子币
+        (list, total) = launch.tokensByDistributor(SUB_DISTRIBUTOR, 0, 10, false);
+        require(total == 0 && list.length == 0, "unused distributor is empty");
+
+        // 零地址与未知 distributor 都是普通空键，不 revert
+        (list, total) = launch.tokensByDistributor(address(0), 0, 10, false);
+        require(total == 0 && list.length == 0, "zero distributor is empty");
+        (list, total) = launch.tokensByDistributor(address(bob), 0, 10, false);
+        require(total == 0 && list.length == 0, "unknown distributor is empty");
+    }
+
+    function testTokensByDistributorPaginationAndIsolation() public {
+        _grantCount(address(firstToken), aliceMemberId, 4);
+        address subA = _launchOkWithDistributor(alice, "AAA", address(firstToken), aliceMemberId, SUB_DISTRIBUTOR);
+        address subB = _launchOkWithDistributor(alice, "BBB", address(firstToken), aliceMemberId, SUB_DISTRIBUTOR);
+        address eoaA = _launchOkWithDistributor(alice, "CCC", address(firstToken), aliceMemberId, EOA);
+        address subC = _launchOkWithDistributor(alice, "DDD", address(firstToken), aliceMemberId, SUB_DISTRIBUTOR);
+
+        // 同一 distributor 的多次发射按创建顺序聚合，且不串入其他 distributor 的代币
+        (address[] memory list, uint256 total) = launch.tokensByDistributor(SUB_DISTRIBUTOR, 0, 100, false);
+        require(total == 3 && list.length == 3, "sub distributor full page");
+        require(list[0] == subA && list[1] == subB && list[2] == subC, "creation order across launches");
+
+        (list, total) = launch.tokensByDistributor(EOA, 0, 100, false);
+        require(total == 1 && list.length == 1 && list[0] == eoaA, "eoa distributor isolated");
+
+        (list, total) = launch.tokensByDistributor(address(this), 0, 100, false);
+        require(total == 1 && list.length == 1 && list[0] == address(firstToken), "genesis distributor unchanged");
+
+        // limit 截断
+        (list, total) = launch.tokensByDistributor(SUB_DISTRIBUTOR, 0, 2, false);
+        require(total == 3 && list.length == 2, "clamped page");
+        require(list[0] == subA && list[1] == subB, "clamped content");
+
+        // limit 为零返回空数组与真实总数
+        (list, total) = launch.tokensByDistributor(SUB_DISTRIBUTOR, 0, 0, false);
+        require(total == 3 && list.length == 0, "zero limit counts only");
+
+        // offset 等于总数与超过总数都返回空数组与真实总数
+        (list, total) = launch.tokensByDistributor(SUB_DISTRIBUTOR, 3, 10, false);
+        require(total == 3 && list.length == 0, "offset at total");
+        (list, total) = launch.tokensByDistributor(SUB_DISTRIBUTOR, 99, 10, false);
+        require(total == 3 && list.length == 0, "offset beyond total");
+
+        // 中间页
+        (list, total) = launch.tokensByDistributor(SUB_DISTRIBUTOR, 1, 10, false);
+        require(total == 3 && list.length == 2 && list[0] == subB && list[1] == subC, "tail page");
+
+        // reverse 从新到旧，及其与 offset/limit 的组合
+        (list, total) = launch.tokensByDistributor(SUB_DISTRIBUTOR, 0, 100, true);
+        require(total == 3 && list.length == 3, "reverse full page");
+        require(list[0] == subC && list[1] == subB && list[2] == subA, "reverse order");
+        (list, total) = launch.tokensByDistributor(SUB_DISTRIBUTOR, 1, 2, true);
+        require(total == 3 && list.length == 2 && list[0] == subB && list[1] == subA, "reverse tail");
+
+        // 与 tokens(...) 一致：按 distributor 分组的并集等于全量列表
+        (address[] memory all, uint256 allTotal) = launch.tokens(0, 100, false);
+        require(allTotal == 5, "five tokens launched in total");
+        require(all[0] == address(firstToken), "genesis first");
+        require(all[1] == subA && all[2] == subB && all[3] == eoaA && all[4] == subC, "global creation order");
+    }
+
+    function testTokensByDistributorCallbackObservesIndex() public {
+        _grantCount(address(firstToken), aliceMemberId, 2);
+        distributor.setProbe(launch);
+
+        (bool ok, bytes memory data) = alice.forward(
+            address(launch),
+            _launchCalldata(
+                "AAA",
+                address(firstToken),
+                aliceMemberId,
+                address(distributor),
+                DistributorMode.Callback,
+                _emptyData()
+            )
+        );
+        require(ok, "callback launch");
+        address tokenAddress = abi.decode(data, (address));
+
+        // 回调发生时，新索引已经与其余发射账本同批写入
+        require(distributor.observedDistributorTotal() == 1, "distributor index visible before callback");
+
+        (address[] memory list, uint256 total) = launch.tokensByDistributor(address(distributor), 0, 10, false);
+        require(total == 1 && list.length == 1 && list[0] == tokenAddress, "callback token indexed");
+    }
+
     // ============ Helpers ============
 
     function _launchWithMember(LaunchInitParams memory params)
@@ -1775,6 +1870,23 @@ contract LaunchTest {
     ) private returns (address tokenAddress) {
         (bool ok, bytes memory data) = _launchAt(target, caller, tokenSymbol, parentTokenAddress, memberId);
         require(ok, "launch failed");
+        return abi.decode(data, (address));
+    }
+
+    function _launchOkWithDistributor(
+        Caller caller,
+        string memory tokenSymbol,
+        address parentTokenAddress,
+        uint256 memberId,
+        address distributorAddress
+    ) private returns (address tokenAddress) {
+        (bool ok, bytes memory data) = caller.forward(
+            address(launch),
+            _launchCalldata(
+                tokenSymbol, parentTokenAddress, memberId, distributorAddress, DistributorMode.NoCallback, _emptyData()
+            )
+        );
+        require(ok, "launch with distributor failed");
         return abi.decode(data, (address));
     }
 
