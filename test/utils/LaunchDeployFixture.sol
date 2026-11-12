@@ -181,6 +181,12 @@ abstract contract LaunchDeployFixture {
         (memberId, ) = memberNFT.mint(memberName);
     }
 
+    /// 以当前 NFT 持有人身份把 memberId 转给新持有人，用于验证权限实时读取 owner
+    function _transferMember(address currentOwner, address newOwner, uint256 memberId) internal {
+        vm.prank(currentOwner);
+        memberNFT.transferFrom(currentOwner, newOwner, memberId);
+    }
+
     /// 以成员身份发起一次回调模式的普通发射，返回新建子币地址
     function _launchSubToken(
         address launcher,

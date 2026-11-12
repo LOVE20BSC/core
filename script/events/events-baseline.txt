@@ -1,5 +1,6 @@
 AirdropDistributor.AirdropClaimed(tokenAddress:address indexed,claimer:address indexed,share:uint256,amount:uint256,remainingShare:uint256)
 AirdropDistributor.AirdropConfigured(tokenAddress:address indexed,merkleRoot:bytes32,claimableFromRound:uint256)
+AirdropDistributor.AirdropSnapshotUriUpdated(tokenAddress:address indexed,snapshotUri:string,prevSnapshotUri:string)
 LOVE20Token.Approval(owner:address indexed,spender:address indexed,value:uint256)
 LOVE20Token.TokenBurned(from:address indexed,amount:uint256)
 LOVE20Token.TokenMinted(to:address indexed,amount:uint256)

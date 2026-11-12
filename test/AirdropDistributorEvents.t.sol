@@ -16,6 +16,8 @@ contract AirdropDistributorEventsTest is LaunchDeployFixture {
     bytes32 internal constant GENESIS_ROOT = keccak256("genesis root");
     bytes32 internal constant CONFIGURED_TOPIC = keccak256("AirdropConfigured(address,bytes32,uint256)");
     bytes32 internal constant CLAIMED_TOPIC = keccak256("AirdropClaimed(address,address,uint256,uint256,uint256)");
+    bytes32 internal constant SNAPSHOT_URI_UPDATED_TOPIC =
+        keccak256("AirdropSnapshotUriUpdated(address,string,string)");
 
     function setUp() public {
         _deploySystem(GENESIS_ROOT, 0);
@@ -218,6 +220,117 @@ contract AirdropDistributorEventsTest is LaunchDeployFixture {
         }
     }
 
+    // ============ 27. AirdropSnapshotUriUpdated 三字段（1 indexed + 2 string） ============
+
+    function _launchSub(address launcher, uint256 memberId, string memory symbol) private returns (address) {
+        return _launchSubToken(launcher, memberId, symbol, _distributorData(keccak256("snapshot root"), 0));
+    }
+
+    function testSnapshotUriUpdatedEventHasOneIndexedAndTwoStringFields() external {
+        address subToken = _launchSub(ALICE, aliceMemberId, "SUB");
+        string memory uri = "https://love20bsc.github.io/docs/snapshot.json";
+
+        vm.recordLogs();
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(subToken, uri);
+        AirdropVm.Log[] memory logs = vm.getRecordedLogs();
+
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(distributor) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != SNAPSHOT_URI_UPDATED_TOPIC) continue;
+
+            // 1 indexed + 2 string：topic[0] 签名、topic[1] tokenAddress，data 为两个动态 string 的 abi.encode
+            require(logs[i].topics.length == 2, "only tokenAddress indexed");
+            require(logs[i].topics[1] == bytes32(uint256(uint160(subToken))), "event tokenAddress");
+            (string memory snapshotUri, string memory prevSnapshotUri) =
+                abi.decode(logs[i].data, (string, string));
+            require(keccak256(bytes(snapshotUri)) == keccak256(bytes(uri)), "event snapshotUri");
+            require(keccak256(bytes(prevSnapshotUri)) == keccak256(bytes("")), "first update prev is empty");
+            found = true;
+        }
+        require(found, "missing AirdropSnapshotUriUpdated");
+    }
+
+    function testSnapshotUriUpdatedEventCarriesPreviousValueOnSecondUpdate() external {
+        address subToken = _launchSub(ALICE, aliceMemberId, "SUB");
+        string memory first = "ipfs://snapshot-v1";
+        string memory second = "https://love20bsc.github.io/docs/snapshot-v2.json";
+
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(subToken, first);
+
+        vm.recordLogs();
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(subToken, second);
+        AirdropVm.Log[] memory logs = vm.getRecordedLogs();
+
+        (string memory snapshotUri, string memory prevSnapshotUri) =
+            _readSnapshotUriUpdatedEvent(logs, subToken);
+        require(keccak256(bytes(snapshotUri)) == keccak256(bytes(second)), "event snapshotUri is second");
+        require(keccak256(bytes(prevSnapshotUri)) == keccak256(bytes(first)), "prevSnapshotUri is first");
+    }
+
+    function testEverySnapshotUriUpdateEmitsExactlyOneEvent() external {
+        address subToken = _launchSub(ALICE, aliceMemberId, "SUB");
+
+        vm.recordLogs();
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(subToken, "https://one");
+        AirdropVm.Log[] memory logs = vm.getRecordedLogs();
+        require(_countSnapshotUriEvents(logs) == 1, "one event for first update");
+
+        vm.recordLogs();
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(subToken, "https://two");
+        logs = vm.getRecordedLogs();
+        require(_countSnapshotUriEvents(logs) == 1, "one event for second update");
+
+        // 失败的更新（空 uri / 非发射者）不产生任何事件
+        vm.recordLogs();
+        (bool ok, ) = _callAs(
+            ALICE, abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (subToken, ""))
+        );
+        require(!ok, "empty uri reverts");
+        logs = vm.getRecordedLogs();
+        require(_countSnapshotUriEvents(logs) == 0, "no event on empty uri revert");
+
+        vm.recordLogs();
+        (ok, ) = _callAs(
+            BOB, abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (subToken, "https://bob"))
+        );
+        require(!ok, "non-launcher reverts");
+        logs = vm.getRecordedLogs();
+        require(_countSnapshotUriEvents(logs) == 0, "no event on auth revert");
+    }
+
+    function testSnapshotUriUpdatedEventMatchesStateAfterEachUpdate() external {
+        address subToken = _launchSub(ALICE, aliceMemberId, "SUB");
+        string memory first = "https://one";
+        string memory second = "https://two";
+
+        vm.recordLogs();
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(subToken, first);
+        AirdropVm.Log[] memory logs = vm.getRecordedLogs();
+        (string memory emittedUri, ) = _readSnapshotUriUpdatedEvent(logs, subToken);
+        require(
+            keccak256(bytes(emittedUri)) == keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken))),
+            "event matches state after first update"
+        );
+
+        vm.recordLogs();
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(subToken, second);
+        logs = vm.getRecordedLogs();
+        (emittedUri, ) = _readSnapshotUriUpdatedEvent(logs, subToken);
+        require(
+            keccak256(bytes(emittedUri)) == keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken))),
+            "event matches state after second update"
+        );
+        require(keccak256(bytes(emittedUri)) == keccak256(bytes(second)), "state is the latest uri");
+    }
+
     // ============ Helpers ============
 
     /// 重新部署一套系统，使构造函数的日志可被 vm.recordLogs 捕获。
@@ -241,5 +354,26 @@ contract AirdropDistributorEventsTest is LaunchDeployFixture {
             found = true;
         }
         require(found, "missing AirdropClaimed for the token/claimer pair");
+    }
+
+    function _readSnapshotUriUpdatedEvent(AirdropVm.Log[] memory logs, address tokenAddress)
+        private
+        pure
+        returns (string memory snapshotUri, string memory prevSnapshotUri)
+    {
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics.length == 0 || logs[i].topics[0] != SNAPSHOT_URI_UPDATED_TOPIC) continue;
+            if (logs[i].topics[1] != bytes32(uint256(uint160(tokenAddress)))) continue;
+            (snapshotUri, prevSnapshotUri) = abi.decode(logs[i].data, (string, string));
+            found = true;
+        }
+        require(found, "missing AirdropSnapshotUriUpdated");
+    }
+
+    function _countSnapshotUriEvents(AirdropVm.Log[] memory logs) private pure returns (uint256 count) {
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics.length != 0 && logs[i].topics[0] == SNAPSHOT_URI_UPDATED_TOPIC) count += 1;
+        }
     }
 }

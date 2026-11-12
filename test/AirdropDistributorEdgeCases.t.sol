@@ -536,4 +536,100 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
         require(distributor.claimableAmount(subToken, ALICE, ALICE_SHARE, proof) == 0, "zero after claim");
     }
 
+    // ============ 26. updateSnapshotUri 鉴权顺序与错误归属 ============
+
+    function testUpdateSnapshotUriUnconfiguredTokenErrorOutranksSnapshotUriChecks() external {
+        // modifier 第一行先查 merkleRoot：未配置 token 即便 uri 为空/超长也只报 TokenNotConfigured
+        address unknown = address(0xdead);
+        _expectRevert(
+            ALICE,
+            abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (unknown, "")),
+            abi.encodeWithSelector(IAirdropDistributorErrors.TokenNotConfigured.selector, unknown)
+        );
+        string memory tooLong = _uriOfLength(257);
+        _expectRevert(
+            ALICE,
+            abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (unknown, tooLong)),
+            abi.encodeWithSelector(IAirdropDistributorErrors.TokenNotConfigured.selector, unknown)
+        );
+    }
+
+    function testUpdateSnapshotUriAuthErrorOutranksUriValidation() external {
+        // 非发射者传空 uri：先过 modifier 鉴权，命中 NotSnapshotUriUpdater，而非 SnapshotUriEmpty
+        address subToken = _launchSub(ALICE, aliceMemberId, "SUB");
+        _expectRevert(
+            BOB,
+            abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (subToken, "")),
+            abi.encodeWithSelector(
+                IAirdropDistributorErrors.NotSnapshotUriUpdater.selector, BOB, aliceMemberId
+            )
+        );
+        // 非发射者传超长 uri：同样先命中鉴权
+        string memory tooLong = _uriOfLength(257);
+        _expectRevert(
+            BOB,
+            abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (subToken, tooLong)),
+            abi.encodeWithSelector(
+                IAirdropDistributorErrors.NotSnapshotUriUpdater.selector, BOB, aliceMemberId
+            )
+        );
+    }
+
+    function testGenesisTokenAuthErrorReportsZeroMemberIdForEveryCaller() external {
+        // 创世币 launcherMemberId == 0，任何调用者的错误负载里 memberId 都是 0
+        bytes memory callData = abi.encodeCall(
+            IAirdropDistributor.updateSnapshotUri, (address(firstToken), "https://genesis")
+        );
+        address[3] memory callers = [ALICE, BOB, address(this)];
+        for (uint256 i; i < callers.length; ++i) {
+            _expectRevert(
+                callers[i],
+                callData,
+                abi.encodeWithSelector(
+                    IAirdropDistributorErrors.NotSnapshotUriUpdater.selector, callers[i], 0
+                )
+            );
+        }
+    }
+
+    function testSnapshotUriEmptyAndTooLongErrorsAreDistinct() external {
+        address subToken = _launchSub(ALICE, aliceMemberId, "SUB");
+        _assertRevertSelector(
+            ALICE,
+            abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (subToken, "")),
+            IAirdropDistributorErrors.SnapshotUriEmpty.selector
+        );
+        _assertRevertSelector(
+            ALICE,
+            abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (subToken, _uriOfLength(257))),
+            IAirdropDistributorErrors.SnapshotUriTooLong.selector
+        );
+    }
+
+    function testLength256BoundaryAndLength257Boundary() external {
+        address subToken = _launchSub(ALICE, aliceMemberId, "SUB");
+        string memory exactly256 = _uriOfLength(256);
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(subToken, exactly256);
+        require(bytes(exactly256).length == 256, "exactly 256 accepted");
+
+        // 再次更新为 257 → SnapshotUriTooLong(257, 256)
+        string memory tooLong = _uriOfLength(257);
+        _expectRevert(
+            ALICE,
+            abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (subToken, tooLong)),
+            abi.encodeWithSelector(IAirdropDistributorErrors.SnapshotUriTooLong.selector, 257, 256)
+        );
+    }
+
+    function _launchSub(address launcher, uint256 memberId, string memory symbol) private returns (address) {
+        return _launchSubToken(launcher, memberId, symbol, _distributorData(keccak256("snapshot root"), 0));
+    }
+
+    function _uriOfLength(uint256 length) private pure returns (string memory) {
+        bytes memory uri = new bytes(length);
+        for (uint256 i; i < length; ++i) uri[i] = "a";
+        return string(uri);
+    }
+
 }

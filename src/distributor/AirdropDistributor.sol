@@ -7,6 +7,8 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {IPhase} from "../interfaces/IPhase.sol";
+import {ILaunch} from "../interfaces/ILaunch.sol";
+import {IMemberNFT} from "../interfaces/IMemberNFT.sol";
 import {Pagination} from "@libs/Pagination.sol";
 
 contract AirdropDistributor is IAirdropDistributor {
@@ -15,6 +17,7 @@ contract AirdropDistributor is IAirdropDistributor {
 
     uint256 public constant TOTAL_SHARE = 1e18;
     uint256 public constant MAX_CLAIM_DELAY_ROUNDS = 1000;
+    uint256 public constant MAX_SNAPSHOT_URI_BYTES = 256;
 
     address public immutable LAUNCH_ADDRESS;
     address public immutable PHASE_ADDRESS;
@@ -31,9 +34,24 @@ contract AirdropDistributor is IAirdropDistributor {
     mapping(address => mapping(address => bool)) internal _isClaimedByTokenAddressByClaimer;
     // tokenAddress => claimer => amount actually paid out by the successful claim
     mapping(address => mapping(address => uint256)) internal _claimedAmountByTokenAddressByClaimer;
+    // tokenAddress => discovery hint URL of the Merkle snapshot JSON (empty by default)
+    mapping(address => string) internal _snapshotUriByTokenAddress;
+    // tokenAddress => launcher memberId (0 = genesis, permanently non-updatable)
+    mapping(address => uint256) internal _launcherMemberIdByTokenAddress;
 
     modifier onlyLaunch() {
         if (msg.sender != LAUNCH_ADDRESS) revert NotLaunchContract(msg.sender);
+        _;
+    }
+
+    modifier onlySnapshotUriUpdater(address tokenAddress) {
+        if (_merkleRootByTokenAddress[tokenAddress] == bytes32(0)) revert TokenNotConfigured(tokenAddress);
+        uint256 launcherMemberId = _launcherMemberIdByTokenAddress[tokenAddress];
+        if (launcherMemberId == 0) revert NotSnapshotUriUpdater(msg.sender, 0);
+        address memberNFT = ILaunch(LAUNCH_ADDRESS).MEMBER_NFT_ADDRESS();
+        if (IMemberNFT(memberNFT).ownerOf(launcherMemberId) != msg.sender) {
+            revert NotSnapshotUriUpdater(msg.sender, launcherMemberId);
+        }
         _;
     }
 
@@ -48,20 +66,20 @@ contract AirdropDistributor is IAirdropDistributor {
         LAUNCH_ADDRESS = launchAddress;
         PHASE_ADDRESS = phaseAddress;
 
-        _configure(genesisTokenAddress, genesisMerkleRoot, genesisClaimDelayRounds);
+        _configure(genesisTokenAddress, genesisMerkleRoot, genesisClaimDelayRounds, 0);
     }
 
     function onTokenLaunched(
         address tokenAddress,
         address,
-        uint256,
+        uint256 launcherMemberId,
         bytes[] calldata distributorData
     ) external onlyLaunch {
         if (distributorData.length != 1) revert InvalidDistributorDataCount(distributorData.length, 1);
         if (distributorData[0].length != 64) revert InvalidDistributorDataLength(distributorData[0].length, 64);
 
         (bytes32 merkleRoot, uint256 claimDelayRounds) = abi.decode(distributorData[0], (bytes32, uint256));
-        _configure(tokenAddress, merkleRoot, claimDelayRounds);
+        _configure(tokenAddress, merkleRoot, claimDelayRounds, launcherMemberId);
     }
 
     function claim(
@@ -107,6 +125,22 @@ contract AirdropDistributor is IAirdropDistributor {
         });
     }
 
+    function updateSnapshotUri(address tokenAddress, string calldata snapshotUri)
+        external
+        onlySnapshotUriUpdater(tokenAddress)
+    {
+        uint256 length = bytes(snapshotUri).length;
+        if (length == 0) revert SnapshotUriEmpty();
+        if (length > MAX_SNAPSHOT_URI_BYTES) revert SnapshotUriTooLong(length, MAX_SNAPSHOT_URI_BYTES);
+        string memory prevSnapshotUri = _snapshotUriByTokenAddress[tokenAddress];
+        _snapshotUriByTokenAddress[tokenAddress] = snapshotUri;
+        emit AirdropSnapshotUriUpdated({
+            tokenAddress: tokenAddress,
+            snapshotUri: snapshotUri,
+            prevSnapshotUri: prevSnapshotUri
+        });
+    }
+
     function merkleRootByTokenAddress(address tokenAddress) external view returns (bytes32) {
         return _merkleRootByTokenAddress[tokenAddress];
     }
@@ -131,6 +165,14 @@ contract AirdropDistributor is IAirdropDistributor {
         address claimer
     ) external view returns (uint256) {
         return _claimedAmountByTokenAddressByClaimer[tokenAddress][claimer];
+    }
+
+    function snapshotUriByTokenAddress(address tokenAddress) external view returns (string memory) {
+        return _snapshotUriByTokenAddress[tokenAddress];
+    }
+
+    function launcherMemberIdByTokenAddress(address tokenAddress) external view returns (uint256) {
+        return _launcherMemberIdByTokenAddress[tokenAddress];
     }
 
     function remainingShareByTokenAddress(address tokenAddress) public view returns (uint256) {
@@ -186,12 +228,18 @@ contract AirdropDistributor is IAirdropDistributor {
                 claimableFromRound: _claimableFromRoundByTokenAddress[tokenAddress],
                 claimedShare: claimedShare,
                 remainingShare: TOTAL_SHARE - claimedShare,
-                contractBalance: contractBalance
+                contractBalance: contractBalance,
+                snapshotUri: _snapshotUriByTokenAddress[tokenAddress]
             });
         }
     }
 
-    function _configure(address tokenAddress, bytes32 merkleRoot, uint256 claimDelayRounds) internal {
+    function _configure(
+        address tokenAddress,
+        bytes32 merkleRoot,
+        uint256 claimDelayRounds,
+        uint256 launcherMemberId
+    ) internal {
         if (_merkleRootByTokenAddress[tokenAddress] != bytes32(0)) revert TokenAlreadyConfigured(tokenAddress);
         if (merkleRoot == bytes32(0)) revert ZeroMerkleRoot();
         if (claimDelayRounds > MAX_CLAIM_DELAY_ROUNDS) {
@@ -204,6 +252,7 @@ contract AirdropDistributor is IAirdropDistributor {
 
         _merkleRootByTokenAddress[tokenAddress] = merkleRoot;
         _claimableFromRoundByTokenAddress[tokenAddress] = claimableFromRound;
+        _launcherMemberIdByTokenAddress[tokenAddress] = launcherMemberId;
         _tokenAddresses.push(tokenAddress);
 
         emit AirdropConfigured({

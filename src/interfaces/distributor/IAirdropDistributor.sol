@@ -10,6 +10,7 @@ struct AirdropInfo {
     uint256 claimedShare;
     uint256 remainingShare;
     uint256 contractBalance;
+    string snapshotUri;
 }
 
 interface IAirdropDistributorEvents {
@@ -24,6 +25,11 @@ interface IAirdropDistributorEvents {
         uint256 share,
         uint256 amount,
         uint256 remainingShare
+    );
+    event AirdropSnapshotUriUpdated(
+        address indexed tokenAddress,
+        string snapshotUri,
+        string prevSnapshotUri
     );
 }
 
@@ -58,6 +64,15 @@ interface IAirdropDistributorErrors {
         uint256 remainingShare
     );
     error InvalidProof();
+    error SnapshotUriEmpty();
+    error SnapshotUriTooLong(
+        uint256 length,
+        uint256 maxLength
+    );
+    error NotSnapshotUriUpdater(
+        address caller,
+        uint256 launcherMemberId
+    );
 }
 
 interface IAirdropDistributor is
@@ -69,6 +84,7 @@ interface IAirdropDistributor is
     function PHASE_ADDRESS() external view returns (address);
     function TOTAL_SHARE() external view returns (uint256);
     function MAX_CLAIM_DELAY_ROUNDS() external view returns (uint256);
+    function MAX_SNAPSHOT_URI_BYTES() external view returns (uint256);
 
     function claim(
         address tokenAddress,
@@ -95,6 +111,9 @@ interface IAirdropDistributor is
         bytes32[] calldata proof
     ) external view returns (uint256 amount);
     function leafHash(address claimer, uint256 share) external pure returns (bytes32);
+    function updateSnapshotUri(address tokenAddress, string calldata snapshotUri) external;
+    function snapshotUriByTokenAddress(address tokenAddress) external view returns (string memory);
+    function launcherMemberIdByTokenAddress(address tokenAddress) external view returns (uint256);
     function airdropInfos(
         uint256 offset,
         uint256 limit,

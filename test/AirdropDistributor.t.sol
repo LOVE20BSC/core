@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.37;
 
-import {LaunchDeployFixture} from "./utils/LaunchDeployFixture.sol";
+import {LaunchDeployFixture, AirdropVm} from "./utils/LaunchDeployFixture.sol";
 import {
     IAirdropDistributor,
     IAirdropDistributorErrors,
@@ -370,10 +370,316 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         require(subInfo.contractBalance == LAUNCH_AMOUNT - 10 ether, "sub balance");
     }
 
+    // ============ 23. 快照 URI：常量 / 创世币 / 权限 / 边界 ============
+
+    /// 发射一个普通子币并返回地址；调用者持有对应 member NFT
+    function _launchSub(address launcher, uint256 memberId, string memory symbol) internal returns (address) {
+        return _launchSubToken(launcher, memberId, symbol, _distributorData(keccak256("snapshot root"), 0));
+    }
+
+    function _readSnapshotUriFromInfos(address tokenAddress) internal view returns (string memory snapshotUri) {
+        (AirdropInfo[] memory infos, ) = distributor.airdropInfos(0, 100, false);
+        for (uint256 i; i < infos.length; ++i) {
+            if (infos[i].tokenAddress == tokenAddress) {
+                return infos[i].snapshotUri;
+            }
+        }
+        require(false, "token missing from airdropInfos");
+    }
+
+    function _uriOfLength(uint256 length) internal pure returns (string memory) {
+        bytes memory uri = new bytes(length);
+        for (uint256 i; i < length; ++i) uri[i] = "a";
+        return string(uri);
+    }
+
+    function testMaxSnapshotUriBytesIs256() external view {
+        require(distributor.MAX_SNAPSHOT_URI_BYTES() == 256, "MAX_SNAPSHOT_URI_BYTES == 256");
+    }
+
+    function testGenesisTokenHasZeroLauncherMemberIdAndEmptySnapshotUri() external view {
+        require(
+            distributor.launcherMemberIdByTokenAddress(address(firstToken)) == 0, "genesis launcher member id is 0"
+        );
+        require(
+            keccak256(bytes(distributor.snapshotUriByTokenAddress(address(firstToken)))) == keccak256(bytes("")),
+            "genesis snapshot uri empty"
+        );
+        require(keccak256(bytes(_readSnapshotUriFromInfos(address(firstToken)))) == keccak256(bytes("")), "genesis infos uri empty");
+    }
+
+    function testGenesisSnapshotUriIsPermanentlyNonUpdatableForAnyCaller() external {
+        // memberId 0 永不铸造（MemberNFT._nextTokenId = 1），modifier 命中 launcherMemberId == 0 分支
+        bytes memory callData = abi.encodeCall(
+            IAirdropDistributor.updateSnapshotUri, (address(firstToken), "https://x")
+        );
+        _expectRevert(
+            ALICE,
+            callData,
+            abi.encodeWithSelector(IAirdropDistributorErrors.NotSnapshotUriUpdater.selector, ALICE, 0)
+        );
+        _expectRevert(
+            BOB,
+            callData,
+            abi.encodeWithSelector(IAirdropDistributorErrors.NotSnapshotUriUpdater.selector, BOB, 0)
+        );
+        // deployer（本测试合约）同样被拒，memberId 恒为 0
+        _expectRevert(
+            address(this),
+            callData,
+            abi.encodeWithSelector(IAirdropDistributorErrors.NotSnapshotUriUpdater.selector, address(this), 0)
+        );
+    }
+
+    function testSubTokenLauncherMemberIdEqualsLauncherMemberId() external {
+        address subToken = _launchSub(ALICE, aliceMemberId, "SUB");
+        require(
+            distributor.launcherMemberIdByTokenAddress(subToken) == aliceMemberId, "launcher member id recorded"
+        );
+        require(aliceMemberId != 0, "alice member id is non-zero");
+    }
+
+    function testLauncherUpdatesSnapshotUriAndAllViewsSync() external {
+        address subToken = _launchSub(ALICE, aliceMemberId, "SUB");
+        string memory uri = "https://love20bsc.github.io/docs/snapshot.json";
+
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(subToken, uri);
+
+        require(
+            keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken))) == keccak256(bytes(uri)),
+            "single getter returns new uri"
+        );
+        require(keccak256(bytes(_readSnapshotUriFromInfos(subToken))) == keccak256(bytes(uri)), "airdropInfos syncs uri");
+        require(
+            keccak256(bytes(distributor.snapshotUriByTokenAddress(address(firstToken)))) == keccak256(bytes("")),
+            "genesis stays empty"
+        );
+    }
+
+    function testSecondSnapshotUriUpdateEmitsPreviousValue() external {
+        address subToken = _launchSub(ALICE, aliceMemberId, "SUB");
+        string memory first = "ipfs://first-snapshot";
+        string memory second = "https://second-snapshot.json";
+
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(subToken, first);
+
+        vm.recordLogs();
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(subToken, second);
+        AirdropVm.Log[] memory logs = vm.getRecordedLogs();
+
+        (string memory snapshotUri, string memory prevSnapshotUri) = _readSnapshotUriUpdatedEvent(logs, subToken);
+        require(keccak256(bytes(snapshotUri)) == keccak256(bytes(second)), "event carries new uri");
+        require(keccak256(bytes(prevSnapshotUri)) == keccak256(bytes(first)), "prevSnapshotUri equals first uri");
+    }
+
+    function testNonLauncherCannotUpdateSnapshotUri() external {
+        address subToken = _launchSub(ALICE, aliceMemberId, "SUB");
+
+        _expectRevert(
+            BOB,
+            abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (subToken, "https://bob")),
+            abi.encodeWithSelector(
+                IAirdropDistributorErrors.NotSnapshotUriUpdater.selector, BOB, aliceMemberId
+            )
+        );
+        require(
+            keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken))) == keccak256(bytes("")),
+            "uri unchanged after rejected update"
+        );
+    }
+
+    function testUnconfiguredTokenHitsTokenNotConfiguredBeforeAuth() external {
+        address unknown = address(0xdead);
+        require(distributor.merkleRootByTokenAddress(unknown) == bytes32(0), "token not configured");
+        _expectRevert(
+            ALICE,
+            abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (unknown, "https://x")),
+            abi.encodeWithSelector(IAirdropDistributorErrors.TokenNotConfigured.selector, unknown)
+        );
+    }
+
+    function testEmptySnapshotUriReverts() external {
+        address subToken = _launchSub(ALICE, aliceMemberId, "SUB");
+        _expectRevert(
+            ALICE,
+            abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (subToken, "")),
+            abi.encodeWithSelector(IAirdropDistributorErrors.SnapshotUriEmpty.selector)
+        );
+    }
+
+    function testSnapshotUriTooLongRevertsButExactly256Succeeds() external {
+        address subToken = _launchSub(ALICE, aliceMemberId, "SUB");
+        string memory tooLong = _uriOfLength(257);
+        _expectRevert(
+            ALICE,
+            abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (subToken, tooLong)),
+            abi.encodeWithSelector(IAirdropDistributorErrors.SnapshotUriTooLong.selector, 257, 256)
+        );
+        require(
+            keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken))) == keccak256(bytes("")),
+            "no state written on too-long uri"
+        );
+
+        string memory exactly256 = _uriOfLength(256);
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(subToken, exactly256);
+        require(bytes(exactly256).length == 256, "boundary uri length is 256");
+        require(
+            keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken))) == keccak256(bytes(exactly256)),
+            "256-byte uri accepted"
+        );
+    }
+
+    /// 回归证据：NFT 转手后权限实时读取 owner，不缓存旧地址
+    function testSnapshotUriAuthorityFollowsMemberNftTransfer() external {
+        address subToken = _launchSub(ALICE, aliceMemberId, "SUB");
+        require(memberNFT.ownerOf(aliceMemberId) == ALICE, "alice owns her member nft before transfer");
+
+        _transferMember(ALICE, BOB, aliceMemberId);
+        require(memberNFT.ownerOf(aliceMemberId) == BOB, "bob now owns alice's member nft");
+
+        // 旧持有人 alice 被拒，launcherMemberId 仍是记录中的 memberId
+        _expectRevert(
+            ALICE,
+            abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (subToken, "https://alice-after-transfer")),
+            abi.encodeWithSelector(
+                IAirdropDistributorErrors.NotSnapshotUriUpdater.selector, ALICE, aliceMemberId
+            )
+        );
+
+        // 新持有人 bob 更新成功
+        string memory bobUri = "https://bob-owns-the-nft-now";
+        vm.prank(BOB);
+        distributor.updateSnapshotUri(subToken, bobUri);
+        require(
+            keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken))) == keccak256(bytes(bobUri)),
+            "new nft owner can update uri"
+        );
+        require(keccak256(bytes(_readSnapshotUriFromInfos(subToken))) == keccak256(bytes(bobUri)), "infos reflect transfer");
+
+        // 再转回 alice，bob 又失去权限、alice 恢复权限
+        _transferMember(BOB, ALICE, aliceMemberId);
+        _expectRevert(
+            BOB,
+            abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (subToken, "https://bob-again")),
+            abi.encodeWithSelector(
+                IAirdropDistributorErrors.NotSnapshotUriUpdater.selector, BOB, aliceMemberId
+            )
+        );
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(subToken, "https://alice-restored");
+        require(
+            keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken)))
+                == keccak256(bytes("https://alice-restored")),
+            "restored owner can update uri"
+        );
+    }
+
+    function testGithubPagesStyleUrlFitsWithin256Bytes() external {
+        address subToken = _launchSub(ALICE, aliceMemberId, "SUB");
+        string memory uri = "https://love20bsc.github.io/docs/snapshot/0x1234/snapshot.json";
+        require(bytes(uri).length < 256, "real github pages url is well under 256 bytes");
+
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(subToken, uri);
+        require(
+            keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken))) == keccak256(bytes(uri)),
+            "github pages url registered"
+        );
+    }
+
+    function testSnapshotUriDoesNotAffectClaim() external {
+        _rollToPhase(1);
+        bytes32[] memory leaves = _threeLeaves();
+        bytes32 root = _merkleRoot(leaves);
+        address noUri = _launchSubToken(ALICE, aliceMemberId, "NOU", _distributorData(root, 0));
+        address withUri = _launchSubToken(ALICE, aliceMemberId, "WIT", _distributorData(root, 0));
+
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(withUri, "https://love20bsc.github.io/docs/snapshot.json");
+
+        bytes32[] memory proof = _merkleProof(leaves, 0);
+        uint256 poolNoUri = LOVE20Token(noUri).balanceOf(address(distributor));
+        uint256 poolWithUri = LOVE20Token(withUri).balanceOf(address(distributor));
+        require(poolNoUri == poolWithUri, "same funded pool");
+
+        uint256 quotedNoUri = distributor.claimableAmount(noUri, ALICE, ALICE_SHARE, proof);
+        uint256 quotedWithUri = distributor.claimableAmount(withUri, ALICE, ALICE_SHARE, proof);
+        require(quotedNoUri == quotedWithUri, "claimableAmount is uri-independent");
+
+        vm.recordLogs();
+        _claimAs(ALICE, noUri, ALICE_SHARE, proof);
+        AirdropVm.Log[] memory logsNoUri = vm.getRecordedLogs();
+        vm.recordLogs();
+        _claimAs(ALICE, withUri, ALICE_SHARE, proof);
+        AirdropVm.Log[] memory logsWithUri = vm.getRecordedLogs();
+
+        // 领取金额、账本、剩余份额、claimed 标记、AirdropClaimed 事件数据完全一致
+        require(
+            distributor.claimedAmountByTokenAddressByClaimer(noUri, ALICE)
+                == distributor.claimedAmountByTokenAddressByClaimer(withUri, ALICE),
+            "claimed amount identical"
+        );
+        require(
+            distributor.claimedShareByTokenAddress(noUri) == distributor.claimedShareByTokenAddress(withUri),
+            "claimed share identical"
+        );
+        require(
+            distributor.remainingShareByTokenAddress(noUri) == distributor.remainingShareByTokenAddress(withUri),
+            "remaining share identical"
+        );
+        require(
+            distributor.isClaimedByTokenAddressByClaimer(noUri, ALICE)
+                == distributor.isClaimedByTokenAddressByClaimer(withUri, ALICE),
+            "claimed flag identical"
+        );
+        require(LOVE20Token(noUri).balanceOf(ALICE) == LOVE20Token(withUri).balanceOf(ALICE), "payout identical");
+        require(
+            keccak256(_claimEventData(logsNoUri, noUri)) == keccak256(_claimEventData(logsWithUri, withUri)),
+            "AirdropClaimed event data identical"
+        );
+    }
+
     // ============ Helpers ============
 
     /// 在既有系统之外重新部署一套，用于需要指定创世延迟的场景
     function _deploySystemSpecifyingGenesisDelay(uint256 genesisClaimDelayRounds) private {
         _deploySystem(GENESIS_ROOT, genesisClaimDelayRounds);
+    }
+
+    function _readSnapshotUriUpdatedEvent(AirdropVm.Log[] memory logs, address tokenAddress)
+        private
+        pure
+        returns (string memory snapshotUri, string memory prevSnapshotUri)
+    {
+        bytes32 topic = keccak256("AirdropSnapshotUriUpdated(address,string,string)");
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics.length == 0 || logs[i].topics[0] != topic) continue;
+            if (logs[i].topics.length != 2) require(false, "only tokenAddress indexed");
+            if (logs[i].topics[1] != bytes32(uint256(uint160(tokenAddress)))) continue;
+            (snapshotUri, prevSnapshotUri) = abi.decode(logs[i].data, (string, string));
+            found = true;
+        }
+        require(found, "missing AirdropSnapshotUriUpdated");
+    }
+
+    /// 取出某 token 的 AirdropClaimed 事件 data（去掉 indexed topic 中的 token 差异）
+    function _claimEventData(AirdropVm.Log[] memory logs, address tokenAddress)
+        private
+        pure
+        returns (bytes memory data)
+    {
+        bytes32 topic = keccak256("AirdropClaimed(address,address,uint256,uint256,uint256)");
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics.length == 0 || logs[i].topics[0] != topic) continue;
+            if (logs[i].topics[1] != bytes32(uint256(uint160(tokenAddress)))) continue;
+            data = logs[i].data;
+            return data;
+        }
+        require(false, "missing AirdropClaimed");
     }
 }

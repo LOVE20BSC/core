@@ -25,3 +25,4 @@ ProposalSubmitted core.proposal
 VoteCast core.proposal
 AirdropClaimed core.distributor
 AirdropConfigured core.distributor
+AirdropSnapshotUriUpdated core.distributor
