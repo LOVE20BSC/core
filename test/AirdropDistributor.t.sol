@@ -30,30 +30,30 @@ contract AirdropDistributorTest is LaunchDeployFixture {
 
     function testConstructorShipsWithoutReentrancyGuardSemantics() external view {
         // 合约不继承 ReentrancyGuard：claim 走 CEI，重复领取由账本拦截
-        require(distributor.isClaimedByTokenAddressByClaimer(address(firstToken), ALICE) == false, "fresh");
-        require(distributor.remainingShareByTokenAddress(address(firstToken)) == TOTAL_SHARE, "full share");
+        require(distributor.isClaimed(address(firstToken), ALICE) == false, "fresh");
+        require(distributor.airdropInfo(address(firstToken)).totalRemainingShare == TOTAL_SHARE, "full share");
         require(address(distributor).code.length != 0, "deployed");
     }
 
     // ============ 2. 首币在构造期完成配置 ============
 
     function testGenesisTokenIsConfiguredInConstructor() external view {
-        require(distributor.merkleRootByTokenAddress(address(firstToken)) == GENESIS_ROOT, "genesis root");
-        require(distributor.claimableFromRoundByTokenAddress(address(firstToken)) == 1, "genesis claimable round");
-        require(distributor.claimedShareByTokenAddress(address(firstToken)) == 0, "no claimed share");
+        require(distributor.airdropInfo(address(firstToken)).merkleRoot == GENESIS_ROOT, "genesis root");
+        require(distributor.airdropInfo(address(firstToken)).claimableFromRound == 1, "genesis claimable round");
+        require(distributor.airdropInfo(address(firstToken)).totalClaimedShare == 0, "no claimed share");
     }
 
     function testGenesisTokenConfiguresWithDelay() external {
         _deploySystemSpecifyingGenesisDelay(5);
         // Phase 尚未开始，baseRound 夹取为 1
-        require(distributor.claimableFromRoundByTokenAddress(address(firstToken)) == 6, "gated by delay");
+        require(distributor.airdropInfo(address(firstToken)).claimableFromRound == 6, "gated by delay");
     }
 
     // ============ 3. 创世前夹取：currentPhase()==0 ============
 
     function testGenesisPendingPhaseClampsBaseRoundToOne() external view {
         require(phase.currentPhase() == 0, "phase not started");
-        require(distributor.claimableFromRoundByTokenAddress(address(firstToken)) == 1, "base round clamped to 1");
+        require(distributor.airdropInfo(address(firstToken)).claimableFromRound == 1, "base round clamped to 1");
     }
 
     function testClaimBeforeGenesisRevertsWithClaimRoundNotReached() external {
@@ -71,10 +71,10 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         bytes32 subRoot = keccak256("sub root");
         address subToken = _launchSubToken(ALICE, aliceMemberId, "SUB", _distributorData(subRoot, 2));
 
-        require(distributor.merkleRootByTokenAddress(subToken) == subRoot, "sub root");
-        require(distributor.claimableFromRoundByTokenAddress(subToken) == 3, "base 1 + delay 2");
-        require(distributor.claimedShareByTokenAddress(subToken) == 0, "no claimed share");
-        require(distributor.merkleRootByTokenAddress(subToken) != GENESIS_ROOT, "distinct from genesis");
+        require(distributor.airdropInfo(subToken).merkleRoot == subRoot, "sub root");
+        require(distributor.airdropInfo(subToken).claimableFromRound == 3, "base 1 + delay 2");
+        require(distributor.airdropInfo(subToken).totalClaimedShare == 0, "no claimed share");
+        require(distributor.airdropInfo(subToken).merkleRoot != GENESIS_ROOT, "distinct from genesis");
     }
 
     function testSubTokenLaunchDeliversSupplyToDistributor() external {
@@ -88,20 +88,20 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         bytes32 subRoot = keccak256("sub root");
         address subToken = _launchSubToken(ALICE, aliceMemberId, "SUB", _distributorData(subRoot, 3));
 
-        require(distributor.merkleRootByTokenAddress(address(firstToken)) == GENESIS_ROOT, "genesis root kept");
-        require(distributor.merkleRootByTokenAddress(subToken) == subRoot, "sub root kept");
-        require(distributor.claimableFromRoundByTokenAddress(address(firstToken)) == 1, "genesis round kept");
-        require(distributor.claimableFromRoundByTokenAddress(subToken) == 4, "sub round kept");
+        require(distributor.airdropInfo(address(firstToken)).merkleRoot == GENESIS_ROOT, "genesis root kept");
+        require(distributor.airdropInfo(subToken).merkleRoot == subRoot, "sub root kept");
+        require(distributor.airdropInfo(address(firstToken)).claimableFromRound == 1, "genesis round kept");
+        require(distributor.airdropInfo(subToken).claimableFromRound == 4, "sub round kept");
 
         _rollToPhase(1);
         bytes32[] memory empty = new bytes32[](0);
         (bool ok, ) = _callAs(ALICE, abi.encodeCall(IAirdropDistributor.claim, (address(firstToken), 1e17, empty)));
         require(!ok, "genesis claim needs a proof");
 
-        require(distributor.claimedShareByTokenAddress(address(firstToken)) == 0, "genesis untouched");
-        require(distributor.claimedShareByTokenAddress(subToken) == 0, "sub untouched");
-        require(distributor.remainingShareByTokenAddress(address(firstToken)) == TOTAL_SHARE, "genesis remaining");
-        require(distributor.remainingShareByTokenAddress(subToken) == TOTAL_SHARE, "sub remaining");
+        require(distributor.airdropInfo(address(firstToken)).totalClaimedShare == 0, "genesis untouched");
+        require(distributor.airdropInfo(subToken).totalClaimedShare == 0, "sub untouched");
+        require(distributor.airdropInfo(address(firstToken)).totalRemainingShare == TOTAL_SHARE, "genesis remaining");
+        require(distributor.airdropInfo(subToken).totalRemainingShare == TOTAL_SHARE, "sub remaining");
     }
 
     // ============ 6. 领取成功 ============
@@ -126,11 +126,11 @@ contract AirdropDistributorTest is LaunchDeployFixture {
             "distributor debited"
         );
         require(
-            distributor.claimedAmountByTokenAddressByClaimer(subToken, ALICE) == expectedAmount, "amount ledger"
+            distributor.claimedAmount(subToken, ALICE) == expectedAmount, "amount ledger"
         );
-        require(distributor.claimedShareByTokenAddress(subToken) == share, "share ledger");
-        require(distributor.remainingShareByTokenAddress(subToken) == TOTAL_SHARE - share, "remaining ledger");
-        require(distributor.isClaimedByTokenAddressByClaimer(subToken, ALICE), "claimed flag");
+        require(distributor.airdropInfo(subToken).totalClaimedShare == share, "share ledger");
+        require(distributor.airdropInfo(subToken).totalRemainingShare == TOTAL_SHARE - share, "remaining ledger");
+        require(distributor.isClaimed(subToken, ALICE), "claimed flag");
     }
 
     function testClaimReturnsAmountThroughLowLevelCall() external {
@@ -147,7 +147,7 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         require(ok, "claim succeeded");
         uint256 amount = abi.decode(data, (uint256));
         require(amount == LAUNCH_AMOUNT * share / TOTAL_SHARE, "returned amount");
-        require(amount == distributor.claimedAmountByTokenAddressByClaimer(subToken, ALICE), "matches ledger");
+        require(amount == distributor.claimedAmount(subToken, ALICE), "matches ledger");
     }
 
     // ============ 7. 动态池：比例分配、末位清零 ============
@@ -179,7 +179,7 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         require(aliceAmount < bobAmount && bobAmount < carolAmount, "ascending payouts");
         require(aliceAmount + bobAmount + carolAmount == pool, "pool fully distributed");
         require(token.balanceOf(address(distributor)) == 0, "balance drained by the last claimer");
-        require(distributor.remainingShareByTokenAddress(subToken) == 0, "share exhausted");
+        require(distributor.airdropInfo(subToken).totalRemainingShare == 0, "share exhausted");
     }
 
     function testLaterClaimerBenefitFromPoolGrowth() external {
@@ -211,7 +211,7 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         require(remainingShare == CAROL_SHARE, "last leaf consumes the rest of the share");
         require(token.balanceOf(CAROL) == poolBeforeCarol, "last claimer drains the residual pool");
         require(token.balanceOf(address(distributor)) == 0, "pool drained");
-        require(distributor.remainingShareByTokenAddress(subToken) == 0, "share exhausted");
+        require(distributor.airdropInfo(subToken).totalRemainingShare == 0, "share exhausted");
     }
 
     // ============ 8. claimableAmount 与 claim 一致 ============
@@ -263,10 +263,10 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         bytes32[] memory leaves = _threeLeaves();
         address subToken =
             _launchSubToken(ALICE, aliceMemberId, "SUB", _distributorData(_merkleRoot(leaves), 0));
-        require(distributor.claimableFromRoundByTokenAddress(subToken) == 4, "same round");
+        require(distributor.airdropInfo(subToken).claimableFromRound == 4, "same round");
 
         _claimAs(ALICE, subToken, ALICE_SHARE, _merkleProof(leaves, 0));
-        require(distributor.isClaimedByTokenAddressByClaimer(subToken, ALICE), "claimed immediately");
+        require(distributor.isClaimed(subToken, ALICE), "claimed immediately");
     }
 
     function testOneRoundDelayBecomesClaimableOnlyInTheNextRound() external {
@@ -275,7 +275,7 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         bytes32[] memory leaves = _threeLeaves();
         address subToken =
             _launchSubToken(ALICE, aliceMemberId, "SUB", _distributorData(_merkleRoot(leaves), 1));
-        require(distributor.claimableFromRoundByTokenAddress(subToken) == 5, "next round");
+        require(distributor.airdropInfo(subToken).claimableFromRound == 5, "next round");
 
         _assertRevertSelector(
             ALICE,
@@ -285,7 +285,7 @@ contract AirdropDistributorTest is LaunchDeployFixture {
 
         _rollToPhase(5);
         _claimAs(ALICE, subToken, ALICE_SHARE, _merkleProof(leaves, 0));
-        require(distributor.isClaimedByTokenAddressByClaimer(subToken, ALICE), "claimed next round");
+        require(distributor.isClaimed(subToken, ALICE), "claimed next round");
     }
 
     function testGenesisPendingPhaseCannotClaimBeforeOriginAndPaysAfter() external {
@@ -294,7 +294,7 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         address subToken =
             _launchSubToken(ALICE, aliceMemberId, "SUB", _distributorData(_merkleRoot(leaves), 0));
         require(phase.currentPhase() == 0, "still pre-genesis");
-        require(distributor.claimableFromRoundByTokenAddress(subToken) == 1, "clamped to round 1");
+        require(distributor.airdropInfo(subToken).claimableFromRound == 1, "clamped to round 1");
 
         _assertRevertSelector(
             ALICE,
@@ -304,7 +304,7 @@ contract AirdropDistributorTest is LaunchDeployFixture {
 
         _rollToPhase(1);
         _claimAs(ALICE, subToken, ALICE_SHARE, _merkleProof(leaves, 0));
-        require(distributor.isClaimedByTokenAddressByClaimer(subToken, ALICE), "claimable at round 1");
+        require(distributor.isClaimed(subToken, ALICE), "claimable at round 1");
     }
 
     // ============ 分页 airdropInfos ============
@@ -357,17 +357,23 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         require(genesisInfo.tokenAddress == address(firstToken), "genesis address");
         require(genesisInfo.merkleRoot == GENESIS_ROOT, "genesis root");
         require(genesisInfo.claimableFromRound == 1, "genesis round");
-        require(genesisInfo.claimedShare == 0, "genesis claimed share");
-        require(genesisInfo.remainingShare == TOTAL_SHARE, "genesis remaining");
-        require(genesisInfo.contractBalance == LAUNCH_AMOUNT, "genesis balance");
+        require(genesisInfo.totalClaimedShare == 0, "genesis claimed share");
+        require(genesisInfo.totalRemainingShare == TOTAL_SHARE, "genesis remaining");
+        require(genesisInfo.remainingAmount == LAUNCH_AMOUNT, "genesis balance");
+        require(genesisInfo.totalClaimedAmount == 0, "genesis nothing claimed");
 
         AirdropInfo memory subInfo = infos[1];
         require(subInfo.tokenAddress == subToken, "sub address");
         require(subInfo.merkleRoot == root, "sub root");
         require(subInfo.claimableFromRound == 3, "sub round");
-        require(subInfo.claimedShare == ALICE_SHARE, "sub claimed share");
-        require(subInfo.remainingShare == TOTAL_SHARE - ALICE_SHARE, "sub remaining");
-        require(subInfo.contractBalance == LAUNCH_AMOUNT - 10 ether, "sub balance");
+        require(subInfo.totalClaimedShare == ALICE_SHARE, "sub claimed share");
+        require(subInfo.totalRemainingShare == TOTAL_SHARE - ALICE_SHARE, "sub remaining");
+        require(subInfo.remainingAmount == LAUNCH_AMOUNT - 10 ether, "sub balance");
+        require(
+            subInfo.totalClaimedAmount + subInfo.remainingAmount == LAUNCH_AMOUNT,
+            "claimed plus remaining conserves supply"
+        );
+        require(subInfo.totalClaimedAmount > 0, "sub amount claimed");
     }
 
     // ============ 23. 快照 URI：常量 / 创世币 / 权限 / 边界 ============
@@ -398,11 +404,11 @@ contract AirdropDistributorTest is LaunchDeployFixture {
     }
 
     function testGenesisTokenHasZeroLauncherMemberIdAndEmptySnapshotUri() external view {
+        // launcherMemberId has no getter: it is not part of AirdropInfo. Genesis is permanently
+        // non-updatable because memberId 0 is never minted; this is proven behaviourally by
+        // testGenesisSnapshotUriIsPermanentlyNonUpdatableForAnyCaller.
         require(
-            distributor.launcherMemberIdByTokenAddress(address(firstToken)) == 0, "genesis launcher member id is 0"
-        );
-        require(
-            keccak256(bytes(distributor.snapshotUriByTokenAddress(address(firstToken)))) == keccak256(bytes("")),
+            keccak256(bytes(distributor.airdropInfo(address(firstToken)).snapshotUri)) == keccak256(bytes("")),
             "genesis snapshot uri empty"
         );
         require(keccak256(bytes(_readSnapshotUriFromInfos(address(firstToken)))) == keccak256(bytes("")), "genesis infos uri empty");
@@ -433,10 +439,20 @@ contract AirdropDistributorTest is LaunchDeployFixture {
 
     function testSubTokenLauncherMemberIdEqualsLauncherMemberId() external {
         address subToken = _launchSub(ALICE, aliceMemberId, "SUB");
-        require(
-            distributor.launcherMemberIdByTokenAddress(subToken) == aliceMemberId, "launcher member id recorded"
-        );
         require(aliceMemberId != 0, "alice member id is non-zero");
+        // launcherMemberId is intentionally not exposed. Assert it behaviourally: the recorded
+        // launcher (alice) is the only address allowed to update this token's snapshot URI.
+        _assertRevertSelector(
+            BOB,
+            abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (subToken, "https://x")),
+            IAirdropDistributorErrors.NotSnapshotUriUpdater.selector
+        );
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(subToken, "https://x");
+        require(
+            keccak256(bytes(distributor.airdropInfo(subToken).snapshotUri)) == keccak256(bytes("https://x")),
+            "launcher recorded"
+        );
     }
 
     function testLauncherUpdatesSnapshotUriAndAllViewsSync() external {
@@ -447,12 +463,12 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         distributor.updateSnapshotUri(subToken, uri);
 
         require(
-            keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken))) == keccak256(bytes(uri)),
+            keccak256(bytes(distributor.airdropInfo(subToken).snapshotUri)) == keccak256(bytes(uri)),
             "single getter returns new uri"
         );
         require(keccak256(bytes(_readSnapshotUriFromInfos(subToken))) == keccak256(bytes(uri)), "airdropInfos syncs uri");
         require(
-            keccak256(bytes(distributor.snapshotUriByTokenAddress(address(firstToken)))) == keccak256(bytes("")),
+            keccak256(bytes(distributor.airdropInfo(address(firstToken)).snapshotUri)) == keccak256(bytes("")),
             "genesis stays empty"
         );
     }
@@ -486,14 +502,14 @@ contract AirdropDistributorTest is LaunchDeployFixture {
             )
         );
         require(
-            keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken))) == keccak256(bytes("")),
+            keccak256(bytes(distributor.airdropInfo(subToken).snapshotUri)) == keccak256(bytes("")),
             "uri unchanged after rejected update"
         );
     }
 
     function testUnconfiguredTokenHitsTokenNotConfiguredBeforeAuth() external {
         address unknown = address(0xdead);
-        require(distributor.merkleRootByTokenAddress(unknown) == bytes32(0), "token not configured");
+        require(distributor.airdropInfo(unknown).merkleRoot == bytes32(0), "token not configured");
         _expectRevert(
             ALICE,
             abi.encodeCall(IAirdropDistributor.updateSnapshotUri, (unknown, "https://x")),
@@ -519,7 +535,7 @@ contract AirdropDistributorTest is LaunchDeployFixture {
             abi.encodeWithSelector(IAirdropDistributorErrors.SnapshotUriTooLong.selector, 257, 256)
         );
         require(
-            keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken))) == keccak256(bytes("")),
+            keccak256(bytes(distributor.airdropInfo(subToken).snapshotUri)) == keccak256(bytes("")),
             "no state written on too-long uri"
         );
 
@@ -528,7 +544,7 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         distributor.updateSnapshotUri(subToken, exactly256);
         require(bytes(exactly256).length == 256, "boundary uri length is 256");
         require(
-            keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken))) == keccak256(bytes(exactly256)),
+            keccak256(bytes(distributor.airdropInfo(subToken).snapshotUri)) == keccak256(bytes(exactly256)),
             "256-byte uri accepted"
         );
     }
@@ -555,7 +571,7 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         vm.prank(BOB);
         distributor.updateSnapshotUri(subToken, bobUri);
         require(
-            keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken))) == keccak256(bytes(bobUri)),
+            keccak256(bytes(distributor.airdropInfo(subToken).snapshotUri)) == keccak256(bytes(bobUri)),
             "new nft owner can update uri"
         );
         require(keccak256(bytes(_readSnapshotUriFromInfos(subToken))) == keccak256(bytes(bobUri)), "infos reflect transfer");
@@ -572,7 +588,7 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         vm.prank(ALICE);
         distributor.updateSnapshotUri(subToken, "https://alice-restored");
         require(
-            keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken)))
+            keccak256(bytes(distributor.airdropInfo(subToken).snapshotUri))
                 == keccak256(bytes("https://alice-restored")),
             "restored owner can update uri"
         );
@@ -586,7 +602,7 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         vm.prank(ALICE);
         distributor.updateSnapshotUri(subToken, uri);
         require(
-            keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken))) == keccak256(bytes(uri)),
+            keccak256(bytes(distributor.airdropInfo(subToken).snapshotUri)) == keccak256(bytes(uri)),
             "github pages url registered"
         );
     }
@@ -619,21 +635,21 @@ contract AirdropDistributorTest is LaunchDeployFixture {
 
         // 领取金额、账本、剩余份额、claimed 标记、AirdropClaimed 事件数据完全一致
         require(
-            distributor.claimedAmountByTokenAddressByClaimer(noUri, ALICE)
-                == distributor.claimedAmountByTokenAddressByClaimer(withUri, ALICE),
+            distributor.claimedAmount(noUri, ALICE)
+                == distributor.claimedAmount(withUri, ALICE),
             "claimed amount identical"
         );
         require(
-            distributor.claimedShareByTokenAddress(noUri) == distributor.claimedShareByTokenAddress(withUri),
+            distributor.airdropInfo(noUri).totalClaimedShare == distributor.airdropInfo(withUri).totalClaimedShare,
             "claimed share identical"
         );
         require(
-            distributor.remainingShareByTokenAddress(noUri) == distributor.remainingShareByTokenAddress(withUri),
+            distributor.airdropInfo(noUri).totalRemainingShare == distributor.airdropInfo(withUri).totalRemainingShare,
             "remaining share identical"
         );
         require(
-            distributor.isClaimedByTokenAddressByClaimer(noUri, ALICE)
-                == distributor.isClaimedByTokenAddressByClaimer(withUri, ALICE),
+            distributor.isClaimed(noUri, ALICE)
+                == distributor.isClaimed(withUri, ALICE),
             "claimed flag identical"
         );
         require(LOVE20Token(noUri).balanceOf(ALICE) == LOVE20Token(withUri).balanceOf(ALICE), "payout identical");
@@ -665,6 +681,83 @@ contract AirdropDistributorTest is LaunchDeployFixture {
             found = true;
         }
         require(found, "missing AirdropSnapshotUriUpdated");
+    }
+
+
+    // ============ 24. airdropInfo 单条读取与累计金额守恒 ============
+
+    function testAirdropInfoMatchesPagedEntryForEveryField() external {
+        _rollToPhase(1);
+        bytes32[] memory leaves = _threeLeaves();
+        address subToken = _launchSubToken(ALICE, aliceMemberId, "SUB", _distributorData(_merkleRoot(leaves), 0));
+        _claimAs(ALICE, subToken, ALICE_SHARE, _merkleProof(leaves, 0));
+        vm.prank(ALICE);
+        distributor.updateSnapshotUri(subToken, "https://love20bsc.github.io/docs/s.json");
+
+        AirdropInfo memory single = distributor.airdropInfo(subToken);
+        (AirdropInfo[] memory infos, ) = distributor.airdropInfos(0, 10, false);
+        AirdropInfo memory paged = infos[1];
+
+        require(single.tokenAddress == paged.tokenAddress, "tokenAddress");
+        require(single.merkleRoot == paged.merkleRoot, "merkleRoot");
+        require(single.claimableFromRound == paged.claimableFromRound, "round");
+        require(single.totalClaimedShare == paged.totalClaimedShare, "totalClaimedShare");
+        require(single.totalRemainingShare == paged.totalRemainingShare, "totalRemainingShare");
+        require(single.totalClaimedAmount == paged.totalClaimedAmount, "totalClaimedAmount");
+        require(single.remainingAmount == paged.remainingAmount, "remainingAmount");
+        require(keccak256(bytes(single.snapshotUri)) == keccak256(bytes(paged.snapshotUri)), "snapshotUri");
+    }
+
+    function testTotalClaimedAmountAccumulatesAndConservesSupply() external {
+        _rollToPhase(1);
+        bytes32[] memory leaves = _threeLeaves();
+        address subToken = _launchSubToken(ALICE, aliceMemberId, "SUB", _distributorData(_merkleRoot(leaves), 0));
+
+        require(distributor.airdropInfo(subToken).totalClaimedAmount == 0, "nothing claimed yet");
+
+        uint256 balanceBeforeFirst = distributor.airdropInfo(subToken).remainingAmount;
+        _claimAs(ALICE, subToken, ALICE_SHARE, _merkleProof(leaves, 0));
+        AirdropInfo memory afterFirst = distributor.airdropInfo(subToken);
+        uint256 first = balanceBeforeFirst - afterFirst.remainingAmount;
+        require(first > 0, "first claim paid out");
+        require(afterFirst.totalClaimedAmount == first, "first amount recorded");
+        require(
+            afterFirst.totalClaimedAmount + afterFirst.remainingAmount == LAUNCH_AMOUNT,
+            "conserved after first"
+        );
+
+        uint256 balanceBeforeSecond = afterFirst.remainingAmount;
+        _claimAs(BOB, subToken, BOB_SHARE, _merkleProof(leaves, 1));
+        AirdropInfo memory afterSecond = distributor.airdropInfo(subToken);
+        uint256 second = balanceBeforeSecond - afterSecond.remainingAmount;
+        require(second > 0, "second claim paid out");
+        require(afterSecond.totalClaimedAmount == first + second, "amounts accumulate");
+        require(afterSecond.totalClaimedShare == ALICE_SHARE + BOB_SHARE, "shares accumulate");
+        require(
+            afterSecond.totalClaimedAmount + afterSecond.remainingAmount == LAUNCH_AMOUNT,
+            "conserved after second"
+        );
+    }
+
+    function testAirdropInfoOnUnconfiguredTokenReturnsDefault() external view {
+        address unknown = address(0xBEEF);
+        AirdropInfo memory info = distributor.airdropInfo(unknown);
+        require(info.tokenAddress == address(0), "zero address");
+        require(info.merkleRoot == bytes32(0), "zero root");
+        require(info.claimableFromRound == 0, "zero round");
+        require(info.totalClaimedShare == 0, "zero claimed share");
+        require(info.totalRemainingShare == 0, "zero remaining share");
+        require(info.totalClaimedAmount == 0, "zero claimed amount");
+        require(info.remainingAmount == 0, "zero remaining amount");
+        require(bytes(info.snapshotUri).length == 0, "empty uri");
+    }
+
+    function testAirdropInfoBeforeGenesisTokenExistsDoesNotRevert() external view {
+        // The genesis token is configured in AirdropDistributor's constructor, before Launch
+        // creates it. airdropInfo must still be readable at that point without balanceOf reverting.
+        AirdropInfo memory info = distributor.airdropInfo(address(firstToken));
+        require(info.merkleRoot == GENESIS_ROOT, "configured root readable");
+        require(info.remainingAmount == LAUNCH_AMOUNT, "balance readable once token exists");
     }
 
     /// 取出某 token 的 AirdropClaimed 事件 data（去掉 indexed topic 中的 token 差异）

@@ -403,16 +403,29 @@ verify_value "TOTAL_SHARE" "1000000000000000000" "$ACTUAL_TOTAL_SHARE" || ((FAIL
 ACTUAL_MAX_CLAIM_DELAY=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "MAX_CLAIM_DELAY_ROUNDS()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "MAX_CLAIM_DELAY_ROUNDS" "1000" "$ACTUAL_MAX_CLAIM_DELAY" || ((FAILED+=1))
 
-ACTUAL_GENESIS_ROOT=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "merkleRootByTokenAddress(address)(bytes32)" "$LOVE20_TOKEN_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+# One tuple read covers every per-token field. `cast abi-decode --json` plus `jq` keeps the
+# parsing stable even when snapshotUri contains commas or quotes, which a plain comma split would
+# get wrong. Field order matches AirdropInfo: tokenAddress, merkleRoot, claimableFromRound,
+# totalClaimedShare, totalRemainingShare, totalClaimedAmount, remainingAmount, snapshotUri.
+AIRDROP_INFO_SIG="airdropInfo(address)((address,bytes32,uint256,uint256,uint256,uint256,uint256,string))"
+AIRDROP_INFO_RAW=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "$AIRDROP_INFO_SIG" "$LOVE20_TOKEN_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+AIRDROP_INFO_JSON=$(cast abi-decode --json "$AIRDROP_INFO_SIG" "$AIRDROP_INFO_RAW" 2>/dev/null || echo "ERROR")
+airdrop_field() {
+    printf '%s' "$AIRDROP_INFO_JSON" | jq -r ".data[0][$1]" 2>/dev/null || echo "ERROR"
+}
+ACTUAL_GENESIS_ROOT=$(airdrop_field 1)
+ACTUAL_CLAIMED_SHARE=$(airdrop_field 3)
+ACTUAL_REMAINING_SHARE=$(airdrop_field 4)
+ACTUAL_CLAIMED_AMOUNT=$(airdrop_field 5)
+ACTUAL_REMAINING_AMOUNT=$(airdrop_field 6)
+
 verify_value "genesis merkle root" "$GENESIS_AIRDROP_MERKLE_ROOT" "$ACTUAL_GENESIS_ROOT" || ((FAILED+=1))
 
 # claimedShare is 0 only while nobody has claimed the genesis token: this step is an idempotent
 # read-only check of the deployment, not a timeless invariant.
-ACTUAL_GENESIS_CLAIMED_SHARE=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "claimedShareByTokenAddress(address)(uint256)" "$LOVE20_TOKEN_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "genesis claimed share" "0" "$ACTUAL_GENESIS_CLAIMED_SHARE" || ((FAILED+=1))
+verify_value "genesis claimed share" "0" "$ACTUAL_CLAIMED_SHARE" || ((FAILED+=1))
 
-ACTUAL_GENESIS_REMAINING_SHARE=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "remainingShareByTokenAddress(address)(uint256)" "$LOVE20_TOKEN_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
-verify_value "genesis remaining share" "1000000000000000000" "$ACTUAL_GENESIS_REMAINING_SHARE" || ((FAILED+=1))
+verify_value "genesis remaining share" "1000000000000000000" "$ACTUAL_REMAINING_SHARE" || ((FAILED+=1))
 
 # AirdropDistributor records `max(round at its deployment block, 1) + delay` at construction time and
 # never updates it, so the expected value must NOT be recomputed from the current round: once Phase
@@ -420,7 +433,7 @@ verify_value "genesis remaining share" "1000000000000000000" "$ACTUAL_GENESIS_RE
 # expectation and report a false failure on every re-run. The exact equality is asserted at deploy
 # time by `DeployCore._validateDeployment`, which reads the round in the same block. Here the check is
 # time-invariant: the base round was a real past-or-current round and never below the clamp floor.
-ACTUAL_CLAIMABLE_FROM=$(cast call "$AIRDROP_DISTRIBUTOR_ADDRESS" "claimableFromRoundByTokenAddress(address)(uint256)" "$LOVE20_TOKEN_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+ACTUAL_CLAIMABLE_FROM=$(airdrop_field 2)
 ACTUAL_CLAIMABLE_FROM=$(normalize_output "$ACTUAL_CLAIMABLE_FROM")
 ACTUAL_CURRENT_PHASE=$(cast call "$PHASE_ADDRESS" "currentPhase()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 ACTUAL_CURRENT_PHASE=$(normalize_output "$ACTUAL_CURRENT_PHASE")
@@ -579,6 +592,18 @@ decimal_add() {
     [ "$carry" -ne 0 ] && out="${carry}${out}"
     echo "$out"
 }
+
+# totalClaimedAmount + remainingAmount == the genesis supply. Both sides are read from chain, so the
+# identity holds after the first claim lands too; the supply itself is LAUNCH_AMOUNT because the
+# genesis token's whole first supply is minted to this distributor. Sum with decimal_add: LAUNCH_AMOUNT
+# is 1e27, well beyond bash's signed 64-bit range.
+genesis_supply_sum=$(decimal_add "$ACTUAL_CLAIMED_AMOUNT" "$ACTUAL_REMAINING_AMOUNT")
+if [ "$(decimal_cmp "$genesis_supply_sum" "$LAUNCH_AMOUNT")" -eq 0 ]; then
+    echo -e "  ${GREEN}✓${NC} genesis supply conservation ($ACTUAL_CLAIMED_AMOUNT + $ACTUAL_REMAINING_AMOUNT == $LAUNCH_AMOUNT)"
+else
+    echo -e "  ${RED}✗${NC} genesis supply conservation failed: $ACTUAL_CLAIMED_AMOUNT + $ACTUAL_REMAINING_AMOUNT != $LAUNCH_AMOUNT"
+    ((FAILED+=1))
+fi
 
 if [ "$(decimal_cmp "$ACTUAL_LAUNCH_AMOUNT" "$ACTUAL_LAUNCH_MAX_SUPPLY")" -gt 0 ]; then
     echo -e "  ${RED}✗${NC} LAUNCH_AMOUNT > MAX_SUPPLY"

@@ -132,8 +132,8 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
         vm.prank(address(launch));
         distributor.onTokenLaunched(tokenAddress, address(firstToken), 1, data);
 
-        require(distributor.claimableFromRoundByTokenAddress(tokenAddress) == 1002, "base 2 + 1000");
-        require(distributor.merkleRootByTokenAddress(tokenAddress) == keccak256("max delay"), "configured");
+        require(distributor.airdropInfo(tokenAddress).claimableFromRound == 1002, "base 2 + 1000");
+        require(distributor.airdropInfo(tokenAddress).merkleRoot == keccak256("max delay"), "configured");
     }
 
     function testOnTokenLaunchedRejectsClaimDelayRoundsAboveMaximum() external {
@@ -173,7 +173,7 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
             ),
             abi.encodeWithSelector(IAirdropDistributorErrors.TokenAlreadyConfigured.selector, subToken)
         );
-        require(distributor.merkleRootByTokenAddress(subToken) == root, "original root intact");
+        require(distributor.airdropInfo(subToken).merkleRoot == root, "original root intact");
     }
 
     function testTokenAlreadyConfiguredOutranksOtherChecks() external {
@@ -225,7 +225,7 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
         _rollToPhase(1);
         bytes32[] memory leaves = _threeLeaves();
         address subToken = _launchSubToken(ALICE, aliceMemberId, "SUB", _distributorData(_merkleRoot(leaves), 2));
-        require(distributor.claimableFromRoundByTokenAddress(subToken) == 3, "round 3");
+        require(distributor.airdropInfo(subToken).claimableFromRound == 3, "round 3");
 
         _expectRevert(
             ALICE,
@@ -282,7 +282,7 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
         (ok, ) = _callAs(ALICE, abi.encodeCall(IAirdropDistributor.claim, (subToken, ALICE_SHARE, proof)));
         require(!ok, "second claim reverts");
         require(
-            distributor.claimedAmountByTokenAddressByClaimer(subToken, ALICE) == firstAmount, "amount unchanged"
+            distributor.claimedAmount(subToken, ALICE) == firstAmount, "amount unchanged"
         );
     }
 
@@ -325,7 +325,7 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
         address subToken = _launchSubToken(ALICE, aliceMemberId, "SUB", _distributorData(_merkleRoot(leaves), 0));
 
         _claimAs(CAROL, subToken, CAROL_SHARE, _merkleProof(leaves, 2));
-        uint256 remaining = distributor.remainingShareByTokenAddress(subToken);
+        uint256 remaining = distributor.airdropInfo(subToken).totalRemainingShare;
         require(remaining == TOTAL_SHARE - CAROL_SHARE, "remaining after carol");
 
         // 单叶树：ALICE 的份额正好等于整个 TOTAL_SHARE，即 claim 时 remaining 恰好等于 share
@@ -336,7 +336,7 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
 
         uint256 pool = LOVE20Token(exactToken).balanceOf(address(distributor));
         _claimAs(ALICE, exactToken, TOTAL_SHARE, _merkleProof(single, 0));
-        require(distributor.remainingShareByTokenAddress(exactToken) == 0, "exact share exhausts");
+        require(distributor.airdropInfo(exactToken).totalRemainingShare == 0, "exact share exhausts");
         require(LOVE20Token(exactToken).balanceOf(address(distributor)) == 0, "pool drained");
         require(LOVE20Token(exactToken).balanceOf(ALICE) == pool, "full pool paid out");
     }
@@ -395,8 +395,8 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
             abi.encodeCall(IAirdropDistributor.claim, (subToken, 0, new bytes32[](0))),
             IAirdropDistributorErrors.InvalidProof.selector
         );
-        require(distributor.claimedShareByTokenAddress(subToken) == 0, "no state written");
-        require(!distributor.isClaimedByTokenAddressByClaimer(subToken, ALICE), "not marked claimed");
+        require(distributor.airdropInfo(subToken).totalClaimedShare == 0, "no state written");
+        require(!distributor.isClaimed(subToken, ALICE), "not marked claimed");
     }
 
     function testZeroShareDoesNotTriggerShareExceedsRemaining() external {
@@ -434,18 +434,18 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
         );
 
         // 这是本次加固的核心断言：原本会静默成功的路径不得写任何状态
-        require(!distributor.isClaimedByTokenAddressByClaimer(subToken, ALICE), "no claim flag");
-        require(distributor.claimedShareByTokenAddress(subToken) == 0, "no claimed share");
+        require(!distributor.isClaimed(subToken, ALICE), "no claim flag");
+        require(distributor.airdropInfo(subToken).totalClaimedShare == 0, "no claimed share");
         require(
-            distributor.claimedAmountByTokenAddressByClaimer(subToken, ALICE) == 0, "no claimed amount"
+            distributor.claimedAmount(subToken, ALICE) == 0, "no claimed amount"
         );
-        require(distributor.remainingShareByTokenAddress(subToken) == TOTAL_SHARE, "remaining untouched");
+        require(distributor.airdropInfo(subToken).totalRemainingShare == TOTAL_SHARE, "remaining untouched");
         require(LOVE20Token(subToken).balanceOf(ALICE) == 0, "no tokens transferred");
 
         // 该地址的领取资格未被消耗：用其它合法份额仍不可行（不在树里），
         // 但 BOB 的正常领取必须成功，证明池子未被污染
         _claimAs(BOB, subToken, 5e17, _merkleProof(leaves, 1));
-        require(distributor.isClaimedByTokenAddressByClaimer(subToken, BOB), "bob can still claim");
+        require(distributor.isClaimed(subToken, BOB), "bob can still claim");
         require(LOVE20Token(subToken).balanceOf(BOB) == 50 ether, "bob paid his share");
     }
 
@@ -460,8 +460,8 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
         address nextRound =
             _launchSubToken(BOB, bobMemberId, "NXT", _distributorData(_merkleRoot(leaves), 1));
 
-        require(distributor.claimableFromRoundByTokenAddress(sameRound) == 3, "delay 0 same round");
-        require(distributor.claimableFromRoundByTokenAddress(nextRound) == 4, "delay 1 next round");
+        require(distributor.airdropInfo(sameRound).claimableFromRound == 3, "delay 0 same round");
+        require(distributor.airdropInfo(nextRound).claimableFromRound == 4, "delay 1 next round");
 
         _claimAs(ALICE, sameRound, ALICE_SHARE, _merkleProof(leaves, 0));
         _assertRevertSelector(
@@ -472,7 +472,7 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
 
         _rollToPhase(4);
         _claimAs(ALICE, nextRound, ALICE_SHARE, _merkleProof(leaves, 0));
-        require(distributor.isClaimedByTokenAddressByClaimer(nextRound, ALICE), "next round claim");
+        require(distributor.isClaimed(nextRound, ALICE), "next round claim");
     }
 
     // ============ 22. 创世前夹取 ============
@@ -482,7 +482,7 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
 
         bytes32[] memory leaves = _threeLeaves();
         address subToken = _launchSubToken(ALICE, aliceMemberId, "SUB", _distributorData(_merkleRoot(leaves), 0));
-        require(distributor.claimableFromRoundByTokenAddress(subToken) == 1, "clamped to 1");
+        require(distributor.airdropInfo(subToken).claimableFromRound == 1, "clamped to 1");
 
         _expectRevert(
             ALICE,
@@ -502,14 +502,14 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
         vm.roll(phaseOriginBlocks);
         require(phase.currentPhase() == 1, "genesis reached");
         _claimAs(ALICE, subToken, ALICE_SHARE, _merkleProof(leaves, 0));
-        require(distributor.isClaimedByTokenAddressByClaimer(subToken, ALICE), "claimable at origin");
+        require(distributor.isClaimed(subToken, ALICE), "claimable at origin");
     }
 
     function testGenesisDelayBaseRoundIsOneNotZero() external {
         // 重新部署一套，创世延迟为 7；创世前必须得 8（1+7），而不是 7（0+7）
         _deploySystem(GENESIS_ROOT, 7);
         require(phase.currentPhase() == 0, "pre-genesis");
-        require(distributor.claimableFromRoundByTokenAddress(address(firstToken)) == 8, "1 + 7");
+        require(distributor.airdropInfo(address(firstToken)).claimableFromRound == 8, "1 + 7");
     }
 
     // ============ claimableAmount 只读契约 ============

@@ -339,7 +339,7 @@ contract DeployCore is Script {
         );
         uint256 phaseAfter = IPhase(phaseAddress).currentPhase();
         uint256 claimableFromRound =
-            IAirdropDistributor(airdropDistributor).claimableFromRoundByTokenAddress(predicted.genesisToken);
+            IAirdropDistributor(airdropDistributor).airdropInfo(predicted.genesisToken).claimableFromRound;
         require(
             claimableFromRound >= (phaseBefore == 0 ? 1 : phaseBefore) + config.genesisClaimDelayRounds
                 && claimableFromRound
@@ -548,7 +548,7 @@ contract DeployCore is Script {
             "AirdropDistributor max claim delay mismatch"
         );
         require(
-            airdropDistributor.merkleRootByTokenAddress(addrs.token) == config.genesisMerkleRoot,
+            airdropDistributor.airdropInfo(addrs.token).merkleRoot == config.genesisMerkleRoot,
             "AirdropDistributor genesis merkle root mismatch"
         );
 
@@ -557,7 +557,7 @@ contract DeployCore is Script {
         // read around the deployment. Here only the time-invariant bounds are checked: the recorded
         // base round is at least the clamp floor and no later than the round reached by now.
         uint256 currentRound = IPhase(addrs.phase).currentPhase();
-        uint256 claimableFromRound = airdropDistributor.claimableFromRoundByTokenAddress(addrs.token);
+        uint256 claimableFromRound = airdropDistributor.airdropInfo(addrs.token).claimableFromRound;
         require(
             claimableFromRound >= 1 + config.genesisClaimDelayRounds
                 && claimableFromRound

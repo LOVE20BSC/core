@@ -82,7 +82,7 @@ contract AirdropDistributorEventsTest is LaunchDeployFixture {
             (bytes32 emittedRoot, uint256 emittedRound) = abi.decode(logs[i].data, (bytes32, uint256));
             require(emittedRoot == merkleRoot, "event merkleRoot");
             require(emittedRound == 5, "event claimableFromRound");
-            require(emittedRound == distributor.claimableFromRoundByTokenAddress(subToken), "event matches state");
+            require(emittedRound == distributor.airdropInfo(subToken).claimableFromRound, "event matches state");
             found = true;
         }
         require(found, "missing AirdropConfigured");
@@ -134,9 +134,9 @@ contract AirdropDistributorEventsTest is LaunchDeployFixture {
             require(amount == expectedAmount, "event amount");
             require(remainingShare == TOTAL_SHARE - BOB_SHARE, "event remainingShare is post-claim");
             require(
-                remainingShare == distributor.remainingShareByTokenAddress(subToken), "event remaining matches state"
+                remainingShare == distributor.airdropInfo(subToken).totalRemainingShare, "event remaining matches state"
             );
-            require(amount == distributor.claimedAmountByTokenAddressByClaimer(subToken, BOB), "amount state");
+            require(amount == distributor.claimedAmount(subToken, BOB), "amount state");
             found = true;
         }
         require(found, "missing AirdropClaimed");
@@ -315,7 +315,7 @@ contract AirdropDistributorEventsTest is LaunchDeployFixture {
         AirdropVm.Log[] memory logs = vm.getRecordedLogs();
         (string memory emittedUri, ) = _readSnapshotUriUpdatedEvent(logs, subToken);
         require(
-            keccak256(bytes(emittedUri)) == keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken))),
+            keccak256(bytes(emittedUri)) == keccak256(bytes(distributor.airdropInfo(subToken).snapshotUri)),
             "event matches state after first update"
         );
 
@@ -325,7 +325,7 @@ contract AirdropDistributorEventsTest is LaunchDeployFixture {
         logs = vm.getRecordedLogs();
         (emittedUri, ) = _readSnapshotUriUpdatedEvent(logs, subToken);
         require(
-            keccak256(bytes(emittedUri)) == keccak256(bytes(distributor.snapshotUriByTokenAddress(subToken))),
+            keccak256(bytes(emittedUri)) == keccak256(bytes(distributor.airdropInfo(subToken).snapshotUri)),
             "event matches state after second update"
         );
         require(keccak256(bytes(emittedUri)) == keccak256(bytes(second)), "state is the latest uri");

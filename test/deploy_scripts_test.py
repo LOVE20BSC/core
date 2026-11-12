@@ -33,6 +33,23 @@ def fake_tool(tool, args):
         elif args[0] == "call":
             key = args[1].lower() + "/" + args[2]
             print(os.environ.get("BAD_VALUE", "ERROR") if key == os.environ.get("BAD_CALL") else data["calls"][key])
+        elif args[0] == "abi-decode":
+            # `21_check.sh` decodes the airdropInfo tuple to JSON once and reads fields with jq.
+            # Field order: tokenAddress, merkleRoot, claimableFromRound, totalClaimedShare,
+            # totalRemainingShare, totalClaimedAmount, remainingAmount, snapshotUri.
+            # BAD_CALL targets the tuple call, so a corrupted read must corrupt what this returns too:
+            # otherwise the injected failure would be invisible to the field assertions.
+            picked = dict(data["airdrop_info"])
+            bad_call = os.environ.get("BAD_CALL")
+            if bad_call and bad_call.split("/", 1)[1].startswith("airdropInfo("):
+                picked["merkleRoot"] = "0x" + "99" * 32
+                picked["totalRemainingShare"] = "1"
+            print(json.dumps({"schema_version": 1, "success": True,
+                              "data": [[picked["tokenAddress"], picked["merkleRoot"],
+                                        picked["claimableFromRound"], picked["totalClaimedShare"],
+                                        picked["totalRemainingShare"], picked["totalClaimedAmount"],
+                                        picked["remainingAmount"], picked["snapshotUri"]]],
+                              "errors": [], "warnings": []}))
         elif args[0] == "abi-encode":
             if os.environ.get("ABI_ENCODE_FAIL") == args[1]:
                 return 1
@@ -370,11 +387,18 @@ def main():
         getters("AIRDROP_DISTRIBUTOR", {"LAUNCH_ADDRESS()(address)": "LAUNCH_ADDRESS",
                 "PHASE_ADDRESS()(address)": "PHASE_ADDRESS",
                 "TOTAL_SHARE()(uint256)": "1000000000000000000",
-                "MAX_CLAIM_DELAY_ROUNDS()(uint256)": "1000",
-                "merkleRootByTokenAddress(address)(bytes32)": "GENESIS_AIRDROP_MERKLE_ROOT",
-                "claimedShareByTokenAddress(address)(uint256)": "0",
-                "remainingShareByTokenAddress(address)(uint256)": "1000000000000000000",
-                "claimableFromRoundByTokenAddress(address)(uint256)": "2"})
+                "MAX_CLAIM_DELAY_ROUNDS()(uint256)": "1000"})
+        # 21_check 用一次 airdropInfo(address) tuple 覆盖全部按 token 的字段。
+        airdrop_info = {"tokenAddress": env["LOVE20_TOKEN_ADDRESS"],
+                        "merkleRoot": env["GENESIS_AIRDROP_MERKLE_ROOT"],
+                        "claimableFromRound": "2",
+                        "totalClaimedShare": "0",
+                        "totalRemainingShare": "1000000000000000000",
+                        "totalClaimedAmount": "0",
+                        "remainingAmount": env["LAUNCH_AMOUNT"],
+                        "snapshotUri": ""}
+        calls[env["AIRDROP_DISTRIBUTOR_ADDRESS"].lower()
+              + "/airdropInfo(address)((address,bytes32,uint256,uint256,uint256,uint256,uint256,string))"] = "0x00"
         getters("LAUNCH", {key + "()(uint256)": key for key in ("LAUNCH_COUNT_THRESHOLD_RATIO", "MAX_LAUNCH_COUNT", "TOKEN_SYMBOL_LENGTH", "MAX_SUPPLY")})
         getters("LAUNCH", {"LAUNCH_AMOUNT()(uint256)": "LAUNCH_AMOUNT", "MAX_TOKEN_SYMBOL_LENGTH()(uint256)": "32",
                 "TEST_PREFIX_BYTES()(uint256)": "4",
@@ -409,7 +433,8 @@ def main():
         data_path, log_path = root / "rpc.json", root / "calls.log"
         tmp_dir = root / "tmp"
         tmp_dir.mkdir()
-        data_path.write_text(json.dumps({"env": env, "contracts": contracts, "calls": calls}))
+        data_path.write_text(json.dumps({"env": env, "contracts": contracts, "calls": calls,
+                                           "airdrop_info": airdrop_info}))
         network.joinpath("network.params").write_text("\n".join(key + "=" + shlex.quote(value) for key, value in env.items()) + "\n")
         network.parent.joinpath("verifier.params").write_text(
             "ETHERSCAN_VERIFIER_URL=https://api.etherscan.io/v2/api\nVERIFY_SKIP_CHAIN_IDS=31337\n")
@@ -466,9 +491,7 @@ def main():
                 ("AIRDROP_DISTRIBUTOR", "LAUNCH_ADDRESS()(address)"), ("AIRDROP_DISTRIBUTOR", "PHASE_ADDRESS()(address)"),
                 ("AIRDROP_DISTRIBUTOR", "TOTAL_SHARE()(uint256)"),
                 ("AIRDROP_DISTRIBUTOR", "MAX_CLAIM_DELAY_ROUNDS()(uint256)"),
-                ("AIRDROP_DISTRIBUTOR", "merkleRootByTokenAddress(address)(bytes32)"),
-                ("AIRDROP_DISTRIBUTOR", "remainingShareByTokenAddress(address)(uint256)"),
-                ("AIRDROP_DISTRIBUTOR", "claimableFromRoundByTokenAddress(address)(uint256)")]:
+                ("AIRDROP_DISTRIBUTOR", "airdropInfo(address)((address,bytes32,uint256,uint256,uint256,uint256,uint256,string))")]:
             wrong_value = "0x" + "98" * 20 if signature.endswith("(address)") else "999"
             run("21_check.sh", False, ("test",), BAD_CALL=env[contract + "_ADDRESS"].lower() + "/" + signature, BAD_VALUE=wrong_value)
         run("21_check.sh", False, ("test",), RPC_CODE_ERROR="1")

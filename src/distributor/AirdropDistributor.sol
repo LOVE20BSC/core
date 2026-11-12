@@ -30,6 +30,8 @@ contract AirdropDistributor is IAirdropDistributor {
     mapping(address => uint256) internal _claimableFromRoundByTokenAddress;
     // tokenAddress => cumulative share consumed by successful claims
     mapping(address => uint256) internal _claimedShareByTokenAddress;
+    // tokenAddress => cumulative token amount actually paid out by successful claims
+    mapping(address => uint256) internal _totalClaimedAmountByTokenAddress;
     // tokenAddress => claimer => whether the claimer already claimed this token
     mapping(address => mapping(address => bool)) internal _isClaimedByTokenAddressByClaimer;
     // tokenAddress => claimer => amount actually paid out by the successful claim
@@ -101,7 +103,7 @@ contract AirdropDistributor is IAirdropDistributor {
             revert AirdropAlreadyClaimed(tokenAddress, claimer);
         }
 
-        uint256 remaining = remainingShareByTokenAddress(tokenAddress);
+        uint256 remaining = _remainingShare(tokenAddress);
         if (share == 0) revert InvalidProof();
         if (share > remaining) revert ShareExceedsRemaining(share, remaining);
 
@@ -113,6 +115,7 @@ contract AirdropDistributor is IAirdropDistributor {
         _isClaimedByTokenAddressByClaimer[tokenAddress][claimer] = true;
         _claimedAmountByTokenAddressByClaimer[tokenAddress][claimer] = amount;
         _claimedShareByTokenAddress[tokenAddress] += share;
+        _totalClaimedAmountByTokenAddress[tokenAddress] += amount;
 
         IERC20(tokenAddress).safeTransfer(claimer, amount);
 
@@ -141,42 +144,46 @@ contract AirdropDistributor is IAirdropDistributor {
         });
     }
 
-    function merkleRootByTokenAddress(address tokenAddress) external view returns (bytes32) {
-        return _merkleRootByTokenAddress[tokenAddress];
-    }
-
-    function claimableFromRoundByTokenAddress(address tokenAddress) external view returns (uint256) {
-        return _claimableFromRoundByTokenAddress[tokenAddress];
-    }
-
-    function claimedShareByTokenAddress(address tokenAddress) external view returns (uint256) {
-        return _claimedShareByTokenAddress[tokenAddress];
-    }
-
-    function isClaimedByTokenAddressByClaimer(
-        address tokenAddress,
-        address claimer
-    ) external view returns (bool) {
+    function isClaimed(address tokenAddress, address claimer) external view returns (bool) {
         return _isClaimedByTokenAddressByClaimer[tokenAddress][claimer];
     }
 
-    function claimedAmountByTokenAddressByClaimer(
-        address tokenAddress,
-        address claimer
-    ) external view returns (uint256) {
+    function claimedAmount(address tokenAddress, address claimer) external view returns (uint256) {
         return _claimedAmountByTokenAddressByClaimer[tokenAddress][claimer];
     }
 
-    function snapshotUriByTokenAddress(address tokenAddress) external view returns (string memory) {
-        return _snapshotUriByTokenAddress[tokenAddress];
-    }
-
-    function launcherMemberIdByTokenAddress(address tokenAddress) external view returns (uint256) {
-        return _launcherMemberIdByTokenAddress[tokenAddress];
-    }
-
-    function remainingShareByTokenAddress(address tokenAddress) public view returns (uint256) {
+    function _remainingShare(address tokenAddress) private view returns (uint256) {
         return TOTAL_SHARE - _claimedShareByTokenAddress[tokenAddress];
+    }
+
+    function airdropInfo(address tokenAddress) external view returns (AirdropInfo memory info) {
+        info = _buildAirdropInfo(tokenAddress);
+    }
+
+    function _buildAirdropInfo(address tokenAddress) private view returns (AirdropInfo memory info) {
+        if (_merkleRootByTokenAddress[tokenAddress] == bytes32(0)) return info;
+
+        uint256 claimedShare = _claimedShareByTokenAddress[tokenAddress];
+        // A configured token may not have been created yet (the genesis token is created by Launch,
+        // which is deployed after this contract). Solidity reverts before try/catch when the target
+        // has no code, so guard with extcodesize: balanceOf is a discovery read and a missing token
+        // leaves remainingAmount at 0 instead of reverting the whole view.
+        uint256 contractBalance = 0;
+        if (tokenAddress.code.length != 0) {
+            // forge-lint: disable-next-item(calls-loop)
+            contractBalance = IERC20(tokenAddress).balanceOf(address(this));
+        }
+
+        info = AirdropInfo({
+            tokenAddress: tokenAddress,
+            merkleRoot: _merkleRootByTokenAddress[tokenAddress],
+            claimableFromRound: _claimableFromRoundByTokenAddress[tokenAddress],
+            totalClaimedShare: claimedShare,
+            totalRemainingShare: TOTAL_SHARE - claimedShare,
+            totalClaimedAmount: _totalClaimedAmountByTokenAddress[tokenAddress],
+            remainingAmount: contractBalance,
+            snapshotUri: _snapshotUriByTokenAddress[tokenAddress]
+        });
     }
 
     function claimableAmount(
@@ -193,7 +200,7 @@ contract AirdropDistributor is IAirdropDistributor {
 
         if (_isClaimedByTokenAddressByClaimer[tokenAddress][claimer]) return 0;
 
-        uint256 remaining = remainingShareByTokenAddress(tokenAddress);
+        uint256 remaining = _remainingShare(tokenAddress);
         if (share == 0 || share > remaining) return 0;
 
         if (!MerkleProof.verifyCalldata(proof, merkleRoot, leafHash(claimer, share))) return 0;
@@ -217,20 +224,7 @@ contract AirdropDistributor is IAirdropDistributor {
         uint256 count = tokenAddressList.length;
         infos = new AirdropInfo[](count);
         for (uint256 i = 0; i < count; i++) {
-            address tokenAddress = tokenAddressList[i];
-            uint256 claimedShare = _claimedShareByTokenAddress[tokenAddress];
-            // forge-lint: disable-next-item(calls-loop)
-            uint256 contractBalance = IERC20(tokenAddress).balanceOf(address(this));
-
-            infos[i] = AirdropInfo({
-                tokenAddress: tokenAddress,
-                merkleRoot: _merkleRootByTokenAddress[tokenAddress],
-                claimableFromRound: _claimableFromRoundByTokenAddress[tokenAddress],
-                claimedShare: claimedShare,
-                remainingShare: TOTAL_SHARE - claimedShare,
-                contractBalance: contractBalance,
-                snapshotUri: _snapshotUriByTokenAddress[tokenAddress]
-            });
+            infos[i] = _buildAirdropInfo(tokenAddressList[i]);
         }
     }
 

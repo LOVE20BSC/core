@@ -7,9 +7,10 @@ struct AirdropInfo {
     address tokenAddress;
     bytes32 merkleRoot;
     uint256 claimableFromRound;
-    uint256 claimedShare;
-    uint256 remainingShare;
-    uint256 contractBalance;
+    uint256 totalClaimedShare;
+    uint256 totalRemainingShare;
+    uint256 totalClaimedAmount;
+    uint256 remainingAmount;
     string snapshotUri;
 }
 
@@ -92,18 +93,8 @@ interface IAirdropDistributor is
         bytes32[] calldata proof
     ) external returns (uint256 amount);
 
-    function merkleRootByTokenAddress(address tokenAddress) external view returns (bytes32);
-    function claimableFromRoundByTokenAddress(address tokenAddress) external view returns (uint256);
-    function claimedShareByTokenAddress(address tokenAddress) external view returns (uint256);
-    function isClaimedByTokenAddressByClaimer(
-        address tokenAddress,
-        address claimer
-    ) external view returns (bool);
-    function claimedAmountByTokenAddressByClaimer(
-        address tokenAddress,
-        address claimer
-    ) external view returns (uint256);
-    function remainingShareByTokenAddress(address tokenAddress) external view returns (uint256);
+    function isClaimed(address tokenAddress, address claimer) external view returns (bool);
+    function claimedAmount(address tokenAddress, address claimer) external view returns (uint256);
     function claimableAmount(
         address tokenAddress,
         address claimer,
@@ -112,8 +103,7 @@ interface IAirdropDistributor is
     ) external view returns (uint256 amount);
     function leafHash(address claimer, uint256 share) external pure returns (bytes32);
     function updateSnapshotUri(address tokenAddress, string calldata snapshotUri) external;
-    function snapshotUriByTokenAddress(address tokenAddress) external view returns (string memory);
-    function launcherMemberIdByTokenAddress(address tokenAddress) external view returns (uint256);
+    function airdropInfo(address tokenAddress) external view returns (AirdropInfo memory info);
     function airdropInfos(
         uint256 offset,
         uint256 limit,
