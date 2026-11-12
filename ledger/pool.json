@@ -1,0 +1,6 @@
+{
+  "tasks": {
+    "20261112-1541-64a7-按-distributor-分页查询已发射代币列表": {"category": "功能开发", "created": "2026-11-12 15:41:10", "creator": "47d39b07-9d74-4077-8a12-8ab9280ea25d", "creator_name": "tester", "finished": null, "owner": null, "owner_name": null, "started": null, "status": "open", "tags": ["Launch.sol", "分页查询", "distributor", "ABI"], "title": "按 distributor 分页查询已发射代币列表", "updated": "2026-11-12 15:41:10", "worklog": "worklog/202611/12-1541-64a7-按-distributor-分页查询已发射代币列表.md"}
+  },
+  "version": "20261022000000"
+}
