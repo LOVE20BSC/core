@@ -3,7 +3,7 @@ pragma solidity =0.8.37;
 
 import {Test} from "@forge-std/Test.sol";
 import {Mint} from "../../src/Mint.sol";
-import {Stake} from "../../src/Stake.sol";
+import {Stake, DexConfig} from "../../src/Stake.sol";
 import {Submit} from "../../src/Submit.sol";
 import {Vote} from "../../src/Vote.sol";
 import {Phase} from "../../src/Phase.sol";
@@ -63,8 +63,18 @@ contract ProposalDoSTest is Test {
         }));
         token = LOVE20Token(launch.FIRST_TOKEN_ADDRESS());
         memberNFT = new MemberNFT(1e18, 1, 1, 32, address(token));
-        stake = new Stake(address(phase), address(memberNFT), predictedVote, address(launch),
-            address(router), address(factory), 1, 100, 3e15, 2, 5);
+        stake = new Stake(
+                address(phase),
+                address(memberNFT),
+                predictedVote,
+                address(launch),
+                DexConfig({router: address(router), pairFactory: address(factory), swapFeeForLpRatio: 2500000000000000, swapFeeForProtocolRatio: 500000000000000}),
+                1,
+                100,
+                3e15,
+                2,
+                5
+            );
         submit = new Submit(address(phase), address(stake), address(memberNFT), 1);
         vote = new Vote(address(phase), address(stake), address(submit), address(memberNFT));
         mint = new Mint(address(phase), address(vote), address(submit), address(launch), address(memberNFT), 5e16, 1e17, 1e17);

@@ -11,7 +11,7 @@ import {Launch} from "../../src/Launch.sol";
 import {Mint} from "../../src/Mint.sol";
 import {Vote} from "../../src/Vote.sol";
 import {Submit} from "../../src/Submit.sol";
-import {Stake} from "../../src/Stake.sol";
+import {Stake, DexConfig} from "../../src/Stake.sol";
 import {IMemberNFT} from "../../src/interfaces/IMemberNFT.sol";
 import {IPhase} from "../../src/interfaces/IPhase.sol";
 import {ILaunch, LaunchInitParams} from "../../src/interfaces/ILaunch.sol";
@@ -58,8 +58,6 @@ contract DeployCore is Script {
 
     struct CoreConfig {
         uint256 chainId;
-        address factory;
-        address router;
         bytes32 genesisMerkleRoot;
         uint256 genesisClaimDelayRounds;
         string tokenName;
@@ -83,6 +81,7 @@ contract DeployCore is Script {
         uint256 roundRewardProposalRatio;
         uint256 boostStakeSupplyFactor;
         uint256 boostStakeMultiplier;
+        DexConfig dexConfig;
         uint256 submitMinRatio;
         uint256 promisedWaitingPhasesMin;
         uint256 promisedWaitingPhasesMax;
@@ -92,7 +91,7 @@ contract DeployCore is Script {
     function run() external returns (DeploymentAddresses memory addrs) {
         CoreConfig memory config = _loadConfig();
         _validateConfig(config);
-        address rootParent = IUniswapV2RouterWeth(config.router).WETH();
+        address rootParent = IUniswapV2RouterWeth(config.dexConfig.router).WETH();
 
         vm.startBroadcast();
         addrs = _deployContracts(config, rootParent);
@@ -104,8 +103,6 @@ contract DeployCore is Script {
 
     function _loadConfig() internal view returns (CoreConfig memory config) {
         config.chainId = vm.envUint("CHAIN_ID");
-        config.factory = vm.envAddress("FACTORY_ADDRESS");
-        config.router = vm.envAddress("ROUTER_ADDRESS");
         config.genesisMerkleRoot = vm.envBytes32("GENESIS_AIRDROP_MERKLE_ROOT");
         config.genesisClaimDelayRounds = vm.envUint("GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS");
         config.tokenName = vm.envString("TOKEN_NAME");
@@ -129,6 +126,12 @@ contract DeployCore is Script {
         config.roundRewardProposalRatio = vm.envUint("ROUND_REWARD_PROPOSAL_RATIO");
         config.boostStakeSupplyFactor = vm.envUint("BOOST_STAKE_SUPPLY_FACTOR");
         config.boostStakeMultiplier = vm.envUint("BOOST_STAKE_MULTIPLIER");
+        config.dexConfig = DexConfig({
+            router: vm.envAddress("ROUTER_ADDRESS"),
+            pairFactory: vm.envAddress("FACTORY_ADDRESS"),
+            swapFeeForLpRatio: vm.envUint("SWAP_FEE_FOR_LP_RATIO"),
+            swapFeeForProtocolRatio: vm.envUint("SWAP_FEE_FOR_PROTOCOL_RATIO")
+        });
         config.submitMinRatio = vm.envUint("SUBMIT_MIN_RATIO");
         config.promisedWaitingPhasesMin = vm.envUint("PROMISED_WAITING_PHASES_MIN");
         config.promisedWaitingPhasesMax = vm.envUint("PROMISED_WAITING_PHASES_MAX");
@@ -185,6 +188,14 @@ contract DeployCore is Script {
         );
         require(config.boostStakeSupplyFactor != 0, "Boost stake supply factor must be nonzero");
         require(config.boostStakeMultiplier != 0, "Boost stake multiplier must be nonzero");
+        // The DEX fee profile: the pair keeps `lp`, the DEX protocol takes `protocol`, and their sum
+        // is the swap fee. Stake derives the `_mintFee` split from the same two numbers, so a wrong
+        // profile silently shifts the protocol-fee prediction and eats staker principal.
+        require(config.dexConfig.swapFeeForLpRatio != 0, "SWAP_FEE_FOR_LP_RATIO must be nonzero");
+        require(
+            config.dexConfig.swapFeeForProtocolRatio < config.dexConfig.swapFeeForLpRatio,
+            "SWAP_FEE_FOR_PROTOCOL_RATIO must be below SWAP_FEE_FOR_LP_RATIO"
+        );
 
         require(config.submitMinRatio != 0 && config.submitMinRatio <= 1e18, "Submit min ratio out of range");
 
@@ -204,15 +215,28 @@ contract DeployCore is Script {
         // used by Launch/Stake to create pools and the Router by the withdrawal swap; a mismatch
         // between them does not revert during simulation and would broadcast 9 contracts for
         // nothing (21_check.sh would only catch it afterwards).
-        require(config.factory.code.length != 0, "Factory must be a deployed contract");
-        require(config.router.code.length != 0, "Router must be a deployed contract");
+        require(config.dexConfig.pairFactory.code.length != 0, "Factory must be a deployed contract");
+        require(config.dexConfig.router.code.length != 0, "Router must be a deployed contract");
         require(
-            IUniswapV2RouterWeth(config.router).factory() == config.factory,
+            IUniswapV2RouterWeth(config.dexConfig.router).factory() == config.dexConfig.pairFactory,
             "Router.factory must match FACTORY_ADDRESS"
         );
         require(
-            IUniswapV2RouterWeth(config.router).WETH().code.length != 0, "WETH must be a deployed contract"
+            IUniswapV2RouterWeth(config.dexConfig.router).WETH().code.length != 0, "WETH must be a deployed contract"
         );
+        // Stake accounts for the DEX's protocol fee when one is configured (it replicates the pair's
+        // `_mintFee` so the denominators match what `pair.burn` actually pays). Reading it here makes
+        // the deployment surface explicit instead of silently depending on `feeTo == address(0)`.
+        // Low-level on purpose: `try`/`catch` does not catch an ABI-decoding failure, so a factory
+        // without the getter would revert here instead of being treated as "no protocol fee".
+        (bool feeToOk, bytes memory feeToData) =
+            config.dexConfig.pairFactory.staticcall(abi.encodeWithSelector(IUniswapV2Factory.feeTo.selector));
+        if (feeToOk && feeToData.length >= 32) {
+            // `feeTo` is an address returned in a 32-byte word; the low 160 bits are the value.
+            // forge-lint: disable-next-line(unsafe-typecast)
+            address feeTo = address(uint160(abi.decode(feeToData, (uint256))));
+            require(feeTo == address(0) || feeTo.code.length != 0, "feeTo must be zero or a contract");
+        }
     }
 
     struct PredictedAddresses {
@@ -240,7 +264,7 @@ contract DeployCore is Script {
             mintAddress: predicted.mint,
             memberNFTAddress: predicted.memberNFT,
             rootParentTokenAddress: rootParent,
-            pairFactoryAddress: config.factory,
+            pairFactoryAddress: config.dexConfig.pairFactory,
             launchCountThresholdRatio: config.launchCountThresholdRatio,
             maxLaunchCount: config.maxLaunchCount,
             tokenSymbolLength: config.tokenSymbolLength,
@@ -267,8 +291,7 @@ contract DeployCore is Script {
                 addrs.memberNFT,
                 predicted.vote,
                 addrs.launch,
-                config.router,
-                config.factory,
+                config.dexConfig,
                 config.promisedWaitingPhasesMin,
                 config.promisedWaitingPhasesMax,
                 config.feeSettlementRatio,
@@ -445,7 +468,7 @@ contract DeployCore is Script {
         require(launch.MEMBER_NFT_ADDRESS() == addrs.memberNFT, "Launch member NFT mismatch");
         require(launch.ROOT_PARENT_TOKEN_ADDRESS() == rootParent, "Launch root parent mismatch");
         require(launch.FIRST_TOKEN_ADDRESS() == addrs.token, "Launch first token mismatch");
-        require(launch.PAIR_FACTORY_ADDRESS() == config.factory, "Launch pair factory mismatch");
+        require(launch.PAIR_FACTORY_ADDRESS() == config.dexConfig.pairFactory, "Launch pair factory mismatch");
         require(
             launch.LAUNCH_COUNT_THRESHOLD_RATIO() == config.launchCountThresholdRatio,
             "Launch count threshold ratio mismatch"
@@ -470,7 +493,7 @@ contract DeployCore is Script {
         (address[] memory childList, uint256 childCount) = launch.childTokens(rootParent, 0, 1, false);
         require(childCount == 1 && childList.length == 1 && childList[0] == addrs.token, "Launch child list mismatch");
         require(
-            IUniswapV2Factory(config.factory).getPair(addrs.token, rootParent) != address(0),
+            IUniswapV2Factory(config.dexConfig.pairFactory).getPair(addrs.token, rootParent) != address(0),
             "First token pair missing"
         );
 
@@ -495,8 +518,8 @@ contract DeployCore is Script {
         require(stake.MEMBER_NFT_ADDRESS() == addrs.memberNFT, "Stake member NFT mismatch");
         require(stake.VOTE_ADDRESS() == addrs.vote, "Stake vote mismatch");
         require(stake.LAUNCH_ADDRESS() == addrs.launch, "Stake launch mismatch");
-        require(stake.ROUTER_ADDRESS() == config.router, "Stake router mismatch");
-        require(stake.PAIR_FACTORY_ADDRESS() == config.factory, "Stake pair factory mismatch");
+        require(stake.ROUTER_ADDRESS() == config.dexConfig.router, "Stake router mismatch");
+        require(stake.PAIR_FACTORY_ADDRESS() == config.dexConfig.pairFactory, "Stake pair factory mismatch");
         require(
             stake.PROMISED_WAITING_PHASES_MIN() == config.promisedWaitingPhasesMin,
             "Stake waiting phases min mismatch"
@@ -514,6 +537,14 @@ contract DeployCore is Script {
         );
         require(
             stake.BOOST_STAKE_MULTIPLIER() == config.boostStakeMultiplier,
+            "Stake boost multiplier mismatch"
+        );
+        require(
+            stake.SWAP_FEE_FOR_LP_RATIO() == config.dexConfig.swapFeeForLpRatio,
+            "Stake swap fee for LP ratio mismatch"
+        );
+        require(
+            stake.SWAP_FEE_FOR_PROTOCOL_RATIO() == config.dexConfig.swapFeeForProtocolRatio,
             "Stake boost multiplier mismatch"
         );
         require(

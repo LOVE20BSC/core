@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.37;
 
-import {Stake} from "../src/Stake.sol";
+import {Stake, DexConfig} from "../src/Stake.sol";
 import {IStakeErrors} from "../src/interfaces/IStake.sol";
 import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -224,18 +224,17 @@ contract StakeTest {
 
         // Deploy Stake
         stake = new Stake(
-            address(phase),
-            address(memberNFT),
-            address(vote),
-            address(mockLaunch),
-            address(router),
-            address(pairFactory),
-            PROMISED_WAITING_PHASES_MIN,
-            PROMISED_WAITING_PHASES_MAX,
-            FEE_SETTLEMENT_RATIO,
-            BOOST_STAKE_SUPPLY_FACTOR,
-            BOOST_STAKE_MULTIPLIER
-        );
+                address(phase),
+                address(memberNFT),
+                address(vote),
+                address(mockLaunch),
+                DexConfig({router: address(router), pairFactory: address(pairFactory), swapFeeForLpRatio: 2500000000000000, swapFeeForProtocolRatio: 500000000000000}),
+                PROMISED_WAITING_PHASES_MIN,
+                PROMISED_WAITING_PHASES_MAX,
+                FEE_SETTLEMENT_RATIO,
+                BOOST_STAKE_SUPPLY_FACTOR,
+                BOOST_STAKE_MULTIPLIER
+            );
 
         // Fund test accounts
         parentToken.transfer(owner1, 100000e18);

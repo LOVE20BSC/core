@@ -6,7 +6,7 @@ import {LOVE20Token} from "../../src/LOVE20Token.sol";
 import {Phase} from "../../src/Phase.sol";
 import {Vote} from "../../src/Vote.sol";
 import {Submit, ProposalBody} from "../../src/Submit.sol";
-import {Stake} from "../../src/Stake.sol";
+import {Stake, DexConfig} from "../../src/Stake.sol";
 import {Launch} from "../../src/Launch.sol";
 import {MemberNFT} from "../../src/MemberNFT.sol";
 import {LaunchInitParams, DistributorMode} from "../../src/interfaces/ILaunch.sol";
@@ -138,18 +138,20 @@ contract MintRealIntegrationTest {
 
         // 3. Stake needs Vote, which is not deployed yet: single-hop prediction
         stake = new Stake(
-            address(phase),
-            address(memberNFT),
-            predictedVote,
-            address(launch),
-            address(router),
-            address(factory),
-            1,    // promisedWaitingPhasesMin
-            100,  // promisedWaitingPhasesMax
-            3e15, // feeSettlementRatio from the integration profile (0.3%)
+                address(phase),
+                address(memberNFT),
+                predictedVote,
+                address(launch),
+                DexConfig({router: address(router), pairFactory: address(factory), swapFeeForLpRatio: 2500000000000000, swapFeeForProtocolRatio: 500000000000000}),
+                1,
+                // promisedWaitingPhasesMin
+            100,
+                // promisedWaitingPhasesMax
+            3e15,
+                // feeSettlementRatio from the integration profile (0.3%)
             BOOST_STAKE_SUPPLY_FACTOR,
-            BOOST_STAKE_MULTIPLIER
-        );
+                BOOST_STAKE_MULTIPLIER
+            );
 
         // 4. Submit takes the real Stake address
         submit = new Submit(

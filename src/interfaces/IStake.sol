@@ -72,6 +72,11 @@ interface IStakeErrors {
         uint256 requestedRound,
         uint256 currentRound
     );
+    error InvalidDexConfig();
+    error InvalidSwapFeeRatios(
+        uint256 swapFeeForLpRatio,
+        uint256 swapFeeForProtocolRatio
+    );
     error BoostCapExceeded(
         address tokenAddress,
         uint256 memberId,
@@ -207,6 +212,8 @@ interface IStake is IStakeErrors, IStakeEvents {
     function FEE_SETTLEMENT_RATIO() external view returns (uint256);
     function BOOST_STAKE_SUPPLY_FACTOR() external view returns (uint256);
     function BOOST_STAKE_MULTIPLIER() external view returns (uint256);
+    function SWAP_FEE_FOR_LP_RATIO() external view returns (uint256);
+    function SWAP_FEE_FOR_PROTOCOL_RATIO() external view returns (uint256);
     function LIQUIDITY_TOKEN_EQUIVALENCE_FACTOR() external view returns (uint256);
     function liquidityTokenAmount(address tokenAddress) external view returns (uint256);
     function boostStakeCap(address tokenAddress, uint256 memberId)

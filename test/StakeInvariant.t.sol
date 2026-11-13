@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.37;
 
-import {Stake} from "../src/Stake.sol";
+import {Stake, DexConfig} from "../src/Stake.sol";
 import {Submit} from "../src/Submit.sol";
 import {Vote} from "../src/Vote.sol";
 import {Phase} from "../src/Phase.sol";
@@ -80,18 +80,17 @@ contract StakeInvariantTest {
         address predictedVote = vm.computeCreateAddress(address(this), nonce + 2);
 
         stake = new Stake(
-            address(phase),
-            address(nft),
-            predictedVote,
-            address(registry),
-            address(router),
-            address(factory),
-            WAIT_MIN,
-            WAIT_MAX,
-            FEE_RATIO,
-            2,
-            5
-        );
+                address(phase),
+                address(nft),
+                predictedVote,
+                address(registry),
+                DexConfig({router: address(router), pairFactory: address(factory), swapFeeForLpRatio: 2500000000000000, swapFeeForProtocolRatio: 500000000000000}),
+                WAIT_MIN,
+                WAIT_MAX,
+                FEE_RATIO,
+                2,
+                5
+            );
         submit = new Submit(address(phase), address(stake), address(nft), 1e16);
         vote = new Vote(address(phase), address(stake), address(submit), address(nft));
         require(address(vote) == predictedVote, "predicted vote address");

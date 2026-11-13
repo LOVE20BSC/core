@@ -50,3 +50,15 @@ BOOST_STAKE_SUPPLY_FACTOR=2
 BOOST_STAKE_MULTIPLIER=5
 # Fee settlement share of the pair's LP supply (1e18 = 100%); must not exceed MAX_FEE_SETTLEMENT_RATIO (0.25%).
 FEE_SETTLEMENT_RATIO=25e14              # 0.25%
+# DEX swap-fee profile, 1e18 fixed point, split by destination. The pair charges their sum; the DEX
+# protocol's share of the sqrt(k) growth is protocol/(lp+protocol). Stake derives its `_mintFee`
+# prediction from these two numbers and the periphery Hub reads them from Stake, so this is the single
+# place the DEX profile is configured.
+#
+# The local dex/ UniswapV2 build charges 0.30% and its factory is deployed with `feeToSetter = 0`, so
+# `feeTo` is permanently zero and no protocol fee is ever minted (dex/docs/adr/0001). The profile must
+# say so: `protocol = 0` makes Stake short-circuit the prediction and makes the Hub treat the DEX as
+# having no protocol fee. Writing a non-zero protocol share here would have both contracts project a
+# treasury mint that this DEX never performs.
+SWAP_FEE_FOR_LP_RATIO=3000000000000000 # 0.30%, all of it to LPs
+SWAP_FEE_FOR_PROTOCOL_RATIO=0          # protocol fee permanently off on this DEX

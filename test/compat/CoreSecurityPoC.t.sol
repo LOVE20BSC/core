@@ -2,7 +2,7 @@
 pragma solidity =0.8.37;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Stake} from "../../src/Stake.sol";
+import {Stake, DexConfig} from "../../src/Stake.sol";
 import {Mint} from "../../src/Mint.sol";
 import {Vote} from "../../src/Vote.sol";
 import {Submit} from "../../src/Submit.sol";
@@ -156,9 +156,17 @@ contract CoreSecurityPoC {
 
         nft = new MemberNFT(1e18, 7, 2, 32, address(token));
         stake = new Stake(
-            address(phase), address(nft), predictedVote, address(launch), address(router), address(factory),
-            WAIT_MIN, WAIT_MAX, FEE_RATIO, 2, 5
-        );
+                address(phase),
+                address(nft),
+                predictedVote,
+                address(launch),
+                DexConfig({router: address(router), pairFactory: address(factory), swapFeeForLpRatio: 2500000000000000, swapFeeForProtocolRatio: 500000000000000}),
+                WAIT_MIN,
+                WAIT_MAX,
+                FEE_RATIO,
+                2,
+                5
+            );
         submit = new Submit(address(phase), address(stake), address(nft), SUBMIT_MIN_RATIO);
         vote = new Vote(address(phase), address(stake), address(submit), address(nft));
         mint = new Mint(

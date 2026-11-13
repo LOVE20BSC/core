@@ -4,6 +4,7 @@ pragma solidity =0.8.37;
 import {Test} from "@forge-std/Test.sol";
 import {DeployCore} from "../script/deploy/DeployCore.s.sol";
 import {IPhase} from "../src/interfaces/IPhase.sol";
+import {DexConfig} from "../src/Stake.sol";
 
 contract DeployCoreHarness is DeployCore {
     function _predictor() internal view override returns (address) {
@@ -50,8 +51,8 @@ contract DeployCoreTest is Test {
 
     function testDeploymentBindingGraph() public {
         DeployCore.CoreConfig memory config = _validConfig();
-        config.factory = address(new MockFactory());
-        config.router = address(new MockRouter(rootParent, config.factory));
+        config.dexConfig.pairFactory = address(new MockFactory());
+        config.dexConfig.router = address(new MockRouter(rootParent, config.dexConfig.pairFactory));
         DeployCore.DeploymentAddresses memory addrs = deployer.deployForTest(config, rootParent);
         require(addrs.token != address(0), "token deployed");
         require(addrs.airdropDistributor != address(0), "airdrop distributor deployed");
@@ -99,8 +100,8 @@ contract DeployCoreTest is Test {
     // pre-deployment nonce instead of trusting the script's own arithmetic.
     function testPredictedAddressesFollowDeploymentOrder() public {
         DeployCore.CoreConfig memory config = _validConfig();
-        config.factory = address(new MockFactory());
-        config.router = address(new MockRouter(rootParent, config.factory));
+        config.dexConfig.pairFactory = address(new MockFactory());
+        config.dexConfig.router = address(new MockRouter(rootParent, config.dexConfig.pairFactory));
 
         address creator = address(deployer);
         uint256 nonce = vm.getNonce(creator);
@@ -128,8 +129,8 @@ contract DeployCoreTest is Test {
     // straddles a phase boundary.
     function testGenesisClaimRoundValidationSurvivesPhaseAdvance() public {
         DeployCore.CoreConfig memory config = _validConfig();
-        config.factory = address(new MockFactory());
-        config.router = address(new MockRouter(rootParent, config.factory));
+        config.dexConfig.pairFactory = address(new MockFactory());
+        config.dexConfig.router = address(new MockRouter(rootParent, config.dexConfig.pairFactory));
 
         DeployCore.DeploymentAddresses memory addrs = deployer.deployForTest(config, rootParent);
         uint256 deployedRound = IPhase(addrs.phase).currentPhase();
@@ -247,28 +248,28 @@ contract DeployCoreTest is Test {
 
     function testRejectsNonContractFactory() public {
         DeployCore.CoreConfig memory config = _validConfig();
-        config.factory = makeAddr("eoaFactory");
+        config.dexConfig.pairFactory = makeAddr("eoaFactory");
         vm.expectRevert("Factory must be a deployed contract");
         deployer.validateConfigForTest(config);
     }
 
     function testRejectsNonContractRouter() public {
         DeployCore.CoreConfig memory config = _validConfig();
-        config.router = makeAddr("eoaRouter");
+        config.dexConfig.router = makeAddr("eoaRouter");
         vm.expectRevert("Router must be a deployed contract");
         deployer.validateConfigForTest(config);
     }
 
     function testRejectsRouterFactoryMismatch() public {
         DeployCore.CoreConfig memory config = _validConfig();
-        config.router = address(new MockRouter(rootParent, makeAddr("otherFactory")));
+        config.dexConfig.router = address(new MockRouter(rootParent, makeAddr("otherFactory")));
         vm.expectRevert("Router.factory must match FACTORY_ADDRESS");
         deployer.validateConfigForTest(config);
     }
 
     function testRejectsZeroRootParent() public {
         DeployCore.CoreConfig memory config = _validConfig();
-        config.router = address(new MockRouter(address(0), factory));
+        config.dexConfig.router = address(new MockRouter(address(0), factory));
         vm.expectRevert("WETH must be a deployed contract");
         deployer.validateConfigForTest(config);
     }
@@ -406,8 +407,6 @@ contract DeployCoreTest is Test {
     function _validConfig() internal view returns (DeployCore.CoreConfig memory) {
         return DeployCore.CoreConfig({
             chainId: block.chainid,
-            factory: factory,
-            router: router,
             genesisMerkleRoot: keccak256("genesis airdrop"),
             genesisClaimDelayRounds: 1,
             tokenName: "Test LOVE20",
@@ -431,6 +430,12 @@ contract DeployCoreTest is Test {
             roundRewardProposalRatio: 1e17,
             boostStakeSupplyFactor: 2,
             boostStakeMultiplier: 5,
+            dexConfig: DexConfig({
+                router: router,
+                pairFactory: factory,
+                swapFeeForLpRatio: 2500000000000000,
+                swapFeeForProtocolRatio: 500000000000000
+            }),
             submitMinRatio: 1e16,
             promisedWaitingPhasesMin: 1,
             promisedWaitingPhasesMax: 100,

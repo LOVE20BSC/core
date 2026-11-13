@@ -4,7 +4,7 @@ pragma solidity =0.8.37;
 import {Test} from "@forge-std/Test.sol";
 import {Vm} from "@forge-std/Vm.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {Stake} from "../src/Stake.sol";
+import {Stake, DexConfig} from "../src/Stake.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {MemberNFT} from "../src/MemberNFT.sol";
 import {IStakeEvents} from "../src/interfaces/IStake.sol";
@@ -238,18 +238,17 @@ contract StakeDonationTest is Test {
         router.setPair(address(pair));
 
         stake = new Stake(
-            address(phase),
-            address(memberNFT),
-            address(vote),
-            address(launch),
-            address(router),
-            address(pairFactory),
-            1,
-            100,
-            FEE_SETTLEMENT_RATIO,
-            2,
-            5
-        );
+                address(phase),
+                address(memberNFT),
+                address(vote),
+                address(launch),
+                DexConfig({router: address(router), pairFactory: address(pairFactory), swapFeeForLpRatio: 2500000000000000, swapFeeForProtocolRatio: 500000000000000}),
+                1,
+                100,
+                FEE_SETTLEMENT_RATIO,
+                2,
+                5
+            );
 
         childToken.transfer(address(pair), SEED);
         parentToken.transfer(address(pair), SEED);
