@@ -352,10 +352,14 @@ contract StakeProtocolFeeTest is Test {
     }
 
     function _deployWithCoefficient(bool feeOn, uint256 seedAmount, uint256 coefficient) internal {
+        // The pair's split is (protocol, lp) = (1, coefficient).
         _deployCore(feeOn, seedAmount, 1, coefficient);
     }
 
+    /// @dev `feeA` is the protocol share and `feeB` the LP share, both reduced; `feeB` must exceed
+    ///      `feeA`, which every real profile satisfies.
     function _deployCore(bool feeOn, uint256 seedAmount, uint256 feeA, uint256 feeB) internal {
+        require(feeB > feeA, "test profile: lp share must exceed the protocol share");
         phase = new MockPhase();
         phase.setPhase(1);
         launch = new MockLaunch();
@@ -385,8 +389,10 @@ contract StakeProtocolFeeTest is Test {
                 DexConfig({
                     router: address(router),
                     pairFactory: address(factory),
-                    swapFeeForLpRatio: feeB * 1e18,
-                    swapFeeForProtocolRatio: feeA * 1e18
+                    // Present the reduced split as a real 1e18 profile: scale so the pair sums to
+                    // 0.30%, which is what the local DEX charges. Only the ratio matters to `_mintFee`.
+                    swapFeeForLpRatio: (3e15 * feeB) / (feeA + feeB),
+                    swapFeeForProtocolRatio: (3e15 * feeA) / (feeA + feeB)
                 }),
                 1,
                 100,
@@ -545,7 +551,7 @@ contract StakeProtocolFeeTest is Test {
     ///         sees the same sqrt(k) ratio in both modes; the baseline written afterwards is what
     ///         differs. This runs repeated trade+stake cycles in both modes to get the net sign.
     function testFuzzTreasuryMintEffectOnRecordedFees(uint8 cycles, uint64 tradeAmount) public {
-        cycles = uint8(bound(cycles, 1, 12));
+        cycles = uint8(bound(uint256(cycles), 1, 12));
         tradeAmount = uint64(bound(tradeAmount, 1_000e18, 50_000e18));
 
         uint256 feeOn;
@@ -1199,8 +1205,9 @@ contract StakeProtocolFeeTest is Test {
                 DexConfig({
                     router: address(router),
                     pairFactory: address(factory),
-                    swapFeeForLpRatio: c * 1e18,
-                    swapFeeForProtocolRatio: 1e18
+                    // c = lp/protocol; present it as a real 1e18 profile summing to 0.30%.
+                    swapFeeForLpRatio: (3e15 * c) / (c + 1),
+                    swapFeeForProtocolRatio: 3e15 / (c + 1)
                 }),
                 1,
                 100,
@@ -1243,8 +1250,8 @@ contract StakeProtocolFeeTest is Test {
     /// @notice The coefficient's meaning, verified against the real pair rather than derived on paper:
     ///         the protocol takes `1/(c+1)` of the sqrt(k) growth and LPs keep `c/(c+1)`.
     ///         Independent of the swap-fee rate, which only changes how fast sqrt(k) grows.
-    function testFuzzCoefficientMeansProtocolTakesOneOverCPlusOne(uint8 coefficient, uint32 growthBps) public {
-        coefficient = uint8(bound(coefficient, 2, 9));
+    function testFuzzCoefficientMeansProtocolTakesOneOverCPlusOne(uint256 coefficient, uint32 growthBps) public {
+        coefficient = bound(coefficient, 2, 9);
         growthBps = uint32(bound(growthBps, 100, 2000));
 
         (uint256 actual, uint256 expected) = _treasuryMintAndPrediction(coefficient, growthBps);
@@ -1322,8 +1329,8 @@ contract StakeProtocolFeeTest is Test {
     /// @notice The useful half: `c` can be recovered from ONE observed protocol-fee mint, because
     ///         `T = S*(rootK-rootKLast)/(rootK*c+rootKLast)` is invertible. And Stake can observe
     ///         `T` for free: in `pair.mint`, `dSupply = T + liquidity`, so `T = dSupply - liquidity`.
-    function testFuzzCoefficientIsRecoverableFromOneObservedMint(uint8 coefficient, uint32 growthBps) public {
-        coefficient = uint8(bound(coefficient, 2, 12));
+    function testFuzzCoefficientIsRecoverableFromOneObservedMint(uint256 coefficient, uint32 growthBps) public {
+        coefficient = bound(coefficient, 2, 12);
         growthBps = uint32(bound(growthBps, 50, 3000));
 
         _deployWithCoefficient(true, 100_000e18, coefficient);
@@ -1495,11 +1502,11 @@ contract StakeProtocolFeeTest is Test {
         assertGt(rootK, rootKLast, "growth accrued");
 
         // Stake's own prediction path (via totalStake) must agree with the pair.
-        // Stake stores the configured ratios verbatim at 1e18 precision: 17/8 as (17e18, 8e18).
-        assertEq(stake.SWAP_FEE_FOR_LP_RATIO(), 17 * 1e18, "lp ratio stored at 1e18");
-        assertEq(stake.SWAP_FEE_FOR_PROTOCOL_RATIO(), 8 * 1e18, "protocol ratio stored at 1e18");
-        // 17/8 is exactly the PancakeSwap mainnet profile, which no integer `c` can represent.
+        // Stake stores the configured ratios verbatim. `_deployCore` presents the reduced 8:17 split as
+        // a 0.30% profile, so the stored pair is exactly proportional to 17:8 — the property that
+        // matters, since `_mintFee` only sees the ratio.
         assertEq(stake.SWAP_FEE_FOR_LP_RATIO() * 8, stake.SWAP_FEE_FOR_PROTOCOL_RATIO() * 17, "17:8 exact");
+        assertGt(stake.SWAP_FEE_FOR_LP_RATIO(), stake.SWAP_FEE_FOR_PROTOCOL_RATIO(), "lp share is larger");
         uint256 predicted = _previewFeeLiquidityFraction(8, 17); // c = 17/8
         uint256 before = pair.balanceOf(treasury);
         uint256 d0 = uint256(r0) / 1_000;
@@ -1522,8 +1529,8 @@ contract StakeProtocolFeeTest is Test {
     function testZeroProtocolShareIsAcceptedAndDisablesThePrediction() public {
         _deployCore(true, 100_000e18, 0, 3000); // pair: protocol 0, lp 3000 (i.e. 0/3000)
 
-        assertEq(stake.SWAP_FEE_FOR_LP_RATIO(), 3000 * 1e18, "lp ratio stored verbatim");
         assertEq(stake.SWAP_FEE_FOR_PROTOCOL_RATIO(), 0, "zero protocol share stored verbatim");
+        assertEq(stake.SWAP_FEE_FOR_LP_RATIO(), 3e15, "the whole 0.30% goes to LPs");
 
         _stake(alice, aliceId, 20_000e18, 20_000e18);
         _priceNeutralGrowth(1000);
@@ -1576,74 +1583,89 @@ contract StakeProtocolFeeTest is Test {
 
     // ===================== 11. the prediction formula itself
 
-    /// @notice Pins the integer expression `_pendingProtocolFeeLp` uses against the canonical
-    ///         Uniswap V2 `_mintFee`, for every split shape. Deliberately pure arithmetic: it compares
-    ///         the contract's expression against the reference formula directly, so a mismatch cannot be
-    ///         masked by a helper that re-implements the same wrong thing.
-    function testFuzzPredictionExpressionMatchesUniswapV2(uint8 protocolShare, uint8 lpShare, uint32 growthBps)
-        public
-        pure
-    {
-        protocolShare = uint8(bound(protocolShare, 1, 50));
-        lpShare = uint8(bound(lpShare, uint256(protocolShare) + 1, 60));
-        growthBps = uint32(bound(growthBps, 100, 3000));
 
-        uint256 divisor = _gcd(uint256(protocolShare), lpShare);
-        uint256 a = uint256(protocolShare) / divisor; // protocol share
-        uint256 b = lpShare / divisor;                // lp share
+    // ===================== 12. through Stake's real path (regression guard)
 
-        uint256 supply = 1e23;
-        uint256 rootKLast = 31622776601683793319;
-        uint256 rootK = rootKLast + (rootKLast * growthBps) / 10_000;
-        uint256 growth = rootK - rootKLast;
-        uint256 denominator = b * rootK + a * rootKLast;
+    /// @notice Drives `totalStake`, which converts the staked LP to token amounts through
+    ///         `_effectiveSupply`. With `FEE_SETTLEMENT_RATIO == 0` no settlement burn interferes, so the
+    ///         amount Stake reports must equal what `pair.burn` actually pays for that LP — i.e. the
+    ///         protocol's pending mint is accounted for. Going through the contract (rather than
+    ///         re-implementing the formula in the test) is what makes this a real regression guard.
+    ///
+    ///         The reduced protocol shares below include values above 1 (8/17, 3/7), which is the case a
+    ///         prediction that forgets to scale by the numerator gets wrong.
+    function testTotalStakeViewAccountsForTheProtocolFee() public {
+        uint8[4] memory protocolShares = [uint8(1), 8, 3, 2];
+        uint8[4] memory lpShares = [uint8(5), 17, 7, 3];
 
-        // Canonical: c = lp/protocol = b/a, so T = S*g/(rootK*c + rootKLast) = S*g*a/(b*rootK + a*rootKLast).
-        uint256 canonical = (supply * growth * a) / denominator;
+        for (uint256 i; i < 4; ++i) {
+            uint256 a = protocolShares[i];
+            uint256 b = lpShares[i];
+            _deployCore(true, 100_000e18, a, b);
+            _stake(alice, aliceId, 20_000e18, 20_000e18);
+            _priceNeutralGrowth(1000);
 
-        // The expression Stake evaluates:
-        //   mulDiv(pairTotalSupply, (rootK - rootKLast) * _feeNumerator, denominator)
-        uint256 stakeExpr = (supply * growth * a) / denominator;
+            (,, uint256 withdrawableLp,,, uint256 reportedTokenAmount,,) = stake.totalStake(address(child));
+            assertGt(reportedTokenAmount, 0, "the view reports a token amount");
 
-        assertEq(stakeExpr, canonical, "Stake's expression must equal S*g*a/(b*rootK+a*rootKLast)");
-        // And the bug this test exists to catch: dropping `a` is only harmless when a == 1.
-        if (a > 1) {
-            assertGt(canonical, (supply * growth) / denominator, "dropping a under-predicts");
+            uint256 supply = pair.totalSupply();
+            (uint112 r0, uint112 r1,) = pair.getReserves();
+            uint256 rootK = Math.sqrt(uint256(r0) * uint256(r1));
+            uint256 rootKLast = Math.sqrt(pair.kLast());
+            assertGt(rootK, rootKLast, "growth accrued");
+            uint256 pending = (supply * (rootK - rootKLast) * a) / (b * rootK + a * rootKLast);
+
+            uint256 expected = (withdrawableLp * uint256(r0)) / (supply + pending);
+            console.log("a / b:", a, b);
+            console.log("reported / expected:", reportedTokenAmount, expected);
+            assertApproxEqAbs(reportedTokenAmount, expected, 2, "view prices against the post-fee supply");
         }
     }
 
-    /// @notice The decisive test: with a protocol share above 1, the pair mints a different amount than
-    ///         a prediction that forgets to scale by the numerator. Stake must match the pair.
-    function testProtocolShareAboveOneIsPredictedCorrectly() public {
-        // Reduced split 17/8: protocol takes 8/25 of the sqrt(k) growth.
-        _deployCore(true, 100_000e18, 8, 17);
-        _stake(alice, aliceId, 20_000e18, 20_000e18);
-        _priceNeutralGrowth(1000);
+    // ===================== 13. DexConfig validation
 
-        (uint112 r0, uint112 r1,) = pair.getReserves();
-        uint256 supply = pair.totalSupply();
-        uint256 rootK = Math.sqrt(uint256(r0) * uint256(r1));
-        uint256 rootKLast = Math.sqrt(pair.kLast());
-        uint256 growth = rootK - rootKLast;
-        assertGt(growth, 0, "growth accrued");
+    /// @notice `InvalidSwapFeeRatios` covers every way the profile can be unusable: a zero LP share,
+    ///         a protocol share at or above the LP share, and a pair that sums past 100%.
+    function testRejectsUnusableFeeRatios() public {
+        // lp == 0; protocol == lp; and a pair summing past 1e18.
+        _expectRatioRejection(0, 0);
+        _expectRatioRejection(5, 5);
+        _expectRatioRejection(6e17, 6e17);
+    }
 
-        // Correct: S*g*8/(17*rootK + 8*rootKLast). Wrong (the bug): S*g/(17*rootK + 8*rootKLast).
-        uint256 correct = (supply * growth * 8) / (17 * rootK + 8 * rootKLast);
-        uint256 wrong = (supply * growth) / (17 * rootK + 8 * rootKLast);
-        assertGt(correct, wrong, "the two differ when the protocol share is 8");
+    /// @notice A numerator past the overflow headroom is rejected at construction rather than
+    ///         reverting inside a later stake.
+    function testRejectsAProfileWhoseNumeratorWouldOverflowThePrediction() public {
+        uint256 tooBig = (1 << 140) + 1;
+        _expectRatioRejection(tooBig * 2, tooBig);
+    }
 
-        uint256 before = pair.balanceOf(treasury);
-        uint256 d0 = uint256(r0) / 1_000;
-        uint256 d1 = uint256(r1) / 1_000;
-        child.mint(address(this), d0);
-        parent.mint(address(this), d1);
-        child.transfer(address(pair), d0);
-        parent.transfer(address(pair), d1);
-        pair.mint(address(this));
-        uint256 actual = pair.balanceOf(treasury) - before;
+    function _expectRatioRejection(uint256 lpRatio, uint256 protocolRatio) internal {
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IStakeErrors.InvalidSwapFeeRatios.selector, lpRatio, protocolRatio
+            )
+        );
+        _newStakeWithRatios(lpRatio, protocolRatio);
+    }
 
-        console.log("correct / wrong / actual:", correct, wrong, actual);
-        assertEq(actual, correct, "the pair mints the scaled amount");
-        assertTrue(actual != wrong, "a prediction missing the numerator factor would be wrong here");
+    function _newStakeWithRatios(uint256 lpRatio, uint256 protocolRatio) internal {
+        new Stake(
+            address(0x1),
+            address(0x2),
+            address(0x3),
+            address(0x4),
+            DexConfig({
+                router: address(0x5),
+                pairFactory: address(0x6),
+                swapFeeForLpRatio: lpRatio,
+                swapFeeForProtocolRatio: protocolRatio
+            }),
+            1,
+            100,
+            FEE_SETTLEMENT_RATIO,
+            2,
+            5
+        );
     }
 }

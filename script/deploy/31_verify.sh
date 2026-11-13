@@ -124,10 +124,12 @@ if ! VOTE_ARGS=$(cast abi-encode "constructor(address,address,address,address)" 
     echo "Error: Failed to encode Vote constructor arguments"
     exit 1
 fi
+# The DEX wiring is a single `DexConfig` tuple: (router, pairFactory, lpRatio, protocolRatio).
 if ! STAKE_ARGS=$(cast abi-encode \
-    "constructor(address,address,address,address,address,address,uint256,uint256,uint256,uint256,uint256)" \
-    "$PHASE_ADDRESS" "$MEMBER_NFT_ADDRESS" "$VOTE_ADDRESS" "$LAUNCH_ADDRESS" "$ROUTER_ADDRESS" \
-    "$FACTORY_ADDRESS" "$PROMISED_WAITING_PHASES_MIN" "$PROMISED_WAITING_PHASES_MAX" \
+    "constructor(address,address,address,address,(address,address,uint256,uint256),uint256,uint256,uint256,uint256,uint256)" \
+    "$PHASE_ADDRESS" "$MEMBER_NFT_ADDRESS" "$VOTE_ADDRESS" "$LAUNCH_ADDRESS" \
+    "($ROUTER_ADDRESS,$FACTORY_ADDRESS,$SWAP_FEE_FOR_LP_RATIO,$SWAP_FEE_FOR_PROTOCOL_RATIO)" \
+    "$PROMISED_WAITING_PHASES_MIN" "$PROMISED_WAITING_PHASES_MAX" \
     "$FEE_SETTLEMENT_RATIO" "$BOOST_STAKE_SUPPLY_FACTOR" "$BOOST_STAKE_MULTIPLIER"); then
     echo "Error: Failed to encode Stake constructor arguments"
     exit 1

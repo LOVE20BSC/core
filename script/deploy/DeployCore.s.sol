@@ -545,7 +545,7 @@ contract DeployCore is Script {
         );
         require(
             stake.SWAP_FEE_FOR_PROTOCOL_RATIO() == config.dexConfig.swapFeeForProtocolRatio,
-            "Stake boost multiplier mismatch"
+            "Stake swap fee for protocol ratio mismatch"
         );
         require(
             stake.LIQUIDITY_TOKEN_EQUIVALENCE_FACTOR() == 2, "Stake liquidity equivalence factor mismatch"

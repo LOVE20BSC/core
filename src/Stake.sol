@@ -183,10 +183,15 @@ contract Stake is IStake {
     /// @dev Validates and stores the DEX wiring. Kept out of the constructor body because the parameter
     ///      list plus this logic exceeds the EVM stack depth the compiler can schedule.
     ///
-    ///      The fee profile must describe a real DEX: a zero LP share would mean the pair keeps nothing
-    ///      and the reduced fraction would divide by zero, while a protocol share at or above the LP
-    ///      share would mean the DEX takes at least half of the sqrt(k) growth, which no real profile
-    ///      does. Both are deployment errors, so they fail here rather than inside the maths.
+    ///      The fee profile must describe a real DEX. A zero LP share would mean the pair keeps nothing
+    ///      and the reduced fraction would divide by zero; a protocol share at or above the LP share
+    ///      would mean the DEX takes at least half of the sqrt(k) growth; and the two together must stay
+    ///      below 100%, which is the bound the periphery Hub also enforces on the values it reads from
+    ///      here. All three are deployment errors, so they fail here rather than inside the maths.
+    ///
+    ///      `_MAX_FEE_RATIO` bounds each side so the prediction cannot overflow: it forms
+    ///      `(rootK - rootKLast) * _feeNumerator` with `rootK < 2^112`, so a numerator beyond 2^144 would
+    ///      revert. Real reduced ratios are 1, 8 and 17, so the bound costs nothing.
     function _initDexConfig(DexConfig memory config) private {
         if (config.router == address(0)) revert InvalidDexConfig();
         if (config.pairFactory == address(0)) revert InvalidDexConfig();
@@ -197,6 +202,10 @@ contract Stake is IStake {
         if (swapFeeForLpRatio <= swapFeeForProtocolRatio) {
             revert InvalidSwapFeeRatios(swapFeeForLpRatio, swapFeeForProtocolRatio);
         }
+        // The two ratios are 1e18 fractions of the swap amount, so their sum must stay below 100%.
+        if (swapFeeForLpRatio + swapFeeForProtocolRatio > 1e18) {
+            revert InvalidSwapFeeRatios(swapFeeForLpRatio, swapFeeForProtocolRatio);
+        }
 
         ROUTER_ADDRESS = config.router;
         PAIR_FACTORY_ADDRESS = config.pairFactory;
@@ -204,9 +213,23 @@ contract Stake is IStake {
         SWAP_FEE_FOR_PROTOCOL_RATIO = swapFeeForProtocolRatio;
 
         uint256 divisor = _gcd(swapFeeForLpRatio, swapFeeForProtocolRatio);
-        _feeNumerator = swapFeeForProtocolRatio / divisor;
-        _feeDenominator = swapFeeForLpRatio / divisor;
+        uint256 numerator = swapFeeForProtocolRatio / divisor;
+        uint256 denominator = swapFeeForLpRatio / divisor;
+        // The prediction forms `(rootK - rootKLast) * numerator` with `rootK < 2^112`. A numerator above
+        // 2^144 would overflow, so reject it here rather than reverting inside a stake. The bound is on
+        // the product's headroom, not on how small the ratio looks: a 1e18-scaled profile reduces to
+        // whatever the pair happens to be (e.g. 230769230769230/2769230769230769 for a 1:12 split), and
+        // that is perfectly usable.
+        if (numerator > _MAX_FEE_NUMERATOR) {
+            revert InvalidSwapFeeRatios(swapFeeForLpRatio, swapFeeForProtocolRatio);
+        }
+        _feeNumerator = numerator;
+        _feeDenominator = denominator;
     }
+
+    /// @dev Headroom for `(rootK - rootKLast) * _feeNumerator`: `rootK` is below `2^112`, so a numerator
+    ///      at `2^140` leaves the product far inside uint256 while admitting every realistic profile.
+    uint256 private constant _MAX_FEE_NUMERATOR = 1 << 140;
 
     /// @dev `gcd(a, 0) = a`, so a DEX with no protocol fee reduces to `(0, 1)`: the prediction
     ///      short-circuits on `_feeNumerator == 0` and every denominator stays `pairTotalSupply`.

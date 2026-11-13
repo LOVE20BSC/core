@@ -209,8 +209,10 @@ CONSTRUCTOR_SLOTS = {
                "TOKEN_SYMBOL_LENGTH", "LAUNCH_AMOUNT", "MAX_SUPPLY", "TOKEN_NAME", "TOKEN_SYMBOL"],
     "Submit": ["PHASE_ADDRESS", "STAKE_ADDRESS", "MEMBER_NFT_ADDRESS", "SUBMIT_MIN_RATIO"],
     "Vote": ["PHASE_ADDRESS", "STAKE_ADDRESS", "SUBMIT_ADDRESS", "MEMBER_NFT_ADDRESS"],
+    # The fifth slot is a `DexConfig` tuple (router, pairFactory, lpRatio, protocolRatio); the ABI
+    # reports it as one `tuple`, so the map lists one key for it.
     "Stake": ["PHASE_ADDRESS", "MEMBER_NFT_ADDRESS", "VOTE_ADDRESS", "LAUNCH_ADDRESS",
-              "ROUTER_ADDRESS", "FACTORY_ADDRESS", "PROMISED_WAITING_PHASES_MIN",
+              "DEX_CONFIG", "PROMISED_WAITING_PHASES_MIN",
               "PROMISED_WAITING_PHASES_MAX", "FEE_SETTLEMENT_RATIO", "BOOST_STAKE_SUPPLY_FACTOR",
               "BOOST_STAKE_MULTIPLIER"],
     "Mint": ["PHASE_ADDRESS", "VOTE_ADDRESS", "SUBMIT_ADDRESS", "LAUNCH_ADDRESS",
@@ -269,8 +271,19 @@ def constructor_layout(repo: Path, contract: str):
         assert all(component["type"] != "tuple" for component in components), (contract, components)
         slot_types = [component["type"] for component in components]
         return "constructor((" + ",".join(slot_types) + "))", slot_types, True
-    slot_types = [entry["type"] for entry in inputs]
-    return "constructor(" + ",".join(slot_types) + ")", slot_types, False
+    # A constructor may mix plain slots with an inline tuple (Stake's `DexConfig`). The signature keeps
+    # the tuple expanded, which is exactly what `cast abi-encode` expects.
+    signature_types = []
+    slot_types = []
+    for entry in inputs:
+        if entry["type"] == "tuple":
+            components = [component["type"] for component in entry["components"]]
+            signature_types.append("(" + ",".join(components) + ")")
+            slot_types.append("tuple")
+        else:
+            signature_types.append(entry["type"])
+            slot_types.append(entry["type"])
+    return "constructor(" + ",".join(signature_types) + ")", slot_types, False
 
 
 def verify_constructor_arguments(repo: Path, contract: str, log: list, env: dict) -> None:
@@ -289,6 +302,14 @@ def verify_constructor_arguments(repo: Path, contract: str, log: list, env: dict
             valid = UINT_VALUE.fullmatch(env[key]) is not None
         elif slot_type in ("string", "bool", "bytes"):
             valid = True
+        elif slot_type == "tuple":
+            # `DexConfig`: two addresses and two uint256s, all supplied by the env under their own keys.
+            valid = all(
+                ADDRESS_VALUE.fullmatch(env[member]) is not None
+                if member in ("ROUTER_ADDRESS", "FACTORY_ADDRESS")
+                else UINT_VALUE.fullmatch(env[member]) is not None
+                for member in ("ROUTER_ADDRESS", "FACTORY_ADDRESS",
+                               "SWAP_FEE_FOR_LP_RATIO", "SWAP_FEE_FOR_PROTOCOL_RATIO"))
         else:
             raise AssertionError(f"{contract} slot {index}: unsupported ABI type {slot_type}")
         assert valid, (f"{contract} slot {index} is {slot_type} but {key}={env[key]} does not fit; "
@@ -308,6 +329,18 @@ def verify_constructor_arguments(repo: Path, contract: str, log: list, env: dict
         f"{contract}: the script passes {len(values)} values but the ABI has {len(slot_types)} slots",
         values, slot_types)
     for index, (value, key, slot_type) in enumerate(zip(values, keys, slot_types)):
+        if slot_type == "tuple":
+            # The tuple arrives as a parenthesised list; compare each member against its own env key.
+            members = ("ROUTER_ADDRESS", "FACTORY_ADDRESS",
+                       "SWAP_FEE_FOR_LP_RATIO", "SWAP_FEE_FOR_PROTOCOL_RATIO")
+            assert value.startswith("(") and value.endswith(")"), (contract, key, value)
+            passed = value[1:-1].split(",")
+            assert len(passed) == len(members), (contract, key, value)
+            for member, passed_value in zip(members, passed):
+                assert passed_value == env[member], (
+                    f"{contract} slot {index} tuple member {member} must be {env[member]} "
+                    f"but the script passes {passed_value}")
+            continue
         assert value == env[key], (
             f"{contract} slot {index} ({slot_type}) must be {key}={env[key]} but the script passes {value}")
 
@@ -364,7 +397,8 @@ def main():
                     "ROUND_REWARD_PROPOSAL_RATIO": "100000000000000000",
                     "BOOST_STAKE_SUPPLY_FACTOR": "2", "BOOST_STAKE_MULTIPLIER": "5",
                     "SUBMIT_MIN_RATIO": "10000000000000000", "PROMISED_WAITING_PHASES_MIN": "1",
-                    "PROMISED_WAITING_PHASES_MAX": "100", "FEE_SETTLEMENT_RATIO": "2500000000000000"})
+                    "PROMISED_WAITING_PHASES_MAX": "100", "FEE_SETTLEMENT_RATIO": "2500000000000000",
+                    "SWAP_FEE_FOR_LP_RATIO": "3000000000000000", "SWAP_FEE_FOR_PROTOCOL_RATIO": "0"})
         calls = {}
 
         def getters(contract, fields):
@@ -411,7 +445,8 @@ def main():
             "ROUND_REWARD_PROPOSAL_RATIO": "ROUND_REWARD_PROPOSAL_RATIO"}.items()})
         getters("MINT", {"PHASE_ADDRESS()(address)": "PHASE_ADDRESS"})
         getters("STAKE", {key + "()(uint256)": key for key in ("PROMISED_WAITING_PHASES_MIN", "PROMISED_WAITING_PHASES_MAX", "FEE_SETTLEMENT_RATIO",
-                                                               "BOOST_STAKE_SUPPLY_FACTOR", "BOOST_STAKE_MULTIPLIER")})
+                                                               "BOOST_STAKE_SUPPLY_FACTOR", "BOOST_STAKE_MULTIPLIER",
+                                                               "SWAP_FEE_FOR_LP_RATIO", "SWAP_FEE_FOR_PROTOCOL_RATIO")})
         getters("STAKE", {"LIQUIDITY_TOKEN_EQUIVALENCE_FACTOR()(uint256)": "2"})
         getters("STAKE", {"ROUTER_ADDRESS()(address)": "ROUTER_ADDRESS", "PAIR_FACTORY_ADDRESS()(address)": "FACTORY_ADDRESS"})
         getters("SUBMIT", {"SUBMIT_MIN_RATIO()(uint256)": "SUBMIT_MIN_RATIO"})

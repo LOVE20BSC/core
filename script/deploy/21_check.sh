@@ -567,11 +567,25 @@ for pair in \
     "BOOST_STAKE_SUPPLY_FACTOR:$ACTUAL_BOOST_SUPPLY_FACTOR" \
     "BOOST_STAKE_MULTIPLIER:$ACTUAL_BOOST_MULTIPLIER" \
     "SWAP_FEE_FOR_LP_RATIO:$ACTUAL_SWAP_FEE_FOR_LP" \
-    "SWAP_FEE_FOR_PROTOCOL_RATIO:$ACTUAL_SWAP_FEE_FOR_PROTOCOL" \
     "FEE_SETTLEMENT_RATIO:$ACTUAL_FEE_RATIO" \
     "GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS:$GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS"; do
     verify_positive "${pair%%:*}" "${pair#*:}" || ((FAILED+=1))
 done
+
+# `SWAP_FEE_FOR_PROTOCOL_RATIO` is deliberately excluded from the positive check above: 0 is the
+# documented "this DEX has no protocol fee" sentinel, not an error. What must hold is the relationship
+# between the two ratios - the protocol's share is strictly below the LP's, and together they stay
+# below 100%.
+if [ "$(decimal_cmp "$ACTUAL_SWAP_FEE_FOR_PROTOCOL" "$ACTUAL_SWAP_FEE_FOR_LP")" -ge 0 ]; then
+    echo -e "  ${RED}✗${NC} SWAP_FEE_FOR_PROTOCOL_RATIO must be below SWAP_FEE_FOR_LP_RATIO (protocol: $ACTUAL_SWAP_FEE_FOR_PROTOCOL, lp: $ACTUAL_SWAP_FEE_FOR_LP)"
+    ((FAILED+=1))
+else
+    echo -e "  ${GREEN}✓${NC} SWAP_FEE_FOR_PROTOCOL_RATIO < SWAP_FEE_FOR_LP_RATIO ($ACTUAL_SWAP_FEE_FOR_PROTOCOL < $ACTUAL_SWAP_FEE_FOR_LP)"
+fi
+if [ "$(decimal_cmp "$ACTUAL_SWAP_FEE_FOR_LP" "1000000000000000000")" -ge 0 ]; then
+    echo -e "  ${RED}✗${NC} SWAP_FEE_FOR_LP_RATIO must be below 1e18 (actual: $ACTUAL_SWAP_FEE_FOR_LP)"
+    ((FAILED+=1))
+fi
 
 verify_boundary "PHASE_ADJUST_THRESHOLD" "$ACTUAL_ADJUST_THRESHOLD" "1000000000000000000" || ((FAILED+=1))
 verify_boundary "SUBMIT_MIN_RATIO" "$ACTUAL_MIN_RATIO" "1000000000000000000" || ((FAILED+=1))
