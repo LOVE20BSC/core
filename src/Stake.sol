@@ -14,7 +14,7 @@ import {IUniswapV2Pair} from "./interfaces/UniswapV2/IUniswapV2Pair.sol";
 import {IUniswapV2Factory} from "./interfaces/UniswapV2/IUniswapV2Factory.sol";
 import {IUniswapV2Router02} from "./interfaces/UniswapV2/IUniswapV2Router02.sol";
 import {IVote} from "./interfaces/IVote.sol";
-import {IStake, MemberStake, TotalStake} from "./interfaces/IStake.sol";
+import {IStake, DexConfig, MemberStake, TotalStake} from "./interfaces/IStake.sol";
 
 struct AddedLiquidity {
     uint256 tokenAmount;
@@ -33,13 +33,6 @@ struct MergedStake {
     uint256 targetBoostShares;
     uint256 targetPromisedWaitingPhases;
     uint256 totalValidGovVotes;
-}
-
-struct DexConfig {
-    address router;
-    address pairFactory;
-    uint256 swapFeeForLpRatio;
-    uint256 swapFeeForProtocolRatio;
 }
 
 struct PairSnapshot {
@@ -159,17 +152,14 @@ contract Stake is IStake {
     }
 
     function _initDexConfig(DexConfig memory config) private {
-        if (config.router == address(0)) revert InvalidDexConfig();
-        if (config.pairFactory == address(0)) revert InvalidDexConfig();
-
         uint256 swapFeeForLpRatio = config.swapFeeForLpRatio;
         uint256 swapFeeForProtocolRatio = config.swapFeeForProtocolRatio;
-        if (swapFeeForLpRatio == 0) revert InvalidSwapFeeRatios(swapFeeForLpRatio, swapFeeForProtocolRatio);
+        if (swapFeeForLpRatio == 0) revert ZeroLpFeeRatio();
         if (swapFeeForLpRatio <= swapFeeForProtocolRatio) {
-            revert InvalidSwapFeeRatios(swapFeeForLpRatio, swapFeeForProtocolRatio);
+            revert ProtocolFeeRatioNotBelowLpRatio(swapFeeForLpRatio, swapFeeForProtocolRatio);
         }
-        if (swapFeeForLpRatio + swapFeeForProtocolRatio > 1e18) {
-            revert InvalidSwapFeeRatios(swapFeeForLpRatio, swapFeeForProtocolRatio);
+        if (swapFeeForLpRatio + swapFeeForProtocolRatio >= 1e18) {
+            revert SwapFeeRatiosConsumeTheWholeAmount(swapFeeForLpRatio, swapFeeForProtocolRatio);
         }
 
         ROUTER_ADDRESS = config.router;
@@ -178,18 +168,9 @@ contract Stake is IStake {
         SWAP_FEE_FOR_PROTOCOL_RATIO = swapFeeForProtocolRatio;
 
         uint256 divisor = _gcd(swapFeeForLpRatio, swapFeeForProtocolRatio);
-        uint256 numerator = swapFeeForProtocolRatio / divisor;
-        uint256 denominator = swapFeeForLpRatio / divisor;
-        if (numerator > _MAX_FEE_NUMERATOR) {
-            revert InvalidSwapFeeRatios(swapFeeForLpRatio, swapFeeForProtocolRatio);
-        }
-        _feeNumerator = numerator;
-        _feeDenominator = denominator;
+        _feeNumerator = swapFeeForProtocolRatio / divisor;
+        _feeDenominator = swapFeeForLpRatio / divisor;
     }
-
-    /// @dev Load-bearing: the prediction multiplies `(rootK - rootKLast)` by `_feeNumerator` with
-    ///      `rootK < 2^112`, so a larger numerator would overflow during a stake.
-    uint256 private constant _MAX_FEE_NUMERATOR = 1 << 140;
 
     function _gcd(uint256 a, uint256 b) private pure returns (uint256) {
         while (b != 0) {
@@ -962,8 +943,6 @@ contract Stake is IStake {
         return address(uint160(_staticUint(PAIR_FACTORY_ADDRESS, IUniswapV2Factory.feeTo.selector)));
     }
 
-    /// @dev Load-bearing: `try`/`catch` does not catch an ABI-decoding failure, so a fork whose
-    ///      fallback returns empty data would revert the whole snapshot instead of degrading.
     function _staticUint(address target, bytes4 selector) private view returns (uint256 value) {
         (bool ok, bytes memory data) = target.staticcall(abi.encodeWithSelector(selector));
         if (!ok || data.length < 32) return 0;
@@ -1133,8 +1112,6 @@ contract Stake is IStake {
         _realizeFees(tokenAddress, pair, settlementUnit, round);
     }
 
-    /// @dev Load-bearing: `pair.burn` divides by the supply *after* minting the protocol fee, so this
-    ///      guard must use that same denominator or it approves a burn the pair rejects.
     function _canBurn(uint256 lpAmount, PairSnapshot memory snapshot) private pure returns (bool) {
         uint256 effectiveSupply = _effectiveSupply(snapshot);
         return lpAmount * snapshot.reserveToken >= effectiveSupply

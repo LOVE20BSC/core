@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.37;
 
-import {Stake, DexConfig} from "../src/Stake.sol";
+import {Stake} from "../src/Stake.sol";
+import {DexConfig} from "../src/interfaces/IStake.sol";
 import {IStakeErrors} from "../src/interfaces/IStake.sol";
 import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";

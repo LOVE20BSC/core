@@ -196,6 +196,12 @@ contract DeployCore is Script {
             config.dexConfig.swapFeeForProtocolRatio < config.dexConfig.swapFeeForLpRatio,
             "SWAP_FEE_FOR_PROTOCOL_RATIO must be below SWAP_FEE_FOR_LP_RATIO"
         );
+        // The sum bound is strict and shared with the periphery Hub, which rejects `>= 1e18` too: a
+        // profile Stake accepted but the Hub rejected would deploy a Stake no Hub could point at.
+        require(
+            config.dexConfig.swapFeeForLpRatio + config.dexConfig.swapFeeForProtocolRatio < 1e18,
+            "Swap fee ratios must sum to less than 1e18"
+        );
 
         require(config.submitMinRatio != 0 && config.submitMinRatio <= 1e18, "Submit min ratio out of range");
 

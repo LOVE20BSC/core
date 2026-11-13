@@ -18,6 +18,13 @@ struct TotalStake {
     uint256 firstGovVoteRound;
 }
 
+struct DexConfig {
+    address router;
+    address pairFactory;
+    uint256 swapFeeForLpRatio;
+    uint256 swapFeeForProtocolRatio;
+}
+
 interface IStakeErrors {
     error StakeNotStarted();
     error ZeroTokenAmount();
@@ -72,8 +79,12 @@ interface IStakeErrors {
         uint256 requestedRound,
         uint256 currentRound
     );
-    error InvalidDexConfig();
-    error InvalidSwapFeeRatios(
+    error ZeroLpFeeRatio();
+    error ProtocolFeeRatioNotBelowLpRatio(
+        uint256 swapFeeForLpRatio,
+        uint256 swapFeeForProtocolRatio
+    );
+    error SwapFeeRatiosConsumeTheWholeAmount(
         uint256 swapFeeForLpRatio,
         uint256 swapFeeForProtocolRatio
     );

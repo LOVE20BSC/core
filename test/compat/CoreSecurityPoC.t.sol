@@ -2,7 +2,8 @@
 pragma solidity =0.8.37;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Stake, DexConfig} from "../../src/Stake.sol";
+import {Stake} from "../../src/Stake.sol";
+import {DexConfig} from "../../src/interfaces/IStake.sol";
 import {Mint} from "../../src/Mint.sol";
 import {Vote} from "../../src/Vote.sol";
 import {Submit} from "../../src/Submit.sol";

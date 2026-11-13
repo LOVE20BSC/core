@@ -4,7 +4,7 @@ pragma solidity =0.8.37;
 import {Test} from "@forge-std/Test.sol";
 import {DeployCore} from "../script/deploy/DeployCore.s.sol";
 import {IPhase} from "../src/interfaces/IPhase.sol";
-import {DexConfig} from "../src/Stake.sol";
+import {DexConfig} from "../src/interfaces/IStake.sol";
 
 contract DeployCoreHarness is DeployCore {
     function _predictor() internal view override returns (address) {

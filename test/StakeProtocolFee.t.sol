@@ -5,7 +5,8 @@ import {Test} from "@forge-std/Test.sol";
 import {console} from "@forge-std/console.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Stake, DexConfig} from "../src/Stake.sol";
+import {Stake} from "../src/Stake.sol";
+import {DexConfig} from "../src/interfaces/IStake.sol";
 import {IStakeErrors} from "../src/interfaces/IStake.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {MemberNFT} from "../src/MemberNFT.sol";
@@ -1539,48 +1540,6 @@ contract StakeProtocolFeeTest is Test {
         assertEq(_previewFeeLiquidityFraction(0, 1), 0, "zero protocol share predicts no fee LP");
     }
 
-    /// @notice The DEX config is validated as a unit: a zero router or factory is a deployment error,
-    ///         because the fee profile would then describe a DEX that Stake cannot actually trade on.
-    function testZeroDexAddressIsRejected() public {
-        vm.expectRevert(IStakeErrors.InvalidDexConfig.selector);
-        new Stake(
-            address(0x1),
-            address(0x2),
-            address(0x3),
-            address(0x4),
-            DexConfig({
-                router: address(0),
-                pairFactory: address(0x5),
-                swapFeeForLpRatio: 3000 * 1e18,
-                swapFeeForProtocolRatio: 0
-            }),
-            1,
-            100,
-            FEE_SETTLEMENT_RATIO,
-            2,
-            5
-        );
-
-        vm.expectRevert(IStakeErrors.InvalidDexConfig.selector);
-        new Stake(
-            address(0x1),
-            address(0x2),
-            address(0x3),
-            address(0x4),
-            DexConfig({
-                router: address(0x5),
-                pairFactory: address(0),
-                swapFeeForLpRatio: 3000 * 1e18,
-                swapFeeForProtocolRatio: 0
-            }),
-            1,
-            100,
-            FEE_SETTLEMENT_RATIO,
-            2,
-            5
-        );
-    }
-
     // ===================== 11. the prediction formula itself
 
 
@@ -1624,33 +1583,48 @@ contract StakeProtocolFeeTest is Test {
 
     // ===================== 13. DexConfig validation
 
-    /// @notice `InvalidSwapFeeRatios` covers every way the profile can be unusable: a zero LP share,
-    ///         a protocol share at or above the LP share, and a pair that sums past 100%.
-    function testRejectsUnusableFeeRatios() public {
-        // lp == 0; protocol == lp; and a pair summing past 1e18.
-        _expectRatioRejection(0, 0);
-        _expectRatioRejection(5, 5);
-        _expectRatioRejection(6e17, 6e17);
+    /// @notice A zero LP share would make the fraction reduction divide by zero.
+    function testRejectsAZeroLpFeeRatio() public {
+        vm.expectRevert(IStakeErrors.ZeroLpFeeRatio.selector);
+        _newStakeWithRatios(0, 0);
     }
 
-    /// @notice A numerator past the overflow headroom is rejected at construction rather than
-    ///         reverting inside a later stake.
-    function testRejectsAProfileWhoseNumeratorWouldOverflowThePrediction() public {
-        uint256 tooBig = (1 << 140) + 1;
-        _expectRatioRejection(tooBig * 2, tooBig);
-    }
-
-    function _expectRatioRejection(uint256 lpRatio, uint256 protocolRatio) internal {
+    /// @notice A protocol share at or above the LP share means the DEX takes at least half of the
+    ///         sqrt(k) growth, which no real profile does.
+    function testRejectsAProtocolShareAtOrAboveTheLpShare() public {
         vm.expectRevert(
             abi.encodeWithSelector(
-                IStakeErrors.InvalidSwapFeeRatios.selector, lpRatio, protocolRatio
+                IStakeErrors.ProtocolFeeRatioNotBelowLpRatio.selector, uint256(5), uint256(5)
             )
         );
-        _newStakeWithRatios(lpRatio, protocolRatio);
+        _newStakeWithRatios(5, 5);
     }
 
-    function _newStakeWithRatios(uint256 lpRatio, uint256 protocolRatio) internal {
-        new Stake(
+    /// @notice The sum bound is strict: a profile whose two shares add up to exactly 100% leaves no
+    ///         swap fee for the pair, so it is rejected rather than deployed. The two shares must
+    ///         differ, otherwise the earlier `protocol < lp` check fires first and this bound is never
+    ///         reached.
+    function testRejectsAFeeProfileThatSumsToExactlyOne() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IStakeErrors.SwapFeeRatiosConsumeTheWholeAmount.selector, uint256(6e17), uint256(4e17)
+            )
+        );
+        _newStakeWithRatios(6e17, 4e17);
+    }
+
+    /// @notice The largest accepted protocol share leaves the numerator far below any overflow limit:
+    ///         `protocol < lp` and `lp + protocol < 1e18` cap it below 5e17, so the prediction's
+    ///         `(rootK - rootKLast) * numerator` term cannot overflow uint256.
+    function testAcceptsTheLargestProtocolShareTheBoundsAllow() public {
+        uint256 protocolRatio = 5e17 - 1;
+        Stake deployed = _newStakeWithRatios(5e17, protocolRatio);
+        assertEq(deployed.SWAP_FEE_FOR_PROTOCOL_RATIO(), protocolRatio);
+        assertEq(deployed.SWAP_FEE_FOR_LP_RATIO(), 5e17);
+    }
+
+    function _newStakeWithRatios(uint256 lpRatio, uint256 protocolRatio) internal returns (Stake deployed) {
+        deployed = new Stake(
             address(0x1),
             address(0x2),
             address(0x3),

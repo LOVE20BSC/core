@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.37;
 
-import {Stake, DexConfig} from "../src/Stake.sol";
+import {Stake} from "../src/Stake.sol";
+import {DexConfig} from "../src/interfaces/IStake.sol";
 import {Submit} from "../src/Submit.sol";
 import {Vote} from "../src/Vote.sol";
 import {Phase} from "../src/Phase.sol";
