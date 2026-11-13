@@ -199,6 +199,34 @@ contract StakeInvariantTest {
         vm.warp(block.timestamp + BLOCKS_PER_PHASE * steps);
     }
 
+    // ============ Invariants: waiting period ============
+
+    /// @notice An empty position always carries a zero promised waiting period.
+    ///
+    ///         This is what lets `stakeLiquidity` / `stakeBoost` decide "may this caller rewrite the
+    ///         period?" purely from the share balances: an empty position has nothing to protect, so a
+    ///         third party may pick any period. The property only holds because
+    ///         `liquiditySharesAdded` can never round down to zero — `withdrawableLp` never exceeds
+    ///         `totalLiquidityShares` (both grow together, reclassification only lowers the former), so
+    ///         the share formula yields at least `lpMinted > 0`. If that ever broke, a dust deposit
+    ///         would write a period onto an otherwise empty record and pin the real owner's first stake.
+    function invariant_EmptyPositionHasNoWaitingPeriod() public view {
+        for (uint256 i = 0; i < MEMBER_COUNT; i++) {
+            (uint256 liquidityShares, uint256 boostShares, uint256 promisedWaitingPhases,,,,) =
+                stake.memberStake(address(token), _memberIds[i]);
+            if (liquidityShares == 0 && boostShares == 0) {
+                assert(promisedWaitingPhases == 0);
+            }
+        }
+    }
+
+    /// @notice The withdrawable-LP baseline never exceeds the community share total, which is the
+    ///         premise of the invariant above: it keeps the share formula from rounding to zero.
+    function invariant_WithdrawableLpNeverExceedsShareTotal() public view {
+        (uint256 totalLiquidityShares,, uint256 withdrawableLp,,,,,) = stake.totalStake(address(token));
+        assert(withdrawableLp <= totalLiquidityShares);
+    }
+
     // ============ Invariants: shares ============
 
     /// @notice The community liquidity-share total is the sum of the member shares, so a merge or a

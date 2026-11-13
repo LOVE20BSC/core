@@ -1322,6 +1322,60 @@ contract StakeTest {
         require(phases == PROMISED_WAITING_PHASES_MAX, "the empty position takes MAX");
     }
 
+    /// @notice A non-holder is barred from lowering the waiting period too, and gets the "decreased"
+    ///         error rather than the "rewritten" one: the two conditions stay tellable apart.
+    function testNonOwnerCannotLowerPhasesOnExistingPosition() external {
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+
+        vm().prank(owner2);
+        childToken.approve(address(stake), 1000e18);
+        vm().prank(owner2);
+        parentToken.approve(address(stake), 1000e18);
+
+        vm().prank(owner2);
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 5, memberId1
+            ),
+            abi.encodeWithSelector(IStakeErrors.PromisedWaitingPhasesDecreased.selector, 5, 10),
+            "A non-holder lowering the period hits the decrease rule, not the rewrite rule"
+        );
+    }
+
+    /// @notice The same rule applies to `stakeBoost`, which is the other entry that moves the period.
+    function testNonOwnerCannotRewriteBoostPhasesOnExistingPosition() external {
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+
+        vm().prank(owner2);
+        childToken.approve(address(stake), 100e18);
+
+        vm().prank(owner2);
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 12, memberId1),
+            abi.encodeWithSelector(
+                IStakeErrors.PromisedWaitingPhasesRewritten.selector, address(childToken), memberId1, 12, 10
+            ),
+            "A non-holder cannot raise the period through stakeBoost either"
+        );
+
+        // Lowering through stakeBoost hits the other rule.
+        vm().prank(owner2);
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 9, memberId1),
+            abi.encodeWithSelector(IStakeErrors.PromisedWaitingPhasesDecreased.selector, 9, 10),
+            "A non-holder lowering through stakeBoost hits the decrease rule"
+        );
+
+        // Reusing the current value is still allowed.
+        vm().prank(owner2);
+        stake.stakeBoost(address(childToken), 100e18, 10, memberId1);
+        (, , uint256 phasesAfter, , , ,) = stake.memberStake(address(childToken), memberId1);
+        require(phasesAfter == 10, "the period is unchanged");
+    }
+
     /// @notice A non-existent `memberId` reverts with the MemberNFT standard error, not `NotMemberOwner`.
     function testStakeRevertsWithNonexistentMemberId() external {
         uint256 missingMemberId = 999;
