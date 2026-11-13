@@ -41,11 +41,59 @@ struct PairSnapshot {
     uint256 pairTotalSupply;
 }
 
+/// @dev Write-time context of an increase: the event carries both the caller-visible roles and the
+///      old/new waiting period, and keeping them in one memory slot is what keeps the entry points
+///      inside the stack limit.
+struct StakeWrite {
+    uint256 round;
+    uint256 memberId;
+    address memberOwner;
+    uint256 promisedWaitingPhases;
+    uint256 prevPromisedWaitingPhases;
+}
+
+/// @dev Staging struct for the `LiquidityStaked` payload. The event carries sixteen fields, so the values
+///      are collected in memory first and the emit only touches this one pointer.
+struct LiquidityStakedPayload {
+    address tokenAddress;
+    uint256 round;
+    uint256 memberId;
+    address caller;
+    address memberOwner;
+    uint256 tokenAmount;
+    uint256 parentTokenAmount;
+    uint256 promisedWaitingPhases;
+    uint256 prevPromisedWaitingPhases;
+    uint256 govVotesAdded;
+    uint256 liquiditySharesAdded;
+    uint256 liquidityShares;
+    uint256 totalLiquidityShares;
+    uint256 totalValidGovVotes;
+    uint256 totalWithdrawableLp;
+}
+
+/// @dev Staging struct for the `BoostStaked` payload, same reason as `LiquidityStakedPayload`.
+struct BoostStakedPayload {
+    address tokenAddress;
+    uint256 round;
+    uint256 memberId;
+    address caller;
+    address memberOwner;
+    uint256 boostAmount;
+    uint256 promisedWaitingPhases;
+    uint256 prevPromisedWaitingPhases;
+    uint256 govVotesAdded;
+    uint256 govVotes;
+    uint256 boostShares;
+    uint256 totalBoostShares;
+    uint256 totalValidBoostShares;
+    uint256 totalValidGovVotes;
+}
+
 contract Stake is IStake {
     using RoundHistoryUint256 for RoundHistoryUint256.History;
     using SafeERC20 for IERC20;
 
-    uint256 private constant SLIPPAGE_PRECISION = 1e18;
     uint256 private constant PRECISION = 1e18;
     uint256 public constant LIQUIDITY_TOKEN_EQUIVALENCE_FACTOR = 2;
 
@@ -117,55 +165,67 @@ contract Stake is IStake {
         address tokenAddress,
         uint256 tokenAmount,
         uint256 parentTokenAmount,
-        uint256 slippage,
         uint256 promisedWaitingPhases,
         uint256 memberId
-    ) external onlyMemberOwner(memberId) returns (uint256 govVotesAdded, uint256 liquiditySharesAdded) {
+    ) external returns (uint256 govVotesAdded, uint256 liquiditySharesAdded) {
         if (tokenAmount == 0) revert ZeroTokenAmount();
         if (parentTokenAmount == 0) revert ZeroParentTokenAmount();
         _checkPromisedWaitingPhases(promisedWaitingPhases);
+        // Only existence is checked: anyone may add to an existing position (unpermissioned increase).
+        address memberOwner = IMemberNFT(MEMBER_NFT_ADDRESS).ownerOf(memberId);
         _checkToken(tokenAddress);
         address pair = _pairFor(tokenAddress);
         uint256 round = _checkActiveRound();
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
         _checkNoUnstakeRequest(member, tokenAddress, memberId);
-        if (promisedWaitingPhases < member.promisedWaitingPhases) {
-            revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, member.promisedWaitingPhases);
-        }
+        _checkPromisedWaitingPhasesNotRewritten(member, memberOwner, promisedWaitingPhases);
 
-        AddedLiquidity memory added =
-            _addLiquidity(tokenAddress, pair, round, tokenAmount, parentTokenAmount, slippage);
-        return _creditLiquidity(tokenAddress, pair, round, memberId, promisedWaitingPhases, added);
+        AddedLiquidity memory added = _addLiquidity(tokenAddress, pair, round, tokenAmount, parentTokenAmount);
+        StakeWrite memory write = StakeWrite({
+            round: round,
+            memberId: memberId,
+            memberOwner: memberOwner,
+            promisedWaitingPhases: promisedWaitingPhases,
+            prevPromisedWaitingPhases: member.promisedWaitingPhases
+        });
+        return _creditLiquidity(tokenAddress, pair, write, added);
     }
 
     function stakeBoost(address tokenAddress, uint256 boostAmount, uint256 promisedWaitingPhases, uint256 memberId)
         external
-        onlyMemberOwner(memberId)
         returns (uint256 govVotesAdded)
     {
         if (boostAmount == 0) revert ZeroBoostAmount();
         _checkPromisedWaitingPhases(promisedWaitingPhases);
+        // Only existence is checked: anyone may add to an existing position (unpermissioned increase).
+        address memberOwner = IMemberNFT(MEMBER_NFT_ADDRESS).ownerOf(memberId);
         _checkToken(tokenAddress);
         uint256 round = _checkActiveRound();
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
         _checkNoUnstakeRequest(member, tokenAddress, memberId);
         _checkStakedLiquidity(member, tokenAddress, memberId);
-        if (promisedWaitingPhases < member.promisedWaitingPhases) {
-            revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, member.promisedWaitingPhases);
-        }
+        _checkPromisedWaitingPhasesNotRewritten(member, memberOwner, promisedWaitingPhases);
 
         TotalStake storage totals = _totalStake[tokenAddress];
         _checkBoostCap(tokenAddress, memberId, round, boostAmount);
+
+        StakeWrite memory write = StakeWrite({
+            round: round,
+            memberId: memberId,
+            memberOwner: memberOwner,
+            promisedWaitingPhases: promisedWaitingPhases,
+            prevPromisedWaitingPhases: member.promisedWaitingPhases
+        });
 
         _pull(tokenAddress, msg.sender, boostAmount);
 
         member.boostShares += boostAmount;
         totals.totalBoostShares += boostAmount;
 
-        if (promisedWaitingPhases > member.promisedWaitingPhases) {
-            govVotesAdded = member.liquidityShares * (promisedWaitingPhases - member.promisedWaitingPhases);
+        if (promisedWaitingPhases > write.prevPromisedWaitingPhases) {
+            govVotesAdded = member.liquidityShares * (promisedWaitingPhases - write.prevPromisedWaitingPhases);
             member.promisedWaitingPhases = promisedWaitingPhases;
             _totalValidGovVotesAdded[tokenAddress].increase(round, govVotesAdded);
             _validGovVotesByMember[tokenAddress][memberId].increase(round, govVotesAdded);
@@ -174,23 +234,7 @@ contract Stake is IStake {
         _validBoostSharesByMember[tokenAddress][memberId].increase(round, boostAmount);
         _totalValidBoostSharesAdded[tokenAddress].increase(round, boostAmount);
 
-        uint256 validBoostSharesTotal = _totalValidBoostSharesAt(tokenAddress, round);
-        uint256 govVotesTotal = _totalValidGovVotesAt(tokenAddress, round);
-
-        // forge-lint: disable-next-item(reentrancy-events)
-        emit BoostStaked({
-            tokenAddress: tokenAddress,
-            round: round,
-            memberId: memberId,
-            boostAmount: boostAmount,
-            promisedWaitingPhases: promisedWaitingPhases,
-            govVotesAdded: govVotesAdded,
-            govVotes: _govVotesOf(member),
-            boostShares: member.boostShares,
-            totalBoostShares: totals.totalBoostShares,
-            totalValidBoostShares: validBoostSharesTotal,
-            totalValidGovVotes: govVotesTotal
-        });
+        _emitBoostStaked(_boostStakedPayload(tokenAddress, write, boostAmount, govVotesAdded));
     }
 
     function unstake(address tokenAddress, uint256 memberId) external onlyMemberOwner(memberId) {
@@ -577,6 +621,27 @@ contract Stake is IStake {
         if (member.liquidityShares == 0) revert NoStakedLiquidity(tokenAddress, memberId);
     }
 
+    /// @dev The promised waiting period is decided at the write point because the rule depends on both the
+    /// caller and the position. Everybody is barred from lowering it; a caller that is not the NFT holder is
+    /// additionally barred from raising it on a non-empty position, i.e. it must reuse the current value.
+    /// Both directions share `PromisedWaitingPhasesDecreased` on purpose: no new error type is introduced.
+    function _checkPromisedWaitingPhasesNotRewritten(
+        MemberStake storage member,
+        address memberOwner,
+        uint256 promisedWaitingPhases
+    ) private view {
+        uint256 current = member.promisedWaitingPhases;
+        if (promisedWaitingPhases < current) {
+            revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, current);
+        }
+        if (memberOwner == msg.sender) return;
+        // Same criterion as `targetHadPosition` in `_mergeIntoTarget`, not `promisedWaitingPhases == 0`.
+        bool hasPosition = member.liquidityShares != 0 || member.boostShares != 0;
+        if (hasPosition && promisedWaitingPhases != current) {
+            revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, current);
+        }
+    }
+
     function _hasUsedStakeRights(
         address tokenAddress,
         uint256 round,
@@ -664,50 +729,128 @@ contract Stake is IStake {
     function _creditLiquidity(
         address tokenAddress,
         address pair,
-        uint256 round,
-        uint256 memberId,
-        uint256 promisedWaitingPhases,
+        StakeWrite memory write,
         AddedLiquidity memory added
     ) private returns (uint256 govVotesAdded, uint256 liquiditySharesAdded) {
-        MemberStake storage member = _memberStake[tokenAddress][memberId];
+        MemberStake storage member = _memberStake[tokenAddress][write.memberId];
         TotalStake storage totals = _totalStake[tokenAddress];
 
         liquiditySharesAdded = totals.totalLiquidityShares == 0 || added.withdrawableLpBefore == 0
             ? added.lpMinted
             : (totals.totalLiquidityShares * added.lpMinted) / added.withdrawableLpBefore;
 
-        govVotesAdded = (member.liquidityShares + liquiditySharesAdded) * promisedWaitingPhases
+        govVotesAdded = (member.liquidityShares + liquiditySharesAdded) * write.promisedWaitingPhases
             - _govVotesOf(member);
 
-        if (member.firstGovVoteRound == 0 && liquiditySharesAdded != 0) member.firstGovVoteRound = round;
-        if (totals.firstGovVoteRound == 0 && liquiditySharesAdded != 0) totals.firstGovVoteRound = round;
+        if (member.firstGovVoteRound == 0 && liquiditySharesAdded != 0) member.firstGovVoteRound = write.round;
+        if (totals.firstGovVoteRound == 0 && liquiditySharesAdded != 0) totals.firstGovVoteRound = write.round;
 
         member.liquidityShares += liquiditySharesAdded;
-        member.promisedWaitingPhases = promisedWaitingPhases;
+        member.promisedWaitingPhases = write.promisedWaitingPhases;
         totals.totalLiquidityShares += liquiditySharesAdded;
         totals.lastWithdrawableLp += added.lpMinted;
         _totalLiquidityTokenAmount[tokenAddress] += added.tokenAmount;
-        _totalValidGovVotesAdded[tokenAddress].increase(round, govVotesAdded);
-        _validGovVotesByMember[tokenAddress][memberId].increase(round, govVotesAdded);
+        _totalValidGovVotesAdded[tokenAddress].increase(write.round, govVotesAdded);
+        _validGovVotesByMember[tokenAddress][write.memberId].increase(write.round, govVotesAdded);
 
         _updateSqrtKBaseline(totals, pair, tokenAddress);
 
-        uint256 govVotesTotal = _totalValidGovVotesAt(tokenAddress, round);
+        _emitLiquidityStaked(_liquidityStakedPayload(tokenAddress, write, added, govVotesAdded, liquiditySharesAdded));
+    }
+
+    /// @dev The payload is built in its own frame and handed to the emitter as a single pointer: a
+    ///      sixteen-field event with thirteen non-indexed fields cannot be emitted while any other local
+    ///      is live, and `_creditLiquidity` still holds its own state by then.
+    function _liquidityStakedPayload(
+        address tokenAddress,
+        StakeWrite memory write,
+        AddedLiquidity memory added,
+        uint256 govVotesAdded,
+        uint256 liquiditySharesAdded
+    ) private view returns (LiquidityStakedPayload memory payload) {
+        MemberStake storage member = _memberStake[tokenAddress][write.memberId];
+        TotalStake storage totals = _totalStake[tokenAddress];
+
+        payload.tokenAddress = tokenAddress;
+        payload.round = write.round;
+        payload.memberId = write.memberId;
+        payload.caller = msg.sender;
+        payload.memberOwner = write.memberOwner;
+        payload.tokenAmount = added.tokenAmount;
+        payload.parentTokenAmount = added.parentTokenAmount;
+        payload.promisedWaitingPhases = write.promisedWaitingPhases;
+        payload.prevPromisedWaitingPhases = write.prevPromisedWaitingPhases;
+        payload.govVotesAdded = govVotesAdded;
+        payload.liquiditySharesAdded = liquiditySharesAdded;
+        payload.liquidityShares = member.liquidityShares;
+        payload.totalLiquidityShares = totals.totalLiquidityShares;
+        payload.totalValidGovVotes = _totalValidGovVotesAt(tokenAddress, write.round);
+        payload.totalWithdrawableLp = totals.lastWithdrawableLp;
+    }
+
+    function _emitLiquidityStaked(LiquidityStakedPayload memory payload) private {
         // forge-lint: disable-next-item(reentrancy-events)
         emit LiquidityStaked({
-            tokenAddress: tokenAddress,
-            round: round,
-            memberId: memberId,
-            tokenAmount: added.tokenAmount,
-            parentTokenAmount: added.parentTokenAmount,
-            promisedWaitingPhases: member.promisedWaitingPhases,
-            govVotesAdded: govVotesAdded,
-            govVotes: _govVotesOf(member),
-            liquiditySharesAdded: liquiditySharesAdded,
-            liquidityShares: member.liquidityShares,
-            totalLiquidityShares: totals.totalLiquidityShares,
-            totalValidGovVotes: govVotesTotal,
-            totalWithdrawableLp: totals.lastWithdrawableLp
+            tokenAddress: payload.tokenAddress,
+            round: payload.round,
+            memberId: payload.memberId,
+            caller: payload.caller,
+            memberOwner: payload.memberOwner,
+            tokenAmount: payload.tokenAmount,
+            parentTokenAmount: payload.parentTokenAmount,
+            promisedWaitingPhases: payload.promisedWaitingPhases,
+            prevPromisedWaitingPhases: payload.prevPromisedWaitingPhases,
+            govVotesAdded: payload.govVotesAdded,
+            liquiditySharesAdded: payload.liquiditySharesAdded,
+            liquidityShares: payload.liquidityShares,
+            totalLiquidityShares: payload.totalLiquidityShares,
+            totalValidGovVotes: payload.totalValidGovVotes,
+            totalWithdrawableLp: payload.totalWithdrawableLp
+        });
+    }
+
+    function _boostStakedPayload(
+        address tokenAddress,
+        StakeWrite memory write,
+        uint256 boostAmount,
+        uint256 govVotesAdded
+    ) private view returns (BoostStakedPayload memory payload) {
+        MemberStake storage member = _memberStake[tokenAddress][write.memberId];
+        TotalStake storage totals = _totalStake[tokenAddress];
+
+        payload.tokenAddress = tokenAddress;
+        payload.round = write.round;
+        payload.memberId = write.memberId;
+        payload.caller = msg.sender;
+        payload.memberOwner = write.memberOwner;
+        payload.boostAmount = boostAmount;
+        payload.promisedWaitingPhases = write.promisedWaitingPhases;
+        payload.prevPromisedWaitingPhases = write.prevPromisedWaitingPhases;
+        payload.govVotesAdded = govVotesAdded;
+        payload.govVotes = _govVotesOf(member);
+        payload.boostShares = member.boostShares;
+        payload.totalBoostShares = totals.totalBoostShares;
+        payload.totalValidBoostShares = _totalValidBoostSharesAt(tokenAddress, write.round);
+        payload.totalValidGovVotes = _totalValidGovVotesAt(tokenAddress, write.round);
+    }
+
+    function _emitBoostStaked(BoostStakedPayload memory payload) private {
+        // forge-lint: disable-next-item(reentrancy-events)
+        emit BoostStaked({
+            tokenAddress: payload.tokenAddress,
+            round: payload.round,
+            memberId: payload.memberId,
+            caller: payload.caller,
+            memberOwner: payload.memberOwner,
+            boostAmount: payload.boostAmount,
+            promisedWaitingPhases: payload.promisedWaitingPhases,
+            prevPromisedWaitingPhases: payload.prevPromisedWaitingPhases,
+            govVotesAdded: payload.govVotesAdded,
+            govVotes: payload.govVotes,
+            boostShares: payload.boostShares,
+            totalBoostShares: payload.totalBoostShares,
+            totalValidBoostShares: payload.totalValidBoostShares,
+            totalValidGovVotes: payload.totalValidGovVotes
         });
     }
 
@@ -716,8 +859,7 @@ contract Stake is IStake {
         address pair,
         uint256 round,
         uint256 tokenAmount,
-        uint256 parentTokenAmount,
-        uint256 slippage
+        uint256 parentTokenAmount
     ) private returns (AddedLiquidity memory added) {
         TotalStake storage totals = _totalStake[tokenAddress];
 
@@ -726,7 +868,7 @@ contract Stake is IStake {
         added.withdrawableLpBefore = totals.lastWithdrawableLp;
 
         (added.tokenAmount, added.parentTokenAmount) =
-            _optimalAmounts(tokenAmount, parentTokenAmount, snapshot.reserveToken, snapshot.reserveParent, slippage);
+            _optimalAmounts(tokenAmount, parentTokenAmount, snapshot.reserveToken, snapshot.reserveParent);
 
         address parentTokenAddress = ILOVE20Token(tokenAddress).PARENT_TOKEN_ADDRESS();
         _pull(tokenAddress, msg.sender, added.tokenAmount);
@@ -807,12 +949,14 @@ contract Stake is IStake {
         }
     }
 
+    // Pure proportional conversion: the side kept at its desired amount is never trimmed, the other is
+    // scaled down to the reserve ratio. Whatever does not fit is simply not transferred, so it stays in
+    // the caller's wallet. There is no tolerance and no revert (price protection lives in the caller).
     function _optimalAmounts(
         uint256 tokenAmount,
         uint256 parentTokenAmount,
         uint256 reserveToken,
-        uint256 reserveParent,
-        uint256 slippage
+        uint256 reserveParent
     ) private pure returns (uint256 optimalTokenAmount, uint256 optimalParentTokenAmount) {
         if (reserveToken == 0 || reserveParent == 0) {
             return (tokenAmount, parentTokenAmount);
@@ -820,22 +964,11 @@ contract Stake is IStake {
 
         optimalParentTokenAmount = (tokenAmount * reserveParent) / reserveToken;
         if (optimalParentTokenAmount <= parentTokenAmount) {
-            _checkSlippage(parentTokenAmount - optimalParentTokenAmount, parentTokenAmount, slippage);
             return (tokenAmount, optimalParentTokenAmount);
         }
 
         optimalTokenAmount = (parentTokenAmount * reserveToken) / reserveParent;
-        _checkSlippage(tokenAmount - optimalTokenAmount, tokenAmount, slippage);
         return (optimalTokenAmount, parentTokenAmount);
-    }
-
-    function _checkSlippage(uint256 deviation, uint256 desiredAmount, uint256 slippage) private pure {
-        (uint256 productHigh, uint256 productLow) = Math.mul512(desiredAmount, slippage);
-        (uint256 deviationHigh, uint256 deviationLow) = Math.mul512(deviation, SLIPPAGE_PRECISION);
-        if (deviationHigh > productHigh || (deviationHigh == productHigh && deviationLow > productLow)) {
-            uint256 maxDeviation = Math.mulDiv(desiredAmount, slippage, SLIPPAGE_PRECISION);
-            revert SlippageExceeded(deviation, maxDeviation);
-        }
     }
 
     // The accounted LP total is always `lastFeeLp + lastWithdrawableLp`: LP transferred to this

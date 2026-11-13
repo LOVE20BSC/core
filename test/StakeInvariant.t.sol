@@ -41,7 +41,6 @@ contract StakeInvariantTest {
     uint256 private constant WAIT_MIN = 1;
     uint256 private constant WAIT_MAX = 8;
     uint256 private constant FEE_RATIO = 2.5e15;
-    uint256 private constant SLIPPAGE_ANY = 1e18;
 
     uint256 private constant MEMBER_COUNT = 4;
     uint256 private constant TOKEN_INITIAL_SUPPLY = 1e24;
@@ -140,7 +139,7 @@ contract StakeInvariantTest {
         phases = bound(phases, currentPhases < WAIT_MIN ? WAIT_MIN : currentPhases, WAIT_MAX);
 
         vm.prank(_members[memberIndex]);
-        stake.stakeLiquidity(address(token), tokenAmount, parentAmount, SLIPPAGE_ANY, phases, memberId);
+        stake.stakeLiquidity(address(token), tokenAmount, parentAmount, phases, memberId);
     }
 
     function stakeBoost(uint256 memberIndex, uint256 boostAmount, uint256 phases) public {

@@ -174,7 +174,7 @@ contract StakeDonationTest is Test {
     bytes32 internal constant FEE_RECLASSIFIED_TOPIC =
         keccak256("FeeReclassified(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256)");
     bytes32 internal constant LIQUIDITY_STAKED_TOPIC = keccak256(
-        "LiquidityStaked(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+        "LiquidityStaked(address,uint256,uint256,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
     );
     bytes32 internal constant STAKE_WITHDRAWN_TOPIC = keccak256(
         "StakeWithdrawn(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
@@ -189,6 +189,13 @@ contract StakeDonationTest is Test {
         bool seenLiquidityStaked;
         bool seenStakeWithdrawn;
         bool seenFeesSettled;
+    }
+
+    /// @dev Reads the final 32-byte word of an event payload.
+    function _lastWord(bytes memory data) internal pure returns (uint256 word) {
+        assembly {
+            word := mload(add(data, mload(data)))
+        }
     }
 
     Stake internal stake;
@@ -260,7 +267,7 @@ contract StakeDonationTest is Test {
         vm.startPrank(staker);
         childToken.approve(address(stake), type(uint256).max);
         parentToken.approve(address(stake), type(uint256).max);
-        stake.stakeLiquidity(address(childToken), STAKE_AMOUNT, STAKE_AMOUNT, 1e18, 1, stakerMemberId);
+        stake.stakeLiquidity(address(childToken), STAKE_AMOUNT, STAKE_AMOUNT, 1, stakerMemberId);
         vm.stopPrank();
     }
 
@@ -395,7 +402,7 @@ contract StakeDonationTest is Test {
             sqrtKOfLp: currentSqrtK,
             pairTotalSupply: pair.totalSupply()
         });
-        stake.stakeLiquidity(address(childToken), 85_000e18, 10_000e18, 1e18, 1, newMemberId);
+        stake.stakeLiquidity(address(childToken), 85_000e18, 10_000e18, 1, newMemberId);
         vm.stopPrank();
     }
 
@@ -615,7 +622,7 @@ contract StakeDonationTest is Test {
         (uint256 newMemberId,) = memberNFT.mint("newbie");
         childToken.approve(address(stake), type(uint256).max);
         parentToken.approve(address(stake), type(uint256).max);
-        stake.stakeLiquidity(address(childToken), depositChild, depositParent, 1e18, 1, newMemberId);
+        stake.stakeLiquidity(address(childToken), depositChild, depositParent, 1, newMemberId);
         vm.stopPrank();
 
         uint256 feeBefore = _feeLp();
@@ -655,7 +662,7 @@ contract StakeDonationTest is Test {
         smallToken.transfer(staker, 1_000e18);
         vm.startPrank(staker);
         smallToken.approve(address(stake), type(uint256).max);
-        stake.stakeLiquidity(address(smallToken), 100e18, 100e18, 1e18, 1, stakerMemberId);
+        stake.stakeLiquidity(address(smallToken), 100e18, 100e18, 1, stakerMemberId);
         vm.stopPrank();
 
         (uint256 totalLiquidityShares, uint256 totalLp,, uint256 feeLpBefore,,,,) =
@@ -712,7 +719,7 @@ contract StakeDonationTest is Test {
         boundaryToken.transfer(staker, 1);
         vm.startPrank(staker);
         boundaryToken.approve(address(stake), type(uint256).max);
-        stake.stakeLiquidity(address(boundaryToken), 1, 1, 1e18, 1, stakerMemberId);
+        stake.stakeLiquidity(address(boundaryToken), 1, 1, 1, stakerMemberId);
         vm.stopPrank();
 
         (uint256 totalLiquidityShares, uint256 totalLp,, uint256 feeLpBefore,,,,) =
@@ -758,7 +765,7 @@ contract StakeDonationTest is Test {
         childToken.approve(address(stake), type(uint256).max);
         parentToken.approve(address(stake), type(uint256).max);
         vm.recordLogs();
-        stake.stakeLiquidity(address(childToken), 50_000e18, 5_000e18, 1e18, 1, newbieMemberId);
+        stake.stakeLiquidity(address(childToken), 50_000e18, 5_000e18, 1, newbieMemberId);
         vm.stopPrank();
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -866,7 +873,7 @@ contract StakeDonationTest is Test {
         (uint256 newbieMemberId,) = memberNFT.mint("foldNewbie");
         childToken.approve(address(stake), type(uint256).max);
         parentToken.approve(address(stake), type(uint256).max);
-        stake.stakeLiquidity(address(childToken), 50_000e18, 5_000e18, 1e18, 1, newbieMemberId);
+        stake.stakeLiquidity(address(childToken), 50_000e18, 5_000e18, 1, newbieMemberId);
         vm.stopPrank();
 
         vm.prank(staker);
@@ -886,9 +893,9 @@ contract StakeDonationTest is Test {
                 fold.withdrawable = totalWithdrawableLp;
                 fold.seenFeeReclassified = true;
             } else if (topic == LIQUIDITY_STAKED_TOPIC) {
-                (,,,,,,,,, uint256 totalWithdrawableLp) = abi.decode(
-                    logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256)
-                );
+                // The tail of the payload is the withdrawable-LP ledger; the leading address words make a
+                // flat `uint256[N]` decode wrong, so the tail offset is taken from the raw bytes.
+                uint256 totalWithdrawableLp = _lastWord(logs[i].data);
                 fold.withdrawable = totalWithdrawableLp;
                 fold.seenLiquidityStaked = true;
             } else if (topic == STAKE_WITHDRAWN_TOPIC) {

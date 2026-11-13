@@ -56,7 +56,7 @@ contract ProposalBot is IProposalTarget {
     }
 
     function stakeLiquidity(uint256 amount, uint256 phases) external {
-        STAKE.stakeLiquidity(TOKEN, amount, amount, 1e18, phases, botId);
+        STAKE.stakeLiquidity(TOKEN, amount, amount, phases, botId);
     }
 
     function mergeStake() external {
@@ -99,7 +99,6 @@ contract CoreSecurityPoC {
     uint256 private constant GOV_RATIO = 1e17;
     uint256 private constant PROPOSAL_RATIO = 1e17;
     uint256 private constant FEE_RATIO = 2.5e15;
-    uint256 private constant SLIPPAGE_ANY = 1e18;
     uint256 private constant LAUNCH_AMOUNT = 1e24;
     uint256 private constant MAX_SUPPLY = 1e27;
 
@@ -186,7 +185,7 @@ contract CoreSecurityPoC {
         vm.startPrank(who);
         token.approve(address(stake), type(uint256).max);
         root.approve(address(stake), type(uint256).max);
-        stake.stakeLiquidity(address(token), amount, amount, SLIPPAGE_ANY, phases, memberId);
+        stake.stakeLiquidity(address(token), amount, amount, phases, memberId);
         vm.stopPrank();
     }
 
@@ -272,7 +271,7 @@ contract CoreSecurityPoC {
         LOVE20Token(child).approve(address(stake), type(uint256).max);
         token.approve(address(stake), type(uint256).max);
         (uint256 votesAdded, uint256 sharesAdded) =
-            stake.stakeLiquidity(child, 1e18, 1e18, SLIPPAGE_ANY, WAIT_MIN, 1);
+            stake.stakeLiquidity(child, 1e18, 1e18, WAIT_MIN, 1);
         vm.stopPrank();
         _true(sharesAdded > 0 && votesAdded > 0, "stake into the reused pair succeeds");
     }
@@ -353,13 +352,13 @@ contract CoreSecurityPoC {
         vm.startPrank(m1);
         token.approve(address(stake), type(uint256).max);
         root.approve(address(stake), type(uint256).max);
-        stake.stakeLiquidity(address(token), 1e6, 1e7, SLIPPAGE_ANY, WAIT_MIN, 1);
+        stake.stakeLiquidity(address(token), 1e6, 1e7, WAIT_MIN, 1);
         vm.stopPrank();
 
         vm.startPrank(m2);
         token.approve(address(stake), type(uint256).max);
         root.approve(address(stake), type(uint256).max);
-        (, uint256 dustShares) = stake.stakeLiquidity(address(token), 1, 10, SLIPPAGE_ANY, WAIT_MIN, 2);
+        (, uint256 dustShares) = stake.stakeLiquidity(address(token), 1, 10, WAIT_MIN, 2);
         vm.stopPrank();
         _true(dustShares > 0 && dustShares <= 3, "dust share count");
 

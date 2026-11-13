@@ -285,7 +285,6 @@ contract StakeTest {
             address(childToken),
             tokenAmount,
             parentAmount,
-            0.05e18, // 5% slippage
             promisedPhases,
             memberId
         );
@@ -312,12 +311,16 @@ contract StakeTest {
         uint256 totalWithdrawableLp;
     }
 
+    /// @dev The struct mirrors the payload field order, so `abi.decode` needs no tuple unpacking:
+    ///      a twelve-field flat decode would exceed the legacy code generator's stack anyway.
     struct LiquidityStakedEventData {
+        address caller;
+        address memberOwner;
         uint256 tokenAmount;
         uint256 parentTokenAmount;
         uint256 promisedWaitingPhases;
+        uint256 prevPromisedWaitingPhases;
         uint256 govVotesAdded;
-        uint256 govVotes;
         uint256 liquiditySharesAdded;
         uint256 liquidityShares;
         uint256 totalLiquidityShares;
@@ -330,17 +333,25 @@ contract StakeTest {
         pure
         returns (LiquidityStakedEventData memory eventData)
     {
-        uint256[10] memory values = abi.decode(data, (uint256[10]));
-        eventData.tokenAmount = values[0];
-        eventData.parentTokenAmount = values[1];
-        eventData.promisedWaitingPhases = values[2];
-        eventData.govVotesAdded = values[3];
-        eventData.govVotes = values[4];
-        eventData.liquiditySharesAdded = values[5];
-        eventData.liquidityShares = values[6];
-        eventData.totalLiquidityShares = values[7];
-        eventData.totalValidGovVotes = values[8];
-        eventData.totalWithdrawableLp = values[9];
+        return abi.decode(data, (LiquidityStakedEventData));
+    }
+
+    struct BoostStakedEventData {
+        address caller;
+        address memberOwner;
+        uint256 boostAmount;
+        uint256 promisedWaitingPhases;
+        uint256 prevPromisedWaitingPhases;
+        uint256 govVotesAdded;
+        uint256 govVotes;
+        uint256 boostShares;
+        uint256 totalBoostShares;
+        uint256 totalValidBoostShares;
+        uint256 totalValidGovVotes;
+    }
+
+    function _decodeBoostStaked(bytes memory data) internal pure returns (BoostStakedEventData memory eventData) {
+        return abi.decode(data, (BoostStakedEventData));
     }
 
     function _decodeStakeWithdrawn(bytes memory data)
@@ -437,7 +448,7 @@ contract StakeTest {
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 10, memberId1
             ),
             abi.encodeWithSelector(IStakeErrors.StakeNotStarted.selector),
             "Should revert at round zero"
@@ -467,7 +478,7 @@ contract StakeTest {
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 0.05e18, 0, memberId1
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 0, memberId1
             ),
             abi.encodeWithSelector(IStakeErrors.InvalidPromisedWaitingPhases.selector, 0, 1, 100),
             "Should revert with promised phases too low"
@@ -478,7 +489,7 @@ contract StakeTest {
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 0.05e18, 101, memberId1
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 101, memberId1
             ),
             abi.encodeWithSelector(IStakeErrors.InvalidPromisedWaitingPhases.selector, 101, 1, 100),
             "Should revert with promised phases too high"
@@ -490,7 +501,7 @@ contract StakeTest {
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector, address(childToken), 0, 1000e18, 0.05e18, 10, memberId1
+                Stake.stakeLiquidity.selector, address(childToken), 0, 1000e18, 10, memberId1
             ),
             abi.encodeWithSelector(IStakeErrors.ZeroTokenAmount.selector),
             "Should revert with zero token amount"
@@ -500,7 +511,7 @@ contract StakeTest {
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 0, 0.05e18, 10, memberId1
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 0, 10, memberId1
             ),
             abi.encodeWithSelector(IStakeErrors.ZeroParentTokenAmount.selector),
             "Should revert with zero parent amount"
@@ -543,7 +554,7 @@ contract StakeTest {
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 0.05e18, 5, memberId1
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 5, memberId1
             ),
             abi.encodeWithSelector(IStakeErrors.PromisedWaitingPhasesDecreased.selector, 5, 10),
             "Should revert when decreasing promised phases"
@@ -1057,56 +1068,202 @@ contract StakeTest {
         require(shares2 < shares1 * 2, "Second deposit shares should be in reasonable range");
     }
 
-    // ============ Slippage Tests ============
+    // ============ Proportional-Conversion Tests ============
+    // There is no slippage parameter any more: the contract deposits as much as the reserves allow and
+    // the remainder is never transferred, so it stays in the caller's wallet.
 
-    function testSlippageProtectionWorks() external {
-        // Stake to create initial reserves
-        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+    function testConversionRemainderStaysWithCaller() external {
+        // A deposit that matches the pool ratio as-is, so the measured call has to trim one side.
+        childToken.transfer(address(pair), 100000e18);
+        pair.setReserves(200000e18, 100000e18);
+        stakeAsOwner(owner1, memberId1, 2000e18, 1000e18, 10);
 
-        // Try to stake with mismatched amounts and tight slippage
-        vm().prank(owner2);
-        childToken.approve(address(stake), 1000e18);
-        vm().prank(owner2);
-        parentToken.approve(address(stake), 900e18); // Less parent
+        // The first stake moved the reserves, so the expectation is derived from them, not assumed.
+        (uint112 reserve0, uint112 reserve1, ) = pair.getReserves();
+        (uint256 reserveToken, uint256 reserveParent) = address(childToken) == pair.token0()
+            ? (uint256(reserve0), uint256(reserve1))
+            : (uint256(reserve1), uint256(reserve0));
 
-        vm().prank(owner2);
-        _expectRevertData(
-            address(stake),
-            abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 900e18, 0.01e18, 10, memberId2
-            ),
-            abi.encodeWithSelector(IStakeErrors.SlippageExceeded.selector, 100e18, 10e18),
-            "Should revert with slippage exceeded"
+        uint256 tokenDesired = 2000e18;
+        uint256 parentDesired = (tokenDesired * reserveParent) / reserveToken + 1e18; // deliberately surplus
+        uint256 expectedParent = (tokenDesired * reserveParent) / reserveToken;
+        require(expectedParent < parentDesired, "sanity: the parent side must be the one that gets trimmed");
+
+        uint256 tokenBefore = childToken.balanceOf(owner2);
+        uint256 parentBefore = parentToken.balanceOf(owner2);
+        vm().recordLogs();
+        (, uint256 shares) = stakeAsOwner(owner2, memberId2, tokenDesired, parentDesired, 10);
+        require(shares > 0, "the stake must still succeed");
+
+        (uint256 tokenAmount, uint256 parentTokenAmount,,) = _eventAmountsOfLastLiquidityStaked();
+        require(tokenAmount == tokenDesired, "the token side is kept whole");
+        require(parentTokenAmount == expectedParent, "the parent side is trimmed to the reserve ratio");
+
+        require(
+            tokenBefore - childToken.balanceOf(owner2) == tokenAmount,
+            "only the deposited token amount left the caller"
+        );
+        require(
+            parentBefore - parentToken.balanceOf(owner2) == parentTokenAmount,
+            "the trimmed parent remainder stayed with the caller"
         );
     }
 
-    function testSlippageAllowsReasonableDeviation() external {
-        // Stake to create initial reserves
-        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+    function testConversionOnTokenSideLeavesRemainderWithCaller() external {
+        // The mirror case: the parent side is whole and the token side is the trimmed one.
+        childToken.transfer(address(pair), 100000e18);
+        pair.setReserves(200000e18, 100000e18);
+        stakeAsOwner(owner1, memberId1, 2000e18, 1000e18, 10);
 
-        // Stake with slightly mismatched amounts but loose slippage
-        vm().prank(owner2);
-        childToken.approve(address(stake), 1000e18);
-        vm().prank(owner2);
-        parentToken.approve(address(stake), 950e18);
+        (uint112 reserve0, uint112 reserve1, ) = pair.getReserves();
+        (uint256 reserveToken, uint256 reserveParent) = address(childToken) == pair.token0()
+            ? (uint256(reserve0), uint256(reserve1))
+            : (uint256(reserve1), uint256(reserve0));
 
-        vm().prank(owner2);
-        (, uint256 shares) = stake.stakeLiquidity(
-            address(childToken),
-            1000e18,
-            950e18,
-            0.1e18, // 10% slippage
-            10,
-            memberId2
+        uint256 parentDesired = 2000e18;
+        uint256 expectedToken = (parentDesired * reserveToken) / reserveParent;
+        uint256 tokenDesired = expectedToken + 1e18; // surplus token side, so it gets trimmed
+
+        uint256 tokenBefore = childToken.balanceOf(owner2);
+        uint256 parentBefore = parentToken.balanceOf(owner2);
+        vm().recordLogs();
+        stakeAsOwner(owner2, memberId2, tokenDesired, parentDesired, 10);
+
+        (uint256 tokenAmount, uint256 parentTokenAmount,,) = _eventAmountsOfLastLiquidityStaked();
+        require(parentTokenAmount == parentDesired, "the parent side is kept whole");
+        require(tokenAmount == expectedToken, "the token side is trimmed to the reserve ratio");
+        require(tokenAmount < tokenDesired, "sanity: the surplus really was trimmed");
+
+        require(
+            tokenBefore - childToken.balanceOf(owner2) == tokenAmount,
+            "the trimmed token remainder stayed with the caller"
         );
-
-        require(shares > 0, "Should succeed with reasonable slippage");
+        require(
+            parentBefore - parentToken.balanceOf(owner2) == parentTokenAmount,
+            "only the deposited parent amount left the caller"
+        );
     }
 
-    // ============ Edge Cases ============
+    function testConversionDoesNotRevertOnLargeImbalance() external {
+        // Previously a wild imbalance tripped `SlippageExceeded`; now it just deposits less.
+        childToken.transfer(address(pair), 100000e18);
+        pair.setReserves(200000e18, 100000e18);
+        stakeAsOwner(owner1, memberId1, 2000e18, 1000e18, 10);
 
-    function testStakeRevertsWithNonMemberOwner() external {
-        vm().prank(owner2); // owner2 trying to use owner1's member
+        (uint112 reserve0, uint112 reserve1, ) = pair.getReserves();
+        (uint256 reserveToken, uint256 reserveParent) = address(childToken) == pair.token0()
+            ? (uint256(reserve0), uint256(reserve1))
+            : (uint256(reserve1), uint256(reserve0));
+        uint256 parentDesired = 900e18;
+        uint256 expectedToken = (parentDesired * reserveToken) / reserveParent;
+
+        vm().recordLogs();
+        (, uint256 shares) = stakeAsOwner(owner2, memberId2, 2000e18, parentDesired, 10);
+        require(shares > 0, "an imbalanced stake is accepted");
+
+        (uint256 tokenAmount, uint256 parentTokenAmount,,) = _eventAmountsOfLastLiquidityStaked();
+        require(parentTokenAmount == parentDesired, "the parent side is kept whole");
+        require(tokenAmount == expectedToken, "the token side converges to the reserve ratio");
+        require(tokenAmount < 2000e18, "the surplus token side was trimmed instead of reverting");
+    }
+
+    /// @dev Reads the last `LiquidityStaked` amount pair out of the recorded logs.
+    function _eventAmountsOfLastLiquidityStaked()
+        internal
+        returns (
+            uint256 tokenAmount,
+            uint256 parentTokenAmount,
+            uint256 promisedWaitingPhases,
+            uint256 prevPromisedWaitingPhases
+        )
+    {
+        Vm.Log[] memory logs = vm().getRecordedLogs();
+        bytes32 topic = keccak256(
+            "LiquidityStaked(address,uint256,uint256,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+        );
+        for (uint256 i = logs.length; i > 0; --i) {
+            if (logs[i - 1].emitter != address(stake) || logs[i - 1].topics.length == 0) continue;
+            if (logs[i - 1].topics[0] != topic) continue;
+            LiquidityStakedEventData memory eventData = _decodeLiquidityStaked(logs[i - 1].data);
+            return (
+                eventData.tokenAmount,
+                eventData.parentTokenAmount,
+                eventData.promisedWaitingPhases,
+                eventData.prevPromisedWaitingPhases
+            );
+        }
+        revert("missing LiquidityStaked");
+    }
+
+    // ============ Unpermissioned Increase ============
+
+    /// @notice A third party can add liquidity to someone else's `memberId`; the shares go to the target.
+    function testNonOwnerCanStakeLiquidityForMember() external {
+        vm().recordLogs();
+        (, uint256 shares) = stakeAsOwner(owner2, memberId1, 1000e18, 1000e18, 10);
+        require(shares > 0, "the third-party stake must succeed");
+
+        (uint256 targetShares, , uint256 targetPhases, , , ,) = stake.memberStake(address(childToken), memberId1);
+        require(targetShares == shares, "the shares belong to the target memberId");
+        require(targetPhases == 10, "an empty position takes the caller's waiting period");
+
+        (uint256 otherShares, , , , , ,) = stake.memberStake(address(childToken), memberId2);
+        require(otherShares == 0, "the caller's own memberId is untouched");
+        require(stake.validGovVotes(address(childToken), 1, memberId1) == shares * 10, "the votes belong to the target");
+
+        Vm.Log[] memory logs = vm().getRecordedLogs();
+        bytes32 topic = keccak256(
+            "LiquidityStaked(address,uint256,uint256,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+        );
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(stake) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != topic) continue;
+            LiquidityStakedEventData memory eventData = _decodeLiquidityStaked(logs[i].data);
+            require(eventData.caller == owner2, "caller is the third party");
+            require(eventData.memberOwner == owner1, "memberOwner is the NFT holder");
+            require(eventData.caller != eventData.memberOwner, "the two roles must be tellable apart");
+            found = true;
+        }
+        require(found, "missing LiquidityStaked");
+    }
+
+    /// @notice A third party can also add boost, and the same role split is visible in the payload.
+    function testNonOwnerCanStakeBoostForMember() external {
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+        vm().prank(owner2);
+        childToken.approve(address(stake), 100e18);
+
+        vm().recordLogs();
+        vm().prank(owner2);
+        stake.stakeBoost(address(childToken), 100e18, 10, memberId1);
+
+        (, uint256 targetBoost, , , , ,) = stake.memberStake(address(childToken), memberId1);
+        require(targetBoost == 100e18, "the boost belongs to the target memberId");
+
+        Vm.Log[] memory logs = vm().getRecordedLogs();
+        bytes32 topic = keccak256(
+            "BoostStaked(address,uint256,uint256,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+        );
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(stake) || logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] != topic) continue;
+            BoostStakedEventData memory eventData = _decodeBoostStaked(logs[i].data);
+            require(eventData.caller == owner2, "caller is the third party");
+            require(eventData.memberOwner == owner1, "memberOwner is the NFT holder");
+            require(eventData.caller != eventData.memberOwner, "the two roles must be tellable apart");
+            require(eventData.boostAmount == 100e18, "event boost amount");
+            found = true;
+        }
+        require(found, "missing BoostStaked");
+    }
+
+    /// @notice A non-holder cannot raise the waiting period of a non-empty position.
+    function testNonOwnerCannotRaisePhasesOnExistingPosition() external {
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 5);
+
+        vm().prank(owner2);
         childToken.approve(address(stake), 1000e18);
         vm().prank(owner2);
         parentToken.approve(address(stake), 1000e18);
@@ -1115,12 +1272,141 @@ contract StakeTest {
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 10, memberId1
             ),
-            abi.encodeWithSelector(IStakeErrors.NotMemberOwner.selector, memberId1),
-            "Should revert when not member owner"
+            abi.encodeWithSelector(IStakeErrors.PromisedWaitingPhasesDecreased.selector, 10, 5),
+            "Should revert when a non-holder raises the waiting period"
+        );
+
+        // The same call with the current value goes through.
+        vm().prank(owner2);
+        (, uint256 shares) = stake.stakeLiquidity(address(childToken), 1000e18, 1000e18, 5, memberId1);
+        require(shares > 0, "reusing the current waiting period must succeed");
+        (, , uint256 phasesAfter, , , ,) = stake.memberStake(address(childToken), memberId1);
+        require(phasesAfter == 5, "the waiting period is unchanged");
+    }
+
+    /// @notice Everybody, holder included, is barred from lowering the waiting period.
+    function testWaitingPhasesCannotBeLowered() external {
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+
+        vm().prank(owner1);
+        childToken.approve(address(stake), 1000e18);
+        vm().prank(owner1);
+        parentToken.approve(address(stake), 1000e18);
+
+        vm().prank(owner1);
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 5, memberId1
+            ),
+            abi.encodeWithSelector(IStakeErrors.PromisedWaitingPhasesDecreased.selector, 5, 10),
+            "The holder cannot lower the waiting period either"
+        );
+
+        // The holder may still raise it.
+        vm().prank(owner1);
+        stake.stakeLiquidity(address(childToken), 1000e18, 1000e18, 12, memberId1);
+        (, , uint256 phasesAfter, , , ,) = stake.memberStake(address(childToken), memberId1);
+        require(phasesAfter == 12, "the holder can raise the waiting period");
+    }
+
+    /// @notice A non-holder may pick any waiting period, including `MAX`, on an empty position.
+    function testNonOwnerCanPickAnyPhasesOnEmptyPosition() external {
+        (, uint256 shares) = stakeAsOwner(owner2, memberId1, 1000e18, 1000e18, PROMISED_WAITING_PHASES_MAX);
+        require(shares > 0, "an empty position takes the caller's waiting period");
+        (, , uint256 phases, , , ,) = stake.memberStake(address(childToken), memberId1);
+        require(phases == PROMISED_WAITING_PHASES_MAX, "the empty position takes MAX");
+    }
+
+    /// @notice A non-existent `memberId` reverts with the MemberNFT standard error, not `NotMemberOwner`.
+    function testStakeRevertsWithNonexistentMemberId() external {
+        uint256 missingMemberId = 999;
+
+        vm().prank(owner1);
+        childToken.approve(address(stake), 1000e18);
+        vm().prank(owner1);
+        parentToken.approve(address(stake), 1000e18);
+
+        vm().prank(owner1);
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 10, missingMemberId
+            ),
+            abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, missingMemberId),
+            "unknown memberId falls through to the ERC721 error"
+        );
+
+        vm().prank(owner1);
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 10, missingMemberId),
+            abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, missingMemberId),
+            "stakeBoost uses the same existence check"
         );
     }
+
+    /// @notice `prevPromisedWaitingPhases` separates a first stake from an increase.
+    function testPrevPromisedWaitingPhasesDistinguishesFirstStakeFromIncrease() external {
+        // First stake: no previous value, so the payload carries a zero old value against a non-zero new one.
+        vm().recordLogs();
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 5);
+        (, uint256 parentAmount, uint256 newPhases, uint256 prevPhases) = _eventAmountsOfLastLiquidityStaked();
+        require(parentAmount > 0, "sanity: the first stake deposited something");
+        require(prevPhases == 0, "a first stake has no previous waiting period");
+        require(newPhases == 5, "the new value is the requested one");
+        require(prevPhases != newPhases, "the two fields must be tellable apart");
+
+        // Increasing stake: both sides are non-zero and differ by the raise.
+        vm().recordLogs();
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 9);
+        (,, newPhases, prevPhases) = _eventAmountsOfLastLiquidityStaked();
+        require(prevPhases == 5, "the old value is the one written before the call");
+        require(newPhases == 9, "the new value is the raised one");
+        require(prevPhases != newPhases, "the two fields must be tellable apart");
+    }
+
+    /// @notice `BoostStaked` carries the same old/new pair when only the waiting period moves.
+    function testBoostPrevPromisedWaitingPhasesDistinguishesFirstStakeFromIncrease() external {
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 5);
+        vm().prank(owner1);
+        childToken.approve(address(stake), 1000e18);
+
+        vm().recordLogs();
+        vm().prank(owner1);
+        stake.stakeBoost(address(childToken), 10e18, 7, memberId1);
+        (uint256 prevPhases, uint256 newPhases, uint256 votesAdded) = _lastBoostPhases();
+        require(prevPhases == 5, "the old value is the one written before the call");
+        require(newPhases == 7, "the new value is the raised one");
+        require(prevPhases != newPhases, "the two fields must be tellable apart");
+        require(votesAdded > 0, "raising the period adds votes");
+
+        // A boost that keeps the waiting period reports the same value on both sides.
+        vm().recordLogs();
+        vm().prank(owner1);
+        stake.stakeBoost(address(childToken), 10e18, 7, memberId1);
+        (prevPhases, newPhases, votesAdded) = _lastBoostPhases();
+        require(prevPhases == 7 && newPhases == 7, "an unchanged period reports equal values");
+        require(votesAdded == 0, "no votes are added when the period does not move");
+    }
+
+    function _lastBoostPhases() internal returns (uint256 prevPhases, uint256 newPhases, uint256 votesAdded) {
+        Vm.Log[] memory logs = vm().getRecordedLogs();
+        bytes32 topic = keccak256(
+            "BoostStaked(address,uint256,uint256,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+        );
+        for (uint256 i = logs.length; i > 0; --i) {
+            if (logs[i - 1].emitter != address(stake) || logs[i - 1].topics.length == 0) continue;
+            if (logs[i - 1].topics[0] != topic) continue;
+            BoostStakedEventData memory eventData = _decodeBoostStaked(logs[i - 1].data);
+            return (eventData.prevPromisedWaitingPhases, eventData.promisedWaitingPhases, eventData.govVotesAdded);
+        }
+        revert("missing BoostStaked");
+    }
+
+    // ============ Edge Cases ============
 
 
     function testBoostHistoryTracking() external {
@@ -1383,7 +1669,7 @@ contract StakeTest {
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector, address(orphanToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
+                Stake.stakeLiquidity.selector, address(orphanToken), 1000e18, 1000e18, 10, memberId1
             ),
             abi.encodeWithSelector(IStakeErrors.TokenNotRegistered.selector, address(orphanToken)),
             "Should revert for unregistered token"
@@ -1421,7 +1707,7 @@ contract StakeTest {
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector, address(noPairToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
+                Stake.stakeLiquidity.selector, address(noPairToken), 1000e18, 1000e18, 10, memberId1
             ),
             abi.encodeWithSelector(IStakeErrors.PairMissing.selector, address(noPairToken)),
             "Should revert when the community has no pair"
@@ -1446,7 +1732,7 @@ contract StakeTest {
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector, address(falseToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
+                Stake.stakeLiquidity.selector, address(falseToken), 1000e18, 1000e18, 10, memberId1
             ),
             abi.encodeWithSelector(SafeERC20.SafeERC20FailedOperation.selector, address(falseToken)),
             "Should revert when the token transfer returns false"
@@ -1471,7 +1757,7 @@ contract StakeTest {
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
+                Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 10, memberId1
             ),
             abi.encodeWithSelector(IStakeErrors.UnstakeAlreadyRequested.selector, address(childToken), memberId1),
             "Should revert when already unlocking"
@@ -1831,18 +2117,19 @@ contract StakeTest {
         vm().expectRevert(
             abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, uint256(0))
         );
-        stake.stakeLiquidity(address(childToken), 1000e18, 1000e18, 0.05e18, 10, 0);
+        stake.stakeLiquidity(address(childToken), 1000e18, 1000e18, 10, 0);
     }
 
-    function testStakeChecksOwnerBeforeAmount() external {
+    /// @notice Parameters are checked before existence, so a zero amount wins over an unknown memberId.
+    function testStakeLiquidityChecksAmountBeforeExistence() external {
         vm().prank(address(0xBEEF));
-        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.NotMemberOwner.selector, memberId1));
-        stake.stakeLiquidity(address(childToken), 0, 0, 0.05e18, 10, memberId1);
+        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.ZeroTokenAmount.selector));
+        stake.stakeLiquidity(address(childToken), 0, 0, 10, memberId1);
     }
 
-    function testStakeBoostChecksOwnerBeforeAmount() external {
+    function testStakeBoostChecksAmountBeforeExistence() external {
         vm().prank(owner2);
-        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.NotMemberOwner.selector, memberId1));
+        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.ZeroBoostAmount.selector));
         stake.stakeBoost(address(childToken), 0, 10, memberId1);
     }
 
@@ -2110,7 +2397,7 @@ contract StakeTest {
         uint256 totalValidGovVotes = _totalValidGovVotes(address(childToken));
         Vm.Log[] memory logs = vm().getRecordedLogs();
         bytes32 topic = keccak256(
-            "LiquidityStaked(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+            "LiquidityStaked(address,uint256,uint256,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
         );
         bool found;
         for (uint256 i; i < logs.length; ++i) {
@@ -2125,13 +2412,14 @@ contract StakeTest {
             require(eventData.parentTokenAmount == 1000e18, "event parent amount");
             require(eventData.tokenAmount != eventData.parentTokenAmount, "the two deposit amounts must be tellable apart");
             require(eventData.promisedWaitingPhases == 10, "event promised phases");
+            require(eventData.prevPromisedWaitingPhases == 5, "event previous promised phases");
             require(eventData.govVotesAdded == govVotes, "event vote delta matches the return value");
             require(
                 eventData.govVotesAdded == (memberSharesBefore + shares) * 10 - memberSharesBefore * 5,
                 "event vote delta"
             );
-            require(eventData.govVotes == (memberSharesBefore + shares) * 10, "event member votes");
-            require(eventData.govVotes != eventData.govVotesAdded, "the delta and the total must be tellable apart");
+            require(eventData.caller == owner2, "event caller");
+            require(eventData.memberOwner == owner2, "event member owner");
             require(eventData.liquiditySharesAdded == shares, "event shares added");
             require(eventData.liquidityShares == memberSharesBefore + shares, "event member shares");
             require(eventData.totalLiquidityShares == totalLiquidityShares, "event global shares");
@@ -2220,7 +2508,7 @@ contract StakeTest {
 
         Vm.Log[] memory logs = vm().getRecordedLogs();
         bytes32 topic = keccak256(
-            "BoostStaked(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
+            "BoostStaked(address,uint256,uint256,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
         );
         bool found;
         for (uint256 i; i < logs.length; ++i) {
@@ -2230,31 +2518,26 @@ contract StakeTest {
             require(logs[i].topics[1] == bytes32(uint256(uint160(address(childToken)))), "event token");
             require(logs[i].topics[2] == bytes32(uint256(1)), "event round");
             require(logs[i].topics[3] == bytes32(memberId2), "event member");
-            (
-                uint256 boostAmount,
-                uint256 promisedWaitingPhases,
-                uint256 govVotesAdded,
-                uint256 govVotes,
-                uint256 boostShares,
-                uint256 totalBoostShares,
-                uint256 totalValidBoostShares,
-                uint256 totalValidGovVotes
-            ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
-            require(boostAmount == 50e18, "event boost amount");
-            require(promisedWaitingPhases == 12, "event promised waiting phases");
-            require(govVotesAdded == memberShares * 2, "event vote delta");
-            require(govVotes == memberShares * 12, "event member votes");
-            require(govVotes != govVotesAdded, "the delta and the total must be tellable apart");
-            require(boostShares == 75e18, "event member boost");
-            require(totalBoostShares == 215e18, "event global boost");
+            BoostStakedEventData memory eventData = _decodeBoostStaked(logs[i].data);
+            require(eventData.boostAmount == 50e18, "event boost amount");
+            require(eventData.promisedWaitingPhases == 12, "event promised waiting phases");
+            require(eventData.prevPromisedWaitingPhases == 10, "event previous promised phases");
+            require(eventData.prevPromisedWaitingPhases != eventData.promisedWaitingPhases, "old and new differ");
+            require(eventData.caller == owner2, "event caller");
+            require(eventData.memberOwner == owner2, "event member owner");
+            require(eventData.govVotesAdded == memberShares * 2, "event vote delta");
+            require(eventData.govVotes == memberShares * 12, "event member votes");
+            require(eventData.govVotes != eventData.govVotesAdded, "the delta and the total must be tellable apart");
+            require(eventData.boostShares == 75e18, "event member boost");
+            require(eventData.totalBoostShares == 215e18, "event global boost");
             (, , , , uint256 balanceBoostTotal, , ,) = stake.totalStake(address(childToken));
-            require(totalBoostShares == balanceBoostTotal, "the event balance total matches totalStake");
-            require(totalValidBoostShares == 115e18, "event global valid boost");
+            require(eventData.totalBoostShares == balanceBoostTotal, "the event balance total matches totalStake");
+            require(eventData.totalValidBoostShares == 115e18, "event global valid boost");
             require(
-                totalValidBoostShares == stake.totalValidBoostShares(address(childToken), 1),
+                eventData.totalValidBoostShares == stake.totalValidBoostShares(address(childToken), 1),
                 "event total matches the community ledger"
             );
-            require(totalValidGovVotes == _totalValidGovVotes(address(childToken)), "event global votes");
+            require(eventData.totalValidGovVotes == _totalValidGovVotes(address(childToken)), "event global votes");
             found = true;
         }
         require(found, "missing BoostStaked");
@@ -2713,7 +2996,6 @@ contract StakeTest {
             address(newChild),
             1000e18,
             1000e18,
-            0.05e18,
             10,
             memberId1
         );
@@ -2764,7 +3046,6 @@ contract StakeTest {
             address(emptyToken),
             1000e18,
             1000e18,
-            0.05e18,
             10,
             memberId1
         );
@@ -2784,7 +3065,7 @@ contract StakeTest {
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector, address(invalidToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
+                Stake.stakeLiquidity.selector, address(invalidToken), 1000e18, 1000e18, 10, memberId1
             ),
             abi.encodeWithSelector(IStakeErrors.TokenNotRegistered.selector, address(invalidToken)),
             "Should revert with invalid token"
@@ -2818,7 +3099,7 @@ contract StakeTest {
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(
-                Stake.stakeLiquidity.selector, address(zeroLpToken), 1000e18, 1000e18, 0.05e18, 10, memberId1
+                Stake.stakeLiquidity.selector, address(zeroLpToken), 1000e18, 1000e18, 10, memberId1
             ),
             abi.encodeWithSelector(IStakeErrors.ZeroLiquidityMinted.selector),
             "Should revert with zero LP minted"
@@ -2840,8 +3121,7 @@ contract StakeTest {
         (, uint256 shares) = stake.stakeLiquidity(
             address(childToken),
             1000e18,
-            1200e18, // More parent than optimal
-            0.2e18, // 20% slippage to allow deviation
+            1200e18, // More parent than optimal; the surplus stays with the caller
             10,
             memberId2
         );

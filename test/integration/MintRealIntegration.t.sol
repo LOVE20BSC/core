@@ -40,7 +40,6 @@ contract MintRealIntegrationTest {
     uint256 constant BLOCKS_PER_ROUND = 1000;
     uint256 constant TIME_PER_ROUND = 3600;  // 1 hour, matching Phase targetSeconds
     uint256 constant BLOCKS_PAST_ROUND0 = 200;
-    uint256 constant SLIPPAGE_100_PERCENT = 1e18;
     uint256 constant PROMISED_WAITING_PHASES = 1;
     uint256 constant TOKEN_TRANSFER_AMOUNT = 10000;
     uint256 constant BOOST_AMOUNT = 300;
@@ -227,7 +226,6 @@ contract MintRealIntegrationTest {
             address(token),
             amount1,
             amount1,
-            SLIPPAGE_100_PERCENT,
             PROMISED_WAITING_PHASES,
             1  // memberId
         );
@@ -239,7 +237,6 @@ contract MintRealIntegrationTest {
             address(token),
             amount2,
             amount2,
-            SLIPPAGE_100_PERCENT,
             PROMISED_WAITING_PHASES,
             2  // memberId
         );
@@ -661,14 +658,14 @@ contract MintRealIntegrationTest {
         _approveBothTokens(member1, STAKE_AMOUNT_MEMBER1);
         vm.prank(member1);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER1,
-                            SLIPPAGE_100_PERCENT, PROMISED_WAITING_PHASES, 1);
+                            PROMISED_WAITING_PHASES, 1);
 
         // Member2: 9500 tokens for more voting power
         uint256 member2StakeAmount = 9500;
         _approveBothTokens(member2, member2StakeAmount);
         vm.prank(member2);
         stake.stakeLiquidity(address(token), member2StakeAmount, member2StakeAmount,
-                            SLIPPAGE_100_PERCENT, PROMISED_WAITING_PHASES, 2);
+                            PROMISED_WAITING_PHASES, 2);
 
         ThresholdTestData memory data;
         data.testRound = phase.currentPhase();
@@ -862,7 +859,7 @@ contract MintRealIntegrationTest {
         _approveBothTokens(member1, STAKE_AMOUNT_MEMBER1);
         vm.prank(member1);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER1,
-                            SLIPPAGE_100_PERCENT, PROMISED_WAITING_PHASES, 1);
+                            PROMISED_WAITING_PHASES, 1);
 
         address proposalTarget = address(0x6001);
         vm.prank(member1);
@@ -963,7 +960,7 @@ contract MintRealIntegrationTest {
         _approveBothTokens(member1, 20000);
         vm.prank(member1);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER1,
-                            SLIPPAGE_100_PERCENT, PROMISED_WAITING_PHASES, 1);
+                            PROMISED_WAITING_PHASES, 1);
 
         data.proposalTarget1 = address(0x7001);
         vm.prank(member1);
@@ -1017,7 +1014,7 @@ contract MintRealIntegrationTest {
         // Re-stake with less (3000 instead of 5000)
         vm.prank(member1);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER2, STAKE_AMOUNT_MEMBER2,
-                            SLIPPAGE_100_PERCENT, PROMISED_WAITING_PHASES, 1);
+                            PROMISED_WAITING_PHASES, 1);
 
         data.proposalTarget2 = address(0x7002);
         vm.prank(member1);
@@ -1265,7 +1262,7 @@ contract MintRealIntegrationTest {
 
         // Round 1: Member 1 stakes, votes, and mints gov reward to earn launch credits
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER1,
-                            SLIPPAGE_100_PERCENT, PROMISED_WAITING_PHASES, 1);
+                            PROMISED_WAITING_PHASES, 1);
         vm.stopPrank();
 
         address proposalTarget1 = address(0x8001);
@@ -1356,14 +1353,14 @@ contract MintRealIntegrationTest {
         token.approve(address(stake), type(uint256).max);
         rootToken.approve(address(stake), type(uint256).max);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER1,
-                            SLIPPAGE_100_PERCENT, PROMISED_WAITING_PHASES, 1);
+                            PROMISED_WAITING_PHASES, 1);
         vm.stopPrank();
 
         vm.startPrank(member2);
         token.approve(address(stake), type(uint256).max);
         rootToken.approve(address(stake), type(uint256).max);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER2, STAKE_AMOUNT_MEMBER2,
-                            SLIPPAGE_100_PERCENT, PROMISED_WAITING_PHASES, 2);
+                            PROMISED_WAITING_PHASES, 2);
         vm.stopPrank();
 
         // Simulate trading fees accumulating in the pair
@@ -1402,14 +1399,14 @@ contract MintRealIntegrationTest {
         token.approve(address(stake), type(uint256).max);
         rootToken.approve(address(stake), type(uint256).max);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER1,
-                            SLIPPAGE_100_PERCENT, PROMISED_WAITING_PHASES, 1);
+                            PROMISED_WAITING_PHASES, 1);
         vm.stopPrank();
 
         vm.startPrank(member2);
         token.approve(address(stake), type(uint256).max);
         rootToken.approve(address(stake), type(uint256).max);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER2, STAKE_AMOUNT_MEMBER2,
-                            SLIPPAGE_100_PERCENT, PROMISED_WAITING_PHASES, 2);
+                            PROMISED_WAITING_PHASES, 2);
         vm.stopPrank();
 
         // Query initial stake amounts
@@ -1501,7 +1498,7 @@ contract MintRealIntegrationTest {
 
         // Round 1: Member 1 stakes and submits a proposal
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER1,
-                            SLIPPAGE_100_PERCENT, PROMISED_WAITING_PHASES, 1);
+                            PROMISED_WAITING_PHASES, 1);
         vm.stopPrank();
 
         address proposalTarget1 = address(0x9001);

@@ -54,10 +54,6 @@ interface IStakeErrors {
         uint256 round,
         uint256 memberId
     );
-    error SlippageExceeded(
-        uint256 actualDeviation,
-        uint256 maxDeviation
-    );
     error SourceEqualsTarget(uint256 sourceMemberId);
     error TargetPromisedWaitingPhasesTooShort(
         uint256 targetPhases,
@@ -83,11 +79,13 @@ interface IStakeEvents {
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 indexed memberId,
+        address caller,
+        address memberOwner,
         uint256 tokenAmount,
         uint256 parentTokenAmount,
         uint256 promisedWaitingPhases,
+        uint256 prevPromisedWaitingPhases,
         uint256 govVotesAdded,
-        uint256 govVotes,
         uint256 liquiditySharesAdded,
         uint256 liquidityShares,
         uint256 totalLiquidityShares,
@@ -98,8 +96,11 @@ interface IStakeEvents {
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 indexed memberId,
+        address caller,
+        address memberOwner,
         uint256 boostAmount,
         uint256 promisedWaitingPhases,
+        uint256 prevPromisedWaitingPhases,
         uint256 govVotesAdded,
         uint256 govVotes,
         uint256 boostShares,
@@ -182,7 +183,6 @@ interface IStake is IStakeErrors, IStakeEvents {
         address tokenAddress,
         uint256 tokenAmount,
         uint256 parentTokenAmount,
-        uint256 slippage,
         uint256 promisedWaitingPhases,
         uint256 memberId
     ) external returns (uint256 govVotesAdded, uint256 liquiditySharesAdded);
