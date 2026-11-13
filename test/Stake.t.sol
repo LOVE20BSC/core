@@ -1376,6 +1376,34 @@ contract StakeTest {
         require(phasesAfter == 10, "the period is unchanged");
     }
 
+    /// @notice The branch reads `promisedWaitingPhases`, not the share balances: a record the contract
+    ///         has never written has a zero period and nothing to protect, so any caller may set it.
+    ///         `MIN > 0` (enforced at deploy time) is what makes "zero" mean "never written".
+    function testZeroPeriodMarksAnUntouchedRecord() external {
+        (uint256 sharesBefore, uint256 boostBefore, uint256 phasesBefore,, , , ) =
+            stake.memberStake(address(childToken), memberId1);
+        require(sharesBefore == 0 && boostBefore == 0 && phasesBefore == 0, "fresh record is all-zero");
+
+        // A third party sets the period on that untouched record; nothing is rewritten.
+        (uint256 govVotesAdded, uint256 shares) = stakeAsOwner(owner2, memberId1, 1000e18, 1000e18, 7);
+        require(shares > 0 && govVotesAdded > 0, "the untouched record accepts the caller's period");
+        (, , uint256 phasesAfter, , , ,) = stake.memberStake(address(childToken), memberId1);
+        require(phasesAfter == 7, "the period is the one the caller picked");
+
+        // Once the period is non-zero the record is closed to third-party rewrites.
+        vm().prank(owner2);
+        childToken.approve(address(stake), 100e18);
+        vm().prank(owner2);
+        _expectRevertData(
+            address(stake),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 8, memberId1),
+            abi.encodeWithSelector(
+                IStakeErrors.PromisedWaitingPhasesRewritten.selector, address(childToken), memberId1, 8, 7
+            ),
+            "a non-zero period makes the record closed"
+        );
+    }
+
     /// @notice A non-existent `memberId` reverts with the MemberNFT standard error, not `NotMemberOwner`.
     function testStakeRevertsWithNonexistentMemberId() external {
         uint256 missingMemberId = 999;

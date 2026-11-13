@@ -201,15 +201,15 @@ contract StakeInvariantTest {
 
     // ============ Invariants: waiting period ============
 
-    /// @notice An empty position always carries a zero promised waiting period.
+    /// @notice A zero `promisedWaitingPhases` means "this record was never written", and that is the
+    ///         only state a third party may set a period on.
     ///
-    ///         This is what lets `stakeLiquidity` / `stakeBoost` decide "may this caller rewrite the
-    ///         period?" purely from the share balances: an empty position has nothing to protect, so a
-    ///         third party may pick any period. The property only holds because
-    ///         `liquiditySharesAdded` can never round down to zero — `withdrawableLp` never exceeds
-    ///         `totalLiquidityShares` (both grow together, reclassification only lowers the former), so
-    ///         the share formula yields at least `lpMinted > 0`. If that ever broke, a dust deposit
-    ///         would write a period onto an otherwise empty record and pin the real owner's first stake.
+    ///         The rule reads the period itself rather than the share balances, so this invariant is
+    ///         what keeps the two views agreeing: a record holding a period but no shares (or shares but
+    ///         no period) would let the rewrite rule be bypassed or over-applied. `MIN > 0` is enforced
+    ///         at deploy time, which is why zero is unambiguous here.
+    ///         The companion invariant below is the reason the share leg can never be empty while a
+    ///         period is set: `liquiditySharesAdded` cannot round to zero.
     function invariant_EmptyPositionHasNoWaitingPeriod() public view {
         for (uint256 i = 0; i < MEMBER_COUNT; i++) {
             (uint256 liquidityShares, uint256 boostShares, uint256 promisedWaitingPhases,,,,) =

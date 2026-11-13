@@ -625,8 +625,7 @@ contract Stake is IStake {
             revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, current);
         }
         if (memberOwner == msg.sender) return;
-        bool hasPosition = member.liquidityShares != 0 || member.boostShares != 0;
-        if (hasPosition && promisedWaitingPhases != current) {
+        if (current != 0 && promisedWaitingPhases != current) {
             revert PromisedWaitingPhasesRewritten(tokenAddress, memberId, promisedWaitingPhases, current);
         }
     }
