@@ -983,8 +983,12 @@ contract Stake is IStake {
         uint256 rootKLast = Math.sqrt(kLast);
         if (rootK <= rootKLast) return 0;
 
+        // `_feeNumerator` multiplies the growth: the protocol's share is `a/(b*rootK + a*rootKLast)`,
+        // not `1/(b*rootK + a*rootKLast)`. Omitting it silently under-predicts by a factor of `a`,
+        // which is invisible while `a == 1` (Uniswap V2, Pancake's source) and wrong by 8x on
+        // PancakeSwap mainnet where the reduced split is 17/8.
         uint256 denominator = _feeDenominator * rootK + _feeNumerator * rootKLast;
-        return Math.mulDiv(snapshot.pairTotalSupply, rootK - rootKLast, denominator);
+        return Math.mulDiv(snapshot.pairTotalSupply, (rootK - rootKLast) * _feeNumerator, denominator);
     }
 
     /// @dev `0` when the pair does not expose `kLast()` (a fork without a protocol fee).

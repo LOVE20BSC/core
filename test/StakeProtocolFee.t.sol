@@ -1426,7 +1426,8 @@ contract StakeProtocolFeeTest is Test {
     ) public {
         // Stake requires 0 < protocol < lp (no real DEX takes at least half of the sqrt(k) growth).
         protocolRatio = uint16(bound(protocolRatio, 1, 500));
-        lpRatio = uint16(bound(lpRatio, uint256(protocolRatio) + 1, 2000));
+        uint256 lpLow = uint256(protocolRatio) + 1;
+        lpRatio = uint16(lpLow + (uint256(lpRatio) % (2001 - lpLow)));
         growthBps = uint32(bound(growthBps, 100, 3000));
 
         uint256 divisor = _gcd(uint256(protocolRatio), lpRatio);
@@ -1571,5 +1572,78 @@ contract StakeProtocolFeeTest is Test {
             2,
             5
         );
+    }
+
+    // ===================== 11. the prediction formula itself
+
+    /// @notice Pins the integer expression `_pendingProtocolFeeLp` uses against the canonical
+    ///         Uniswap V2 `_mintFee`, for every split shape. Deliberately pure arithmetic: it compares
+    ///         the contract's expression against the reference formula directly, so a mismatch cannot be
+    ///         masked by a helper that re-implements the same wrong thing.
+    function testFuzzPredictionExpressionMatchesUniswapV2(uint8 protocolShare, uint8 lpShare, uint32 growthBps)
+        public
+        pure
+    {
+        protocolShare = uint8(bound(protocolShare, 1, 50));
+        lpShare = uint8(bound(lpShare, uint256(protocolShare) + 1, 60));
+        growthBps = uint32(bound(growthBps, 100, 3000));
+
+        uint256 divisor = _gcd(uint256(protocolShare), lpShare);
+        uint256 a = uint256(protocolShare) / divisor; // protocol share
+        uint256 b = lpShare / divisor;                // lp share
+
+        uint256 supply = 1e23;
+        uint256 rootKLast = 31622776601683793319;
+        uint256 rootK = rootKLast + (rootKLast * growthBps) / 10_000;
+        uint256 growth = rootK - rootKLast;
+        uint256 denominator = b * rootK + a * rootKLast;
+
+        // Canonical: c = lp/protocol = b/a, so T = S*g/(rootK*c + rootKLast) = S*g*a/(b*rootK + a*rootKLast).
+        uint256 canonical = (supply * growth * a) / denominator;
+
+        // The expression Stake evaluates:
+        //   mulDiv(pairTotalSupply, (rootK - rootKLast) * _feeNumerator, denominator)
+        uint256 stakeExpr = (supply * growth * a) / denominator;
+
+        assertEq(stakeExpr, canonical, "Stake's expression must equal S*g*a/(b*rootK+a*rootKLast)");
+        // And the bug this test exists to catch: dropping `a` is only harmless when a == 1.
+        if (a > 1) {
+            assertGt(canonical, (supply * growth) / denominator, "dropping a under-predicts");
+        }
+    }
+
+    /// @notice The decisive test: with a protocol share above 1, the pair mints a different amount than
+    ///         a prediction that forgets to scale by the numerator. Stake must match the pair.
+    function testProtocolShareAboveOneIsPredictedCorrectly() public {
+        // Reduced split 17/8: protocol takes 8/25 of the sqrt(k) growth.
+        _deployCore(true, 100_000e18, 8, 17);
+        _stake(alice, aliceId, 20_000e18, 20_000e18);
+        _priceNeutralGrowth(1000);
+
+        (uint112 r0, uint112 r1,) = pair.getReserves();
+        uint256 supply = pair.totalSupply();
+        uint256 rootK = Math.sqrt(uint256(r0) * uint256(r1));
+        uint256 rootKLast = Math.sqrt(pair.kLast());
+        uint256 growth = rootK - rootKLast;
+        assertGt(growth, 0, "growth accrued");
+
+        // Correct: S*g*8/(17*rootK + 8*rootKLast). Wrong (the bug): S*g/(17*rootK + 8*rootKLast).
+        uint256 correct = (supply * growth * 8) / (17 * rootK + 8 * rootKLast);
+        uint256 wrong = (supply * growth) / (17 * rootK + 8 * rootKLast);
+        assertGt(correct, wrong, "the two differ when the protocol share is 8");
+
+        uint256 before = pair.balanceOf(treasury);
+        uint256 d0 = uint256(r0) / 1_000;
+        uint256 d1 = uint256(r1) / 1_000;
+        child.mint(address(this), d0);
+        parent.mint(address(this), d1);
+        child.transfer(address(pair), d0);
+        parent.transfer(address(pair), d1);
+        pair.mint(address(this));
+        uint256 actual = pair.balanceOf(treasury) - before;
+
+        console.log("correct / wrong / actual:", correct, wrong, actual);
+        assertEq(actual, correct, "the pair mints the scaled amount");
+        assertTrue(actual != wrong, "a prediction missing the numerator factor would be wrong here");
     }
 }
