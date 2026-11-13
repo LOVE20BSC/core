@@ -35,15 +35,6 @@ struct MergedStake {
     uint256 totalValidGovVotes;
 }
 
-/// @dev Everything that identifies the DEX this Stake is wired to. Bundled into one record because the
-///      four values only make sense together: the router and factory must belong to the same deployment
-///      as the fee profile, and a mixed set would price stakes against a DEX that is not the one the
-///      pairs actually live on. It also keeps the constructor within the EVM stack limit.
-///
-///      `swapFeeForLpRatio` and `swapFeeForProtocolRatio` are 1e18 fixed-point fractions of the swap
-///      amount; their sum is the fee the pair charges and their ratio is the split of the sqrt(k)
-///      growth between LPs and the DEX protocol. `swapFeeForProtocolRatio == 0` means the DEX has no
-///      protocol fee at all (e.g. the self-deployed factory whose `feeTo` can never be set).
 struct DexConfig {
     address router;
     address pairFactory;
@@ -55,10 +46,8 @@ struct PairSnapshot {
     uint256 reserveToken;
     uint256 reserveParent;
     uint256 pairTotalSupply;
-    /// @dev LP the pair will mint to the DEX treasury on its next mint/burn, from the sqrt(k) growth
-    ///      accrued since its last liquidity event. `0` for a DEX with no protocol fee. The pair's
-    ///      own `burn`/`mint` inflate `totalSupply` by this amount *before* dividing, so every
-    ///      denominator that has to match the pair's payout uses `pairTotalSupply + pendingProtocolFeeLp`.
+    /// @dev Load-bearing: the pair inflates `totalSupply` by this amount before dividing, so any
+    ///      denominator that must match its payout has to include it.
     uint256 pendingProtocolFeeLp;
 }
 
@@ -123,20 +112,9 @@ contract Stake is IStake {
     uint256 public FEE_SETTLEMENT_RATIO;
     uint256 public BOOST_STAKE_SUPPLY_FACTOR;
     uint256 public BOOST_STAKE_MULTIPLIER;
-    /// @dev The DEX's swap-fee profile, as 1e18 fixed-point fractions of the swap amount.
-    ///      `SWAP_FEE_FOR_LP_RATIO` is the part the pair keeps for liquidity providers and
-    ///      `SWAP_FEE_FOR_PROTOCOL_RATIO` the part the DEX protocol takes; their sum is the fee the
-    ///      pair actually charges. Stored unreduced so a deployment check can compare them against
-    ///      the configuration verbatim, and so downstream consumers (the periphery Hub) can read the
-    ///      same two numbers instead of re-declaring them. `0` on the protocol side means the DEX
-    ///      has no protocol fee, which makes the whole `_mintFee` branch a no-op.
     uint256 public SWAP_FEE_FOR_LP_RATIO;
     uint256 public SWAP_FEE_FOR_PROTOCOL_RATIO;
 
-    /// @dev The same split reduced to lowest terms, used by the `_mintFee` prediction:
-    ///      `T = S * g * _feeNumerator / (_feeDenominator * rootK + _feeNumerator * rootKLast)`.
-    ///      The fraction form is required because the ratio is not always an integer: PancakeSwap
-    ///      mainnet is 0.17%/0.08% = 17/8, which no integer coefficient can represent exactly.
     uint256 internal _feeNumerator;
     uint256 internal _feeDenominator;
 
@@ -180,18 +158,6 @@ contract Stake is IStake {
         _initDexConfig(dexConfig);
     }
 
-    /// @dev Validates and stores the DEX wiring. Kept out of the constructor body because the parameter
-    ///      list plus this logic exceeds the EVM stack depth the compiler can schedule.
-    ///
-    ///      The fee profile must describe a real DEX. A zero LP share would mean the pair keeps nothing
-    ///      and the reduced fraction would divide by zero; a protocol share at or above the LP share
-    ///      would mean the DEX takes at least half of the sqrt(k) growth; and the two together must stay
-    ///      below 100%, which is the bound the periphery Hub also enforces on the values it reads from
-    ///      here. All three are deployment errors, so they fail here rather than inside the maths.
-    ///
-    ///      `_MAX_FEE_RATIO` bounds each side so the prediction cannot overflow: it forms
-    ///      `(rootK - rootKLast) * _feeNumerator` with `rootK < 2^112`, so a numerator beyond 2^144 would
-    ///      revert. Real reduced ratios are 1, 8 and 17, so the bound costs nothing.
     function _initDexConfig(DexConfig memory config) private {
         if (config.router == address(0)) revert InvalidDexConfig();
         if (config.pairFactory == address(0)) revert InvalidDexConfig();
@@ -202,7 +168,6 @@ contract Stake is IStake {
         if (swapFeeForLpRatio <= swapFeeForProtocolRatio) {
             revert InvalidSwapFeeRatios(swapFeeForLpRatio, swapFeeForProtocolRatio);
         }
-        // The two ratios are 1e18 fractions of the swap amount, so their sum must stay below 100%.
         if (swapFeeForLpRatio + swapFeeForProtocolRatio > 1e18) {
             revert InvalidSwapFeeRatios(swapFeeForLpRatio, swapFeeForProtocolRatio);
         }
@@ -215,11 +180,6 @@ contract Stake is IStake {
         uint256 divisor = _gcd(swapFeeForLpRatio, swapFeeForProtocolRatio);
         uint256 numerator = swapFeeForProtocolRatio / divisor;
         uint256 denominator = swapFeeForLpRatio / divisor;
-        // The prediction forms `(rootK - rootKLast) * numerator` with `rootK < 2^112`. A numerator above
-        // 2^144 would overflow, so reject it here rather than reverting inside a stake. The bound is on
-        // the product's headroom, not on how small the ratio looks: a 1e18-scaled profile reduces to
-        // whatever the pair happens to be (e.g. 230769230769230/2769230769230769 for a 1:12 split), and
-        // that is perfectly usable.
         if (numerator > _MAX_FEE_NUMERATOR) {
             revert InvalidSwapFeeRatios(swapFeeForLpRatio, swapFeeForProtocolRatio);
         }
@@ -227,12 +187,10 @@ contract Stake is IStake {
         _feeDenominator = denominator;
     }
 
-    /// @dev Headroom for `(rootK - rootKLast) * _feeNumerator`: `rootK` is below `2^112`, so a numerator
-    ///      at `2^140` leaves the product far inside uint256 while admitting every realistic profile.
+    /// @dev Load-bearing: the prediction multiplies `(rootK - rootKLast)` by `_feeNumerator` with
+    ///      `rootK < 2^112`, so a larger numerator would overflow during a stake.
     uint256 private constant _MAX_FEE_NUMERATOR = 1 << 140;
 
-    /// @dev `gcd(a, 0) = a`, so a DEX with no protocol fee reduces to `(0, 1)`: the prediction
-    ///      short-circuits on `_feeNumerator == 0` and every denominator stays `pairTotalSupply`.
     function _gcd(uint256 a, uint256 b) private pure returns (uint256) {
         while (b != 0) {
             (a, b) = (b, a % b);
@@ -536,7 +494,6 @@ contract Stake is IStake {
             if (effectiveSupply != 0) {
                 // The share is converted in two steps on purpose: `lpAmount` is the value the spec defines
                 // and folding both divisions into one expression would round a different quantity.
-                // The denominator matches what `pair.burn` pays against, protocol fee included.
                 // forge-lint: disable-next-line(divide-before-multiply)
                 tokenAmountForLiquidity = (lpAmount * snapshot.reserveToken) / effectiveSupply;
                 // forge-lint: disable-next-line(divide-before-multiply)
@@ -977,20 +934,6 @@ contract Stake is IStake {
         snapshot.pendingProtocolFeeLp = _pendingProtocolFeeLp(pairContract, snapshot);
     }
 
-    /// @dev Replicates the pair's `_mintFee` without side effects: the LP it would mint to
-    ///      `factory.feeTo()` if `mint`/`burn` ran right now, i.e. the protocol's share of the
-    ///      sqrt(k) growth since the last liquidity event.
-    ///
-    ///      With `(a, b) = (_feeNumerator, _feeDenominator)` the reduced `protocol : lp` split:
-    ///          T = S * g * a / (b * rootK + a * rootKLast)
-    ///      which is the same shape the periphery Hub uses, so both contracts compute an identical
-    ///      number. Dividing the canonical Uniswap V2 form `S*g / (rootK*c + rootKLast)` by `a`
-    ///      shows `c = b/a`: the two shapes agree, but only the fraction form can express ratios
-    ///      such as PancakeSwap mainnet's 17/8.
-    ///
-    ///      A DEX with no protocol fee (`feeTo == address(0)`, or `_feeNumerator == 0`), no
-    ///      `kLast()`/`feeTo()` getter, or no growth since the last liquidity event returns `0`, and
-    ///      Stake then behaves exactly as if the protocol fee did not exist.
     function _pendingProtocolFeeLp(IUniswapV2Pair pairContract, PairSnapshot memory snapshot)
         private
         view
@@ -1006,39 +949,27 @@ contract Stake is IStake {
         uint256 rootKLast = Math.sqrt(kLast);
         if (rootK <= rootKLast) return 0;
 
-        // `_feeNumerator` multiplies the growth: the protocol's share is `a/(b*rootK + a*rootKLast)`,
-        // not `1/(b*rootK + a*rootKLast)`. Omitting it silently under-predicts by a factor of `a`,
-        // which is invisible while `a == 1` (Uniswap V2, Pancake's source) and wrong by 8x on
-        // PancakeSwap mainnet where the reduced split is 17/8.
         uint256 denominator = _feeDenominator * rootK + _feeNumerator * rootKLast;
         return Math.mulDiv(snapshot.pairTotalSupply, (rootK - rootKLast) * _feeNumerator, denominator);
     }
 
-    /// @dev `0` when the pair does not expose `kLast()` (a fork without a protocol fee).
-    ///      Low-level on purpose: `try`/`catch` does not catch an ABI-decoding failure, so a target
-    ///      whose fallback returns empty data would revert the whole snapshot instead of degrading.
     function _kLastOf(IUniswapV2Pair pairContract) private view returns (uint256) {
         return _staticUint(address(pairContract), IUniswapV2Pair.kLast.selector);
     }
 
-    /// @dev `address(0)` when the factory does not expose `feeTo()` (treated as no protocol fee).
     function _feeTo() private view returns (address) {
-        // `feeTo` is an address returned in a 32-byte word, so the low 160 bits are the value.
         // forge-lint: disable-next-line(unsafe-typecast)
         return address(uint160(_staticUint(PAIR_FACTORY_ADDRESS, IUniswapV2Factory.feeTo.selector)));
     }
 
-    /// @dev `staticcall` that treats a missing function, an empty return and a revert alike as `0`.
+    /// @dev Load-bearing: `try`/`catch` does not catch an ABI-decoding failure, so a fork whose
+    ///      fallback returns empty data would revert the whole snapshot instead of degrading.
     function _staticUint(address target, bytes4 selector) private view returns (uint256 value) {
         (bool ok, bytes memory data) = target.staticcall(abi.encodeWithSelector(selector));
         if (!ok || data.length < 32) return 0;
         value = abi.decode(data, (uint256));
     }
 
-    /// @dev The supply the pair will divide by on its next mint/burn: what is on the books now plus
-    ///      the protocol fee it is about to mint. Every denominator that must agree with the pair's
-    ///      actual payout uses this, so a DEX with a protocol fee yields the same per-LP value as one
-    ///      without. For `feeTo == address(0)` this is exactly `pairTotalSupply`.
     function _effectiveSupply(PairSnapshot memory snapshot) private pure returns (uint256) {
         return snapshot.pairTotalSupply + snapshot.pendingProtocolFeeLp;
     }
@@ -1188,8 +1119,6 @@ contract Stake is IStake {
         _applyReclassification(tokenAddress, round, totals, snapshot);
         uint256 feeLp = totals.lastFeeLp;
 
-        // A fraction of the pool the pair will actually be dividing on the next burn, so the unit
-        // keeps meaning "FEE_SETTLEMENT_RATIO of the pool" whether or not the DEX takes a cut.
         uint256 settlementUnit = Math.mulDiv(_effectiveSupply(snapshot), FEE_SETTLEMENT_RATIO, PRECISION);
         if (feeLp < settlementUnit) {
             return;
@@ -1204,10 +1133,8 @@ contract Stake is IStake {
         _realizeFees(tokenAddress, pair, settlementUnit, round);
     }
 
-    // `pair.burn` reverts when either side of the proportional payout floors to zero, and it divides
-    // by the supply *after* minting the protocol fee. So the guard must use that same inflated
-    // denominator, not the raw `totalSupply`. `lp * reserve >= supply` is the exact integer form of
-    // `lp * reserve / supply > 0`; using the pre-fee supply would approve a burn the pair rejects.
+    /// @dev Load-bearing: `pair.burn` divides by the supply *after* minting the protocol fee, so this
+    ///      guard must use that same denominator or it approves a burn the pair rejects.
     function _canBurn(uint256 lpAmount, PairSnapshot memory snapshot) private pure returns (bool) {
         uint256 effectiveSupply = _effectiveSupply(snapshot);
         return lpAmount * snapshot.reserveToken >= effectiveSupply

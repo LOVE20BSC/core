@@ -12,9 +12,6 @@ interface IUniswapV2Pair {
         view
         returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
     function totalSupply() external view returns (uint256);
-    /// @dev Reserve product as of the last liquidity event. Uniswap V2 (and its forks) only keep
-    ///      this when a protocol fee is configured; `0` means the next mint/burn will not pay one.
-    ///      Read through `try/catch`: a fork without the getter degrades to "no protocol fee".
     function kLast() external view returns (uint256);
     function mint(address to) external returns (uint256 liquidity);
     function burn(address to) external returns (uint256 amount0, uint256 amount1);
