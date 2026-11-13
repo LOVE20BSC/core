@@ -41,9 +41,6 @@ struct PairSnapshot {
     uint256 pairTotalSupply;
 }
 
-/// @dev Write-time context of an increase: the event carries both the caller-visible roles and the
-///      old/new waiting period, and keeping them in one memory slot is what keeps the entry points
-///      inside the stack limit.
 struct StakeWrite {
     uint256 round;
     uint256 memberId;
@@ -52,8 +49,6 @@ struct StakeWrite {
     uint256 prevPromisedWaitingPhases;
 }
 
-/// @dev Staging struct for the `LiquidityStaked` payload. The event carries sixteen fields, so the values
-///      are collected in memory first and the emit only touches this one pointer.
 struct LiquidityStakedPayload {
     address tokenAddress;
     uint256 round;
@@ -72,7 +67,6 @@ struct LiquidityStakedPayload {
     uint256 totalWithdrawableLp;
 }
 
-/// @dev Staging struct for the `BoostStaked` payload, same reason as `LiquidityStakedPayload`.
 struct BoostStakedPayload {
     address tokenAddress;
     uint256 round;
@@ -171,7 +165,6 @@ contract Stake is IStake {
         if (tokenAmount == 0) revert ZeroTokenAmount();
         if (parentTokenAmount == 0) revert ZeroParentTokenAmount();
         _checkPromisedWaitingPhases(promisedWaitingPhases);
-        // Only existence is checked: anyone may add to an existing position (unpermissioned increase).
         address memberOwner = IMemberNFT(MEMBER_NFT_ADDRESS).ownerOf(memberId);
         _checkToken(tokenAddress);
         address pair = _pairFor(tokenAddress);
@@ -179,7 +172,7 @@ contract Stake is IStake {
 
         MemberStake storage member = _memberStake[tokenAddress][memberId];
         _checkNoUnstakeRequest(member, tokenAddress, memberId);
-        _checkPromisedWaitingPhasesNotRewritten(member, memberOwner, promisedWaitingPhases);
+        _checkPromisedWaitingPhasesNotRewritten(tokenAddress, memberId, member, memberOwner, promisedWaitingPhases);
 
         AddedLiquidity memory added = _addLiquidity(tokenAddress, pair, round, tokenAmount, parentTokenAmount);
         StakeWrite memory write = StakeWrite({
@@ -198,7 +191,6 @@ contract Stake is IStake {
     {
         if (boostAmount == 0) revert ZeroBoostAmount();
         _checkPromisedWaitingPhases(promisedWaitingPhases);
-        // Only existence is checked: anyone may add to an existing position (unpermissioned increase).
         address memberOwner = IMemberNFT(MEMBER_NFT_ADDRESS).ownerOf(memberId);
         _checkToken(tokenAddress);
         uint256 round = _checkActiveRound();
@@ -206,7 +198,7 @@ contract Stake is IStake {
         MemberStake storage member = _memberStake[tokenAddress][memberId];
         _checkNoUnstakeRequest(member, tokenAddress, memberId);
         _checkStakedLiquidity(member, tokenAddress, memberId);
-        _checkPromisedWaitingPhasesNotRewritten(member, memberOwner, promisedWaitingPhases);
+        _checkPromisedWaitingPhasesNotRewritten(tokenAddress, memberId, member, memberOwner, promisedWaitingPhases);
 
         TotalStake storage totals = _totalStake[tokenAddress];
         _checkBoostCap(tokenAddress, memberId, round, boostAmount);
@@ -621,11 +613,9 @@ contract Stake is IStake {
         if (member.liquidityShares == 0) revert NoStakedLiquidity(tokenAddress, memberId);
     }
 
-    /// @dev The promised waiting period is decided at the write point because the rule depends on both the
-    /// caller and the position. Everybody is barred from lowering it; a caller that is not the NFT holder is
-    /// additionally barred from raising it on a non-empty position, i.e. it must reuse the current value.
-    /// Both directions share `PromisedWaitingPhasesDecreased` on purpose: no new error type is introduced.
     function _checkPromisedWaitingPhasesNotRewritten(
+        address tokenAddress,
+        uint256 memberId,
         MemberStake storage member,
         address memberOwner,
         uint256 promisedWaitingPhases
@@ -635,10 +625,9 @@ contract Stake is IStake {
             revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, current);
         }
         if (memberOwner == msg.sender) return;
-        // Same criterion as `targetHadPosition` in `_mergeIntoTarget`, not `promisedWaitingPhases == 0`.
         bool hasPosition = member.liquidityShares != 0 || member.boostShares != 0;
         if (hasPosition && promisedWaitingPhases != current) {
-            revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, current);
+            revert PromisedWaitingPhasesRewritten(tokenAddress, memberId, promisedWaitingPhases, current);
         }
     }
 
@@ -758,9 +747,6 @@ contract Stake is IStake {
         _emitLiquidityStaked(_liquidityStakedPayload(tokenAddress, write, added, govVotesAdded, liquiditySharesAdded));
     }
 
-    /// @dev The payload is built in its own frame and handed to the emitter as a single pointer: a
-    ///      sixteen-field event with thirteen non-indexed fields cannot be emitted while any other local
-    ///      is live, and `_creditLiquidity` still holds its own state by then.
     function _liquidityStakedPayload(
         address tokenAddress,
         StakeWrite memory write,
@@ -949,9 +935,6 @@ contract Stake is IStake {
         }
     }
 
-    // Pure proportional conversion: the side kept at its desired amount is never trimmed, the other is
-    // scaled down to the reserve ratio. Whatever does not fit is simply not transferred, so it stays in
-    // the caller's wallet. There is no tolerance and no revert (price protection lives in the caller).
     function _optimalAmounts(
         uint256 tokenAmount,
         uint256 parentTokenAmount,

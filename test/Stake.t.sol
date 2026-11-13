@@ -1274,7 +1274,9 @@ contract StakeTest {
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 10, memberId1
             ),
-            abi.encodeWithSelector(IStakeErrors.PromisedWaitingPhasesDecreased.selector, 10, 5),
+            abi.encodeWithSelector(
+                IStakeErrors.PromisedWaitingPhasesRewritten.selector, address(childToken), memberId1, 10, 5
+            ),
             "Should revert when a non-holder raises the waiting period"
         );
 

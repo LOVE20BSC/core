@@ -32,6 +32,12 @@ interface IStakeErrors {
         uint256 requested,
         uint256 current
     );
+    error PromisedWaitingPhasesRewritten(
+        address tokenAddress,
+        uint256 memberId,
+        uint256 requested,
+        uint256 current
+    );
     error UnstakeAlreadyRequested(
         address tokenAddress,
         uint256 memberId
