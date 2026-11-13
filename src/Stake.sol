@@ -621,12 +621,11 @@ contract Stake is IStake {
         uint256 promisedWaitingPhases
     ) private view {
         uint256 current = member.promisedWaitingPhases;
+        if (memberOwner != msg.sender && current != 0 && promisedWaitingPhases != current) {
+            revert PromisedWaitingPhasesRewritten(tokenAddress, memberId, promisedWaitingPhases, current);
+        }
         if (promisedWaitingPhases < current) {
             revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, current);
-        }
-        if (memberOwner == msg.sender) return;
-        if (current != 0 && promisedWaitingPhases != current) {
-            revert PromisedWaitingPhasesRewritten(tokenAddress, memberId, promisedWaitingPhases, current);
         }
     }
 

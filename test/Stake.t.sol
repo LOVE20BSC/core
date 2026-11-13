@@ -1322,8 +1322,8 @@ contract StakeTest {
         require(phases == PROMISED_WAITING_PHASES_MAX, "the empty position takes MAX");
     }
 
-    /// @notice A non-holder is barred from lowering the waiting period too, and gets the "decreased"
-    ///         error rather than the "rewritten" one: the two conditions stay tellable apart.
+    /// @notice A non-holder is barred from touching the period at all, in either direction, and always
+    ///         gets the "rewritten" error: the permission question is answered before the direction one.
     function testNonOwnerCannotLowerPhasesOnExistingPosition() external {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 
@@ -1338,8 +1338,10 @@ contract StakeTest {
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 5, memberId1
             ),
-            abi.encodeWithSelector(IStakeErrors.PromisedWaitingPhasesDecreased.selector, 5, 10),
-            "A non-holder lowering the period hits the decrease rule, not the rewrite rule"
+            abi.encodeWithSelector(
+                IStakeErrors.PromisedWaitingPhasesRewritten.selector, address(childToken), memberId1, 5, 10
+            ),
+            "A non-holder lowering the period is told it may not rewrite, not that it decreased"
         );
     }
 
@@ -1360,13 +1362,15 @@ contract StakeTest {
             "A non-holder cannot raise the period through stakeBoost either"
         );
 
-        // Lowering through stakeBoost hits the other rule.
+        // Lowering is the same permission question for a non-holder, so it gets the same error.
         vm().prank(owner2);
         _expectRevertData(
             address(stake),
             abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 9, memberId1),
-            abi.encodeWithSelector(IStakeErrors.PromisedWaitingPhasesDecreased.selector, 9, 10),
-            "A non-holder lowering through stakeBoost hits the decrease rule"
+            abi.encodeWithSelector(
+                IStakeErrors.PromisedWaitingPhasesRewritten.selector, address(childToken), memberId1, 9, 10
+            ),
+            "A non-holder lowering through stakeBoost is told it may not rewrite"
         );
 
         // Reusing the current value is still allowed.
