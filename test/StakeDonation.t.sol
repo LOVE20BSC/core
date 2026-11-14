@@ -267,7 +267,7 @@ contract StakeDonationTest is Test {
         vm.startPrank(staker);
         childToken.approve(address(stake), type(uint256).max);
         parentToken.approve(address(stake), type(uint256).max);
-        stake.stakeLiquidity(address(childToken), STAKE_AMOUNT, STAKE_AMOUNT, 1, stakerMemberId);
+        stake.stakeLiquidity(address(childToken), STAKE_AMOUNT, STAKE_AMOUNT, 1, stakerMemberId, type(uint256).max);
         vm.stopPrank();
     }
 
@@ -306,7 +306,7 @@ contract StakeDonationTest is Test {
         stake.unstake(address(childToken), stakerMemberId);
         phase.setPhase(3);
         vm.prank(staker);
-        stake.withdraw(address(childToken), stakerMemberId);
+        stake.withdraw(address(childToken), stakerMemberId, type(uint256).max);
 
         assertApproxEqRel(childToken.balanceOf(staker) - childPaid, expectedChild, 1e15, "child side pro-rata");
         assertApproxEqRel(parentToken.balanceOf(staker) - parentPaid, expectedParent, 1e15, "parent side pro-rata");
@@ -402,7 +402,7 @@ contract StakeDonationTest is Test {
             sqrtKOfLp: currentSqrtK,
             pairTotalSupply: pair.totalSupply()
         });
-        stake.stakeLiquidity(address(childToken), 85_000e18, 10_000e18, 1, newMemberId);
+        stake.stakeLiquidity(address(childToken), 85_000e18, 10_000e18, 1, newMemberId, type(uint256).max);
         vm.stopPrank();
     }
 
@@ -475,7 +475,7 @@ contract StakeDonationTest is Test {
             pairTotalSupply: pair.totalSupply()
         });
         vm.prank(staker);
-        stake.withdraw(address(childToken), stakerMemberId);
+        stake.withdraw(address(childToken), stakerMemberId, type(uint256).max);
     }
 
     /// No growth, no event: `settleFees` alone does not fabricate a reclassification.
@@ -570,7 +570,7 @@ contract StakeDonationTest is Test {
         stake.unstake(address(childToken), stakerMemberId);
         phase.setPhase(3);
         vm.prank(staker);
-        stake.withdraw(address(childToken), stakerMemberId);
+        stake.withdraw(address(childToken), stakerMemberId, type(uint256).max);
 
         uint256 stranded = _feeLp();
         assertEq(_withdrawableLp(), 0, "no withdrawable LP left");
@@ -603,7 +603,7 @@ contract StakeDonationTest is Test {
         stake.unstake(address(childToken), stakerMemberId);
         phase.setPhase(3);
         vm.prank(staker);
-        stake.withdraw(address(childToken), stakerMemberId);
+        stake.withdraw(address(childToken), stakerMemberId, type(uint256).max);
 
         uint256 stranded = _feeLp();
         phase.setPhase(4);
@@ -622,7 +622,7 @@ contract StakeDonationTest is Test {
         (uint256 newMemberId,) = memberNFT.mint("newbie");
         childToken.approve(address(stake), type(uint256).max);
         parentToken.approve(address(stake), type(uint256).max);
-        stake.stakeLiquidity(address(childToken), depositChild, depositParent, 1, newMemberId);
+        stake.stakeLiquidity(address(childToken), depositChild, depositParent, 1, newMemberId, type(uint256).max);
         vm.stopPrank();
 
         uint256 feeBefore = _feeLp();
@@ -662,7 +662,7 @@ contract StakeDonationTest is Test {
         smallToken.transfer(staker, 1_000e18);
         vm.startPrank(staker);
         smallToken.approve(address(stake), type(uint256).max);
-        stake.stakeLiquidity(address(smallToken), 100e18, 100e18, 1, stakerMemberId);
+        stake.stakeLiquidity(address(smallToken), 100e18, 100e18, 1, stakerMemberId, type(uint256).max);
         vm.stopPrank();
 
         (uint256 totalLiquidityShares, uint256 totalLp,, uint256 feeLpBefore,,,,) =
@@ -719,7 +719,7 @@ contract StakeDonationTest is Test {
         boundaryToken.transfer(staker, 1);
         vm.startPrank(staker);
         boundaryToken.approve(address(stake), type(uint256).max);
-        stake.stakeLiquidity(address(boundaryToken), 1, 1, 1, stakerMemberId);
+        stake.stakeLiquidity(address(boundaryToken), 1, 1, 1, stakerMemberId, type(uint256).max);
         vm.stopPrank();
 
         (uint256 totalLiquidityShares, uint256 totalLp,, uint256 feeLpBefore,,,,) =
@@ -765,7 +765,7 @@ contract StakeDonationTest is Test {
         childToken.approve(address(stake), type(uint256).max);
         parentToken.approve(address(stake), type(uint256).max);
         vm.recordLogs();
-        stake.stakeLiquidity(address(childToken), 50_000e18, 5_000e18, 1, newbieMemberId);
+        stake.stakeLiquidity(address(childToken), 50_000e18, 5_000e18, 1, newbieMemberId, type(uint256).max);
         vm.stopPrank();
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -787,7 +787,7 @@ contract StakeDonationTest is Test {
         phase.setPhase(3);
         vm.recordLogs();
         vm.prank(staker);
-        stake.withdraw(address(childToken), stakerMemberId);
+        stake.withdraw(address(childToken), stakerMemberId, type(uint256).max);
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 reclassified = _stakeLogIndex(logs, FEE_RECLASSIFIED_TOPIC);
@@ -873,14 +873,14 @@ contract StakeDonationTest is Test {
         (uint256 newbieMemberId,) = memberNFT.mint("foldNewbie");
         childToken.approve(address(stake), type(uint256).max);
         parentToken.approve(address(stake), type(uint256).max);
-        stake.stakeLiquidity(address(childToken), 50_000e18, 5_000e18, 1, newbieMemberId);
+        stake.stakeLiquidity(address(childToken), 50_000e18, 5_000e18, 1, newbieMemberId, type(uint256).max);
         vm.stopPrank();
 
         vm.prank(staker);
         stake.unstake(address(childToken), stakerMemberId);
         phase.setPhase(3);
         vm.prank(staker);
-        stake.withdraw(address(childToken), stakerMemberId);
+        stake.withdraw(address(childToken), stakerMemberId, type(uint256).max);
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i; i < logs.length; ++i) {

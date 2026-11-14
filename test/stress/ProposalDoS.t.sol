@@ -102,7 +102,7 @@ contract ProposalDoSTest is Test {
             (uint256 memberId,) = memberNFT.mint(string.concat("member", vm.toString(i)));
             memberIds[i] = memberId;
             uint256 amount = i == 0 ? count * 1e18 : 1e18;
-            stake.stakeLiquidity(address(token), amount, amount, 1, memberId);
+            stake.stakeLiquidity(address(token), amount, amount, 1, memberId, type(uint256).max);
             ids[0] = submit.submitNewProposal(address(token), memberId, ProposalBody({
                 title: "Stress proposal",
                 details: "",

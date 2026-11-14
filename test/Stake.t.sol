@@ -286,7 +286,8 @@ contract StakeTest {
             tokenAmount,
             parentAmount,
             promisedPhases,
-            memberId
+            memberId,
+            type(uint256).max
         );
     }
 
@@ -381,6 +382,14 @@ contract StakeTest {
         return (eventData.withdrawableLpBurned, eventData.withdrawableLpToMember);
     }
 
+    function testFundOperationsRejectExpiredDeadlineBeforeMovingFunds() external {
+        uint256 expired = block.timestamp - 1;
+        bytes memory expected = abi.encodeWithSelector(IStakeErrors.DeadlineExpired.selector, expired);
+        _expectRevertData(address(stake), abi.encodeWithSelector(Stake.stakeLiquidity.selector, address(childToken), 1, 1, 10, memberId1, expired), expected, "liquidity expired");
+        _expectRevertData(address(stake), abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 1, 10, memberId1, expired), expected, "boost expired");
+        _expectRevertData(address(stake), abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1, expired), expected, "withdraw expired");
+    }
+
     function _expectRevertData(
         address target,
         bytes memory callData,
@@ -449,7 +458,7 @@ contract StakeTest {
             address(stake),
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 10, memberId1
-            ),
+            , type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.StakeNotStarted.selector),
             "Should revert at round zero"
         );
@@ -461,7 +470,7 @@ contract StakeTest {
         vm().prank(owner1);
         _expectRevertData(
             address(stake),
-            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 10, memberId1),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 10, memberId1, type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.StakeNotStarted.selector),
             "Should revert at round zero"
         );
@@ -479,7 +488,7 @@ contract StakeTest {
             address(stake),
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 0, memberId1
-            ),
+            , type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.InvalidPromisedWaitingPhases.selector, 0, 1, 100),
             "Should revert with promised phases too low"
         );
@@ -490,7 +499,7 @@ contract StakeTest {
             address(stake),
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 101, memberId1
-            ),
+            , type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.InvalidPromisedWaitingPhases.selector, 101, 1, 100),
             "Should revert with promised phases too high"
         );
@@ -502,7 +511,7 @@ contract StakeTest {
             address(stake),
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(childToken), 0, 1000e18, 10, memberId1
-            ),
+            , type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.ZeroTokenAmount.selector),
             "Should revert with zero token amount"
         );
@@ -512,7 +521,7 @@ contract StakeTest {
             address(stake),
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(childToken), 1000e18, 0, 10, memberId1
-            ),
+            , type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.ZeroParentTokenAmount.selector),
             "Should revert with zero parent amount"
         );
@@ -555,7 +564,7 @@ contract StakeTest {
             address(stake),
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 5, memberId1
-            ),
+            , type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.PromisedWaitingPhasesDecreased.selector, 5, 10),
             "Should revert when decreasing promised phases"
         );
@@ -572,7 +581,7 @@ contract StakeTest {
         childToken.approve(address(stake), boostAmount);
 
         vm().prank(owner1);
-        uint256 govVotesAdded = stake.stakeBoost(address(childToken), boostAmount, 10, memberId1);
+        uint256 govVotesAdded = stake.stakeBoost(address(childToken), boostAmount, 10, memberId1, type(uint256).max);
 
         require(govVotesAdded == 0, "No gov votes added when phases don't increase");
 
@@ -589,7 +598,7 @@ contract StakeTest {
         vm().prank(owner1);
         _expectRevertData(
             address(stake),
-            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 500e18, 10, memberId1),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 500e18, 10, memberId1, type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.NoStakedLiquidity.selector, address(childToken), memberId1),
             "Should revert when no liquidity staked"
         );
@@ -607,7 +616,7 @@ contract StakeTest {
         childToken.approve(address(stake), 500e18);
 
         vm().prank(owner1);
-        uint256 govVotesAdded = stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
+        uint256 govVotesAdded = stake.stakeBoost(address(childToken), 500e18, 10, memberId1, type(uint256).max);
 
         uint256 govVotesAfter = _validGovVotes(address(childToken), memberId1);
         require(govVotesAdded == shares * 5, "Should add gov votes for phase increase");
@@ -701,7 +710,7 @@ contract StakeTest {
         vm().prank(owner1);
         _expectRevertData(
             address(stake),
-            abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1),
+            abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1, type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.UnlockRoundNotReached.selector, 1, 11),
             "Should revert before waiting period"
         );
@@ -721,7 +730,7 @@ contract StakeTest {
         vm().prank(owner1);
         _expectRevertData(
             address(stake),
-            abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1),
+            abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1, type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.UnlockRoundNotReached.selector, 11, 11),
             "Should revert at exact waiting period boundary"
         );
@@ -738,7 +747,7 @@ contract StakeTest {
 
         // Should succeed
         vm().prank(owner1);
-        stake.withdraw(address(childToken), memberId1);
+        stake.withdraw(address(childToken), memberId1, type(uint256).max);
 
         // Verify cleared
         (uint256 shares, , , , , ,) = stake.memberStake(address(childToken), memberId1);
@@ -754,7 +763,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), memberBoostCap);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), memberBoostCap, 1, memberId3);
+        stake.stakeBoost(address(childToken), memberBoostCap, 1, memberId3, type(uint256).max);
 
         childToken.transfer(address(pair), 1001);
         parentToken.transfer(address(pair), 1001);
@@ -769,7 +778,7 @@ contract StakeTest {
         uint256 balanceBefore = childToken.balanceOf(owner1);
         uint256 lpBefore = pair.balanceOf(address(stake));
         vm().prank(owner1);
-        stake.withdraw(address(childToken), memberId3);
+        stake.withdraw(address(childToken), memberId3, type(uint256).max);
         require(childToken.balanceOf(owner1) == balanceBefore + memberBoostCap, "boost must be returned");
         require(pair.balanceOf(address(stake)) == lpBefore, "zero payout must not consume LP");
         {
@@ -794,7 +803,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), memberBoostCap);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), memberBoostCap, 1, memberId3);
+        stake.stakeBoost(address(childToken), memberBoostCap, 1, memberId3, type(uint256).max);
 
         vm().prank(owner1);
         stake.unstake(address(childToken), memberId3);
@@ -815,7 +824,7 @@ contract StakeTest {
         uint256 lpUserBefore = pair.balanceOf(owner1);
         vm().recordLogs();
         vm().prank(owner1);
-        stake.withdraw(address(childToken), memberId3);
+        stake.withdraw(address(childToken), memberId3, type(uint256).max);
 
         require(childToken.balanceOf(owner1) == tokenBefore + memberBoostCap, "boost must be returned");
         require(parentToken.balanceOf(owner1) == parentBefore, "no parent payout");
@@ -1236,7 +1245,7 @@ contract StakeTest {
 
         vm().recordLogs();
         vm().prank(owner2);
-        stake.stakeBoost(address(childToken), 100e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 100e18, 10, memberId1, type(uint256).max);
 
         (, uint256 targetBoost, , , , ,) = stake.memberStake(address(childToken), memberId1);
         require(targetBoost == 100e18, "the boost belongs to the target memberId");
@@ -1273,7 +1282,7 @@ contract StakeTest {
             address(stake),
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 10, memberId1
-            ),
+            , type(uint256).max),
             abi.encodeWithSelector(
                 IStakeErrors.PromisedWaitingPhasesRewritten.selector, address(childToken), memberId1, 10, 5
             ),
@@ -1282,7 +1291,7 @@ contract StakeTest {
 
         // The same call with the current value goes through.
         vm().prank(owner2);
-        (, uint256 shares) = stake.stakeLiquidity(address(childToken), 1000e18, 1000e18, 5, memberId1);
+        (, uint256 shares) = stake.stakeLiquidity(address(childToken), 1000e18, 1000e18, 5, memberId1, type(uint256).max);
         require(shares > 0, "reusing the current waiting period must succeed");
         (, , uint256 phasesAfter, , , ,) = stake.memberStake(address(childToken), memberId1);
         require(phasesAfter == 5, "the waiting period is unchanged");
@@ -1302,14 +1311,14 @@ contract StakeTest {
             address(stake),
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 5, memberId1
-            ),
+            , type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.PromisedWaitingPhasesDecreased.selector, 5, 10),
             "The holder cannot lower the waiting period either"
         );
 
         // The holder may still raise it.
         vm().prank(owner1);
-        stake.stakeLiquidity(address(childToken), 1000e18, 1000e18, 12, memberId1);
+        stake.stakeLiquidity(address(childToken), 1000e18, 1000e18, 12, memberId1, type(uint256).max);
         (, , uint256 phasesAfter, , , ,) = stake.memberStake(address(childToken), memberId1);
         require(phasesAfter == 12, "the holder can raise the waiting period");
     }
@@ -1337,7 +1346,7 @@ contract StakeTest {
             address(stake),
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 5, memberId1
-            ),
+            , type(uint256).max),
             abi.encodeWithSelector(
                 IStakeErrors.PromisedWaitingPhasesRewritten.selector, address(childToken), memberId1, 5, 10
             ),
@@ -1355,7 +1364,7 @@ contract StakeTest {
         vm().prank(owner2);
         _expectRevertData(
             address(stake),
-            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 12, memberId1),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 12, memberId1, type(uint256).max),
             abi.encodeWithSelector(
                 IStakeErrors.PromisedWaitingPhasesRewritten.selector, address(childToken), memberId1, 12, 10
             ),
@@ -1366,7 +1375,7 @@ contract StakeTest {
         vm().prank(owner2);
         _expectRevertData(
             address(stake),
-            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 9, memberId1),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 9, memberId1, type(uint256).max),
             abi.encodeWithSelector(
                 IStakeErrors.PromisedWaitingPhasesRewritten.selector, address(childToken), memberId1, 9, 10
             ),
@@ -1375,7 +1384,7 @@ contract StakeTest {
 
         // Reusing the current value is still allowed.
         vm().prank(owner2);
-        stake.stakeBoost(address(childToken), 100e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 100e18, 10, memberId1, type(uint256).max);
         (, , uint256 phasesAfter, , , ,) = stake.memberStake(address(childToken), memberId1);
         require(phasesAfter == 10, "the period is unchanged");
     }
@@ -1400,7 +1409,7 @@ contract StakeTest {
         vm().prank(owner2);
         _expectRevertData(
             address(stake),
-            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 8, memberId1),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 8, memberId1, type(uint256).max),
             abi.encodeWithSelector(
                 IStakeErrors.PromisedWaitingPhasesRewritten.selector, address(childToken), memberId1, 8, 7
             ),
@@ -1422,7 +1431,7 @@ contract StakeTest {
             address(stake),
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 10, missingMemberId
-            ),
+            , type(uint256).max),
             abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, missingMemberId),
             "unknown memberId falls through to the ERC721 error"
         );
@@ -1430,7 +1439,7 @@ contract StakeTest {
         vm().prank(owner1);
         _expectRevertData(
             address(stake),
-            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 10, missingMemberId),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 100e18, 10, missingMemberId, type(uint256).max),
             abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, missingMemberId),
             "stakeBoost uses the same existence check"
         );
@@ -1464,7 +1473,7 @@ contract StakeTest {
 
         vm().recordLogs();
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 10e18, 7, memberId1);
+        stake.stakeBoost(address(childToken), 10e18, 7, memberId1, type(uint256).max);
         (uint256 prevPhases, uint256 newPhases, uint256 votesAdded) = _lastBoostPhases();
         require(prevPhases == 5, "the old value is the one written before the call");
         require(newPhases == 7, "the new value is the raised one");
@@ -1474,7 +1483,7 @@ contract StakeTest {
         // A boost that keeps the waiting period reports the same value on both sides.
         vm().recordLogs();
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 10e18, 7, memberId1);
+        stake.stakeBoost(address(childToken), 10e18, 7, memberId1, type(uint256).max);
         (prevPhases, newPhases, votesAdded) = _lastBoostPhases();
         require(prevPhases == 7 && newPhases == 7, "an unchanged period reports equal values");
         require(votesAdded == 0, "no votes are added when the period does not move");
@@ -1507,7 +1516,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 500e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 500e18, 10, memberId1, type(uint256).max);
 
         uint256 boostAfter = stake.validBoostShares(address(childToken), 1, memberId1);
         require(boostAfter == 500e18, "Should track boost shares");
@@ -1526,7 +1535,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 500e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 500e18, 12, memberId1);
+        stake.stakeBoost(address(childToken), 500e18, 12, memberId1, type(uint256).max);
         uint256 memberVoteAmount = _validGovVotes(address(childToken), memberId1);
         require(memberVoteAmount > afterStake, "the boost raises the member's votes");
 
@@ -1560,13 +1569,13 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 100e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 100e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 100e18, 10, memberId1, type(uint256).max);
 
         stakeAsOwner(owner2, memberId2, 1000e18, 1000e18, 10);
         vm().prank(owner2);
         childToken.approve(address(stake), 100e18);
         vm().prank(owner2);
-        stake.stakeBoost(address(childToken), 100e18, 10, memberId2);
+        stake.stakeBoost(address(childToken), 100e18, 10, memberId2, type(uint256).max);
 
         uint256 round = phase.currentPhase();
         require(stake.totalValidBoostSharesAdded(address(childToken), round) == 200e18, "added is the sum");
@@ -1613,7 +1622,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 500e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 500e18, 10, memberId1, type(uint256).max);
 
         // Every point-in-time read is gated the same way, so no getter can report the latest record as
         // if it belonged to a round that has not started.
@@ -1663,7 +1672,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 500e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 500e18, 10, memberId1, type(uint256).max);
 
         (uint256 sharesBefore, uint256 boostBefore, , , , ,) =
             stake.memberStake(address(childToken), memberId1);
@@ -1677,7 +1686,7 @@ contract StakeTest {
         phase.setPhase(12);
 
         vm().prank(owner1);
-        stake.withdraw(address(childToken), memberId1);
+        stake.withdraw(address(childToken), memberId1, type(uint256).max);
 
         (uint256 sharesAfter, uint256 boostAfter, uint256 phases, uint256 unlock, , ,) =
             stake.memberStake(address(childToken), memberId1);
@@ -1706,7 +1715,7 @@ contract StakeTest {
 
         // Withdraw
         vm().prank(owner1);
-        stake.withdraw(address(childToken), memberId1);
+        stake.withdraw(address(childToken), memberId1, type(uint256).max);
 
         // Verify cleared
         (shares, , , , , ,) = stake.memberStake(address(childToken), memberId1);
@@ -1758,7 +1767,7 @@ contract StakeTest {
             address(stake),
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(orphanToken), 1000e18, 1000e18, 10, memberId1
-            ),
+            , type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.TokenNotRegistered.selector, address(orphanToken)),
             "Should revert for unregistered token"
         );
@@ -1796,7 +1805,7 @@ contract StakeTest {
             address(stake),
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(noPairToken), 1000e18, 1000e18, 10, memberId1
-            ),
+            , type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.PairMissing.selector, address(noPairToken)),
             "Should revert when the community has no pair"
         );
@@ -1821,7 +1830,7 @@ contract StakeTest {
             address(stake),
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(falseToken), 1000e18, 1000e18, 10, memberId1
-            ),
+            , type(uint256).max),
             abi.encodeWithSelector(SafeERC20.SafeERC20FailedOperation.selector, address(falseToken)),
             "Should revert when the token transfer returns false"
         );
@@ -1846,7 +1855,7 @@ contract StakeTest {
             address(stake),
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(childToken), 1000e18, 1000e18, 10, memberId1
-            ),
+            , type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.UnstakeAlreadyRequested.selector, address(childToken), memberId1),
             "Should revert when already unlocking"
         );
@@ -1867,7 +1876,7 @@ contract StakeTest {
         vm().prank(owner1);
         _expectRevertData(
             address(stake),
-            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 500e18, 10, memberId1),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 500e18, 10, memberId1, type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.UnstakeAlreadyRequested.selector, address(childToken), memberId1),
             "Should revert when already unlocking"
         );
@@ -1884,7 +1893,7 @@ contract StakeTest {
         vm().prank(owner1);
         _expectRevertData(
             address(stake),
-            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 500e18, 5, memberId1),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 500e18, 5, memberId1, type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.PromisedWaitingPhasesDecreased.selector, 5, 10),
             "Should revert when decreasing promised phases"
         );
@@ -1902,7 +1911,7 @@ contract StakeTest {
 
         // Withdraw
         vm().prank(owner1);
-        stake.withdraw(address(childToken), memberId1);
+        stake.withdraw(address(childToken), memberId1, type(uint256).max);
 
         // Verify shares are cleared
         (uint256 shares, , , , , ,) = stake.memberStake(address(childToken), memberId1);
@@ -1912,7 +1921,7 @@ contract StakeTest {
         vm().prank(owner1);
         _expectRevertData(
             address(stake),
-            abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1),
+            abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1, type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.UnstakeNotRequested.selector, address(childToken), memberId1),
             "Should revert with no unlock request"
         );
@@ -1954,7 +1963,7 @@ contract StakeTest {
         vm().prank(owner1);
         _expectRevertData(
             address(stake),
-            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 0, 10, memberId1),
+            abi.encodeWithSelector(Stake.stakeBoost.selector, address(childToken), 0, 10, memberId1, type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.ZeroBoostAmount.selector),
             "Should revert with zero boost amount"
         );
@@ -2004,7 +2013,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 500e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 500e18, 10, memberId1, type(uint256).max);
 
         uint256 boostAtRound1 = stake.validBoostShares(address(childToken), 1, memberId1);
         require(boostAtRound1 == 500e18, "Should have boost at round 1");
@@ -2024,7 +2033,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 500e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 500e18, 10, memberId1, type(uint256).max);
 
         // Move to round 5
         phase.setPhase(5);
@@ -2041,7 +2050,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 500e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 500e18, 10, memberId1, type(uint256).max);
 
         // Unstake at round 1 (decreases boost history to 0)
         vm().prank(owner1);
@@ -2137,7 +2146,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 500e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 500e18, 10, memberId1, type(uint256).max);
 
         uint256 boostBefore = stake.validBoostShares(address(childToken), 1, memberId1);
         require(boostBefore == 500e18, "Should have 500 boost");
@@ -2156,7 +2165,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 500e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 500e18, 10, memberId1, type(uint256).max);
 
         uint256 sourceBoostBefore = stake.validBoostShares(address(childToken), 1, memberId1);
         uint256 targetBoostBefore = stake.validBoostShares(address(childToken), 1, memberId3);
@@ -2205,20 +2214,20 @@ contract StakeTest {
         vm().expectRevert(
             abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, uint256(0))
         );
-        stake.stakeLiquidity(address(childToken), 1000e18, 1000e18, 10, 0);
+        stake.stakeLiquidity(address(childToken), 1000e18, 1000e18, 10, 0, type(uint256).max);
     }
 
     /// @notice Parameters are checked before existence, so a zero amount wins over an unknown memberId.
     function testStakeLiquidityChecksAmountBeforeExistence() external {
         vm().prank(address(0xBEEF));
         vm().expectRevert(abi.encodeWithSelector(IStakeErrors.ZeroTokenAmount.selector));
-        stake.stakeLiquidity(address(childToken), 0, 0, 10, memberId1);
+        stake.stakeLiquidity(address(childToken), 0, 0, 10, memberId1, type(uint256).max);
     }
 
     function testStakeBoostChecksAmountBeforeExistence() external {
         vm().prank(owner2);
         vm().expectRevert(abi.encodeWithSelector(IStakeErrors.ZeroBoostAmount.selector));
-        stake.stakeBoost(address(childToken), 0, 10, memberId1);
+        stake.stakeBoost(address(childToken), 0, 10, memberId1, type(uint256).max);
     }
 
     function testUnstakeChecksOwnerBeforeToken() external {
@@ -2230,7 +2239,7 @@ contract StakeTest {
     function testWithdrawChecksOwnerBeforeToken() external {
         vm().prank(owner2);
         vm().expectRevert(abi.encodeWithSelector(IStakeErrors.NotMemberOwner.selector, memberId1));
-        stake.withdraw(address(0xDEAD), memberId1);
+        stake.withdraw(address(0xDEAD), memberId1, type(uint256).max);
     }
 
     function testMergeRevertsWhenSourceEqualsTarget() external {
@@ -2325,7 +2334,7 @@ contract StakeTest {
         phase.setPhase(12);
 
         vm().prank(owner1);
-        stake.withdraw(address(childToken), memberId1);
+        stake.withdraw(address(childToken), memberId1, type(uint256).max);
 
         uint256 childBalanceAfter = childToken.balanceOf(owner1);
         uint256 parentBalanceAfter = parentToken.balanceOf(owner1);
@@ -2423,7 +2432,7 @@ contract StakeTest {
         vm().prank(owner1);
         _expectRevertData(
             address(stake),
-            abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1),
+            abi.encodeWithSelector(Stake.withdraw.selector, address(childToken), memberId1, type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.UnstakeNotRequested.selector, address(childToken), memberId1),
             "Should revert when unstake not requested"
         );
@@ -2571,7 +2580,7 @@ contract StakeTest {
 
         // A warm-up stake gives the measured call a non-zero history and a non-zero vote delta.
         vm().prank(owner2);
-        stake.stakeBoost(address(childToken), 25e18, 10, memberId2);
+        stake.stakeBoost(address(childToken), 25e18, 10, memberId2, type(uint256).max);
 
         // A member that unlocks before the measured call keeps `totalBoostShares` and
         // `totalValidBoostShares` apart: the balance still counts it, the round history does not.
@@ -2579,7 +2588,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 1000e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 100e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 100e18, 10, memberId1, type(uint256).max);
         vm().prank(owner1);
         stake.unstake(address(childToken), memberId1);
 
@@ -2588,11 +2597,11 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 40e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 40e18, 10, memberId3);
+        stake.stakeBoost(address(childToken), 40e18, 10, memberId3, type(uint256).max);
 
         vm().recordLogs();
         vm().prank(owner2);
-        stake.stakeBoost(address(childToken), 50e18, 12, memberId2);
+        stake.stakeBoost(address(childToken), 50e18, 12, memberId2, type(uint256).max);
 
         Vm.Log[] memory logs = vm().getRecordedLogs();
         bytes32 topic = keccak256(
@@ -2638,7 +2647,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 300e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 300e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 300e18, 10, memberId1, type(uint256).max);
         vm().prank(owner1);
         stake.unstake(address(childToken), memberId1);
 
@@ -2646,7 +2655,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 100e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 100e18, 10, memberId3);
+        stake.stakeBoost(address(childToken), 100e18, 10, memberId3, type(uint256).max);
 
         stakeAsOwner(owner2, memberId2, 1000e18, 1000e18, 10);
 
@@ -2701,7 +2710,7 @@ contract StakeTest {
         vm().prank(owner2);
         childToken.approve(address(stake), 500e18);
         vm().prank(owner2);
-        stake.stakeBoost(address(childToken), 500e18, 10, memberId2);
+        stake.stakeBoost(address(childToken), 500e18, 10, memberId2, type(uint256).max);
 
         vm().prank(owner2);
         stake.unstake(address(childToken), memberId2);
@@ -2715,7 +2724,7 @@ contract StakeTest {
 
         vm().recordLogs();
         vm().prank(owner2);
-        stake.withdraw(address(childToken), memberId2);
+        stake.withdraw(address(childToken), memberId2, type(uint256).max);
 
         (uint256 shares, , , , , ,) = stake.memberStake(address(childToken), memberId2);
         require(shares == 0, "Shares should be cleared");
@@ -2759,7 +2768,7 @@ contract StakeTest {
 
         vm().recordLogs();
         vm().prank(owner1);
-        stake.withdraw(address(childToken), memberId1);
+        stake.withdraw(address(childToken), memberId1, type(uint256).max);
 
         Vm.Log[] memory logs = vm().getRecordedLogs();
         bytes32 feesTopic = keccak256("FeesSettled(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256)");
@@ -2798,7 +2807,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 50e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 50e18, 10, memberId3);
+        stake.stakeBoost(address(childToken), 50e18, 10, memberId3, type(uint256).max);
         // A third position keeps `targetGovVotes` and `totalValidGovVotes` apart.
         stakeAsOwner(owner1, memberId1, 400e18, 400e18, 10);
 
@@ -2857,7 +2866,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 500e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 500e18, 10, memberId1, type(uint256).max);
 
         (, , , , uint256 globalBoostAfter, , ,) = stake.totalStake(address(childToken));
 
@@ -2870,7 +2879,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 500e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 500e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 500e18, 10, memberId1, type(uint256).max);
 
         (, , , , uint256 globalBoostBefore, , ,) = stake.totalStake(address(childToken));
 
@@ -2879,7 +2888,7 @@ contract StakeTest {
         phase.setPhase(12);
 
         vm().prank(owner1);
-        stake.withdraw(address(childToken), memberId1);
+        stake.withdraw(address(childToken), memberId1, type(uint256).max);
 
         (, , , , uint256 globalBoostAfter, , ,) = stake.totalStake(address(childToken));
 
@@ -3004,7 +3013,7 @@ contract StakeTest {
         phase.setPhase(12);
 
         vm().prank(owner1);
-        stake.withdraw(address(childToken), memberId1);
+        stake.withdraw(address(childToken), memberId1, type(uint256).max);
 
         (uint256 shares1, , , , , ,) = stake.memberStake(address(childToken), memberId1);
         (uint256 shares2, , , , , ,) = stake.memberStake(address(childToken), memberId2);
@@ -3086,7 +3095,7 @@ contract StakeTest {
             1000e18,
             10,
             memberId1
-        );
+        , type(uint256).max);
 
         require(shares > 0, "Should stake with reversed token order");
 
@@ -3100,7 +3109,7 @@ contract StakeTest {
         newChild.transfer(address(stake), 10000e18);
 
         vm().prank(owner1);
-        stake.withdraw(address(newChild), memberId1);
+        stake.withdraw(address(newChild), memberId1, type(uint256).max);
     }
 
     // Test staking to empty pool (covers line 628)
@@ -3136,7 +3145,7 @@ contract StakeTest {
             1000e18,
             10,
             memberId1
-        );
+        , type(uint256).max);
 
         require(shares > 0, "Should handle empty pool");
     }
@@ -3154,7 +3163,7 @@ contract StakeTest {
             address(stake),
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(invalidToken), 1000e18, 1000e18, 10, memberId1
-            ),
+            , type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.TokenNotRegistered.selector, address(invalidToken)),
             "Should revert with invalid token"
         );
@@ -3188,7 +3197,7 @@ contract StakeTest {
             address(stake),
             abi.encodeWithSelector(
                 Stake.stakeLiquidity.selector, address(zeroLpToken), 1000e18, 1000e18, 10, memberId1
-            ),
+            , type(uint256).max),
             abi.encodeWithSelector(IStakeErrors.ZeroLiquidityMinted.selector),
             "Should revert with zero LP minted"
         );
@@ -3212,7 +3221,7 @@ contract StakeTest {
             1200e18, // More parent than optimal; the surplus stays with the caller
             10,
             memberId2
-        );
+        , type(uint256).max);
 
         require(shares > 0, "Should stake with excess parent token");
     }
@@ -3251,7 +3260,7 @@ contract StakeTest {
                 IStakeErrors.BoostCapExceeded.selector, address(childToken), memberId1, memberCap + 1, memberCap
             )
         );
-        stake.stakeBoost(address(childToken), memberCap + 1, 10, memberId1);
+        stake.stakeBoost(address(childToken), memberCap + 1, 10, memberId1, type(uint256).max);
     }
 
     function testBoostStakeAllowsAggregateAboveBaseCap() external {
@@ -3269,12 +3278,12 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), baseCap);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), baseCap, 10, memberId1);
+        stake.stakeBoost(address(childToken), baseCap, 10, memberId1, type(uint256).max);
 
         vm().prank(owner2);
         childToken.approve(address(stake), memberCap2);
         vm().prank(owner2);
-        stake.stakeBoost(address(childToken), memberCap2, 10, memberId2);
+        stake.stakeBoost(address(childToken), memberCap2, 10, memberId2, type(uint256).max);
 
         (, , , , uint256 totalUsed, , ,) = stake.totalStake(address(childToken));
         require(totalUsed == baseCap + memberCap2, "aggregate tracker counts both deposits");
@@ -3301,7 +3310,7 @@ contract StakeTest {
         stake.unstake(address(childToken), memberId1);
         phase.setPhase(3);
         vm().prank(owner1);
-        stake.withdraw(address(childToken), memberId1);
+        stake.withdraw(address(childToken), memberId1, type(uint256).max);
         require(stake.liquidityTokenAmount(address(childToken)) == 0, "withdraw shrinks the ledger");
     }
 
@@ -3313,7 +3322,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), memberCap);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), memberCap, 10, memberId1);
+        stake.stakeBoost(address(childToken), memberCap, 10, memberId1, type(uint256).max);
 
         // Burning supply halves `totalSupply / MAX_SUPPLY`, so `C` and the member cap halve.
         childToken.burn(childToken.totalSupply() / 2);
@@ -3329,7 +3338,7 @@ contract StakeTest {
         vm().expectRevert(
             abi.encodeWithSelector(IStakeErrors.BoostCapExceeded.selector, address(childToken), memberId1, 1, 0)
         );
-        stake.stakeBoost(address(childToken), 1, 10, memberId1);
+        stake.stakeBoost(address(childToken), 1, 10, memberId1, type(uint256).max);
     }
 
     function testMergePreservesAggregate() external {
@@ -3339,7 +3348,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 100e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 100e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 100e18, 10, memberId1, type(uint256).max);
 
         (, , , , uint256 totalUsedBefore, ,,) = stake.totalStake(address(childToken));
         vm().prank(owner2);
@@ -3360,7 +3369,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), cap);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), cap, 10, memberId1);
+        stake.stakeBoost(address(childToken), cap, 10, memberId1, type(uint256).max);
 
         childToken.burn(childToken.totalSupply() / 2);
 
@@ -3382,12 +3391,12 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 100e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 100e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 100e18, 10, memberId1, type(uint256).max);
 
         vm().prank(owner2);
         childToken.approve(address(stake), 100e18);
         vm().prank(owner2);
-        stake.stakeBoost(address(childToken), 100e18, 10, memberId2);
+        stake.stakeBoost(address(childToken), 100e18, 10, memberId2, type(uint256).max);
 
         (, , , , uint256 totalUsedBefore, ,,) = stake.totalStake(address(childToken));
 
@@ -3409,12 +3418,12 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), cap);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), cap, 10, memberId1);
+        stake.stakeBoost(address(childToken), cap, 10, memberId1, type(uint256).max);
 
         vm().prank(owner2);
         childToken.approve(address(stake), 100e18);
         vm().prank(owner2);
-        stake.stakeBoost(address(childToken), 100e18, 10, memberId2);
+        stake.stakeBoost(address(childToken), 100e18, 10, memberId2, type(uint256).max);
 
         childToken.burn(childToken.totalSupply() / 2);
 
@@ -3450,7 +3459,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), cap);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), cap, 10, memberId1);
+        stake.stakeBoost(address(childToken), cap, 10, memberId1, type(uint256).max);
 
         childToken.burn(600000e18);
 
@@ -3467,7 +3476,7 @@ contract StakeTest {
         vm().expectRevert(
             abi.encodeWithSelector(IStakeErrors.BoostCapExceeded.selector, address(childToken), memberId2, 1, 0)
         );
-        stake.stakeBoost(address(childToken), 1, 10, memberId2);
+        stake.stakeBoost(address(childToken), 1, 10, memberId2, type(uint256).max);
     }
 
     function testMergeWithBoostRevertsWhenTargetHasLiquidityOnly() external {
@@ -3478,7 +3487,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), cap);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), cap, 10, memberId1);
+        stake.stakeBoost(address(childToken), cap, 10, memberId1, type(uint256).max);
 
         childToken.burn(600000e18);
 
@@ -3558,7 +3567,7 @@ contract StakeTest {
 
         phase.setPhase(4);
         vm().prank(owner1);
-        stake.withdraw(address(childToken), memberId1);
+        stake.withdraw(address(childToken), memberId1, type(uint256).max);
 
         (, , , , , , uint256 afterWithdraw) = stake.memberStake(address(childToken), memberId1);
         require(afterWithdraw == 0, "Full withdraw clears the member's first round");
@@ -3610,7 +3619,7 @@ contract StakeTest {
         vm().prank(owner1);
         childToken.approve(address(stake), 1e18);
         vm().prank(owner1);
-        stake.stakeBoost(address(childToken), 1e18, 10, memberId1);
+        stake.stakeBoost(address(childToken), 1e18, 10, memberId1, type(uint256).max);
 
         (, , , , , , uint256 firstRound) = stake.memberStake(address(childToken), memberId1);
         require(firstRound == 1, "Boost stake must not move the member's first round");
@@ -3624,7 +3633,7 @@ contract StakeTest {
         stake.unstake(address(childToken), memberId1);
         phase.setPhase(4);
         vm().prank(owner1);
-        stake.withdraw(address(childToken), memberId1);
+        stake.withdraw(address(childToken), memberId1, type(uint256).max);
 
         (uint256 totalLiquidityShares, , , , , , , uint256 communityFirstRound) =
             stake.totalStake(address(childToken));

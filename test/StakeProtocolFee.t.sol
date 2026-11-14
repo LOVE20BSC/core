@@ -442,7 +442,7 @@ contract StakeProtocolFeeTest is Test {
 
     function _stake(address who, uint256 id, uint256 tokenAmount, uint256 parentAmount) internal {
         vm.prank(who);
-        stake.stakeLiquidity(address(child), tokenAmount, parentAmount, 1, id);
+        stake.stakeLiquidity(address(child), tokenAmount, parentAmount, 1, id, type(uint256).max);
     }
 
     /// @dev Raw pool value of a staker's claim, in the parent token. Deliberately reads the pair
@@ -630,7 +630,7 @@ contract StakeProtocolFeeTest is Test {
 
         _deploy(true, 1_000_000);
         vm.prank(alice);
-        stake.stakeLiquidity(address(child), deposit, deposit, 1, aliceId);
+        stake.stakeLiquidity(address(child), deposit, deposit, 1, aliceId, type(uint256).max);
         (uint256 shares,,,,,,) = stake.memberStake(address(child), aliceId);
         if (shares == 0) return;
 
@@ -645,7 +645,7 @@ contract StakeProtocolFeeTest is Test {
         // `withdraw` either pays out, or is blocked by a *pair* floor. Record which, and whether
         // the block is the treasury-inflated burn or the documented fee-off path.
         vm.prank(alice);
-        try stake.withdraw(address(child), aliceId) {
+        try stake.withdraw(address(child), aliceId, type(uint256).max) {
             (uint256 left,,,,,,) = stake.memberStake(address(child), aliceId);
             assertEq(left, 0, "position cleared");
         } catch (bytes memory reason) {
@@ -708,7 +708,7 @@ contract StakeProtocolFeeTest is Test {
         uint256 c0 = child.balanceOf(alice);
         uint256 p0 = parent.balanceOf(alice);
         vm.prank(alice);
-        stake.withdraw(address(child), aliceId);
+        stake.withdraw(address(child), aliceId, type(uint256).max);
         uint256 childOut = child.balanceOf(alice) - c0;
         uint256 parentOut = parent.balanceOf(alice) - p0;
 
@@ -900,7 +900,7 @@ contract StakeProtocolFeeTest is Test {
         parentBare.approve(address(stakeBare), type(uint256).max);
 
         vm.prank(alice);
-        stakeBare.stakeLiquidity(address(childBare), 20_000e18, 20_000e18, 1, id);
+        stakeBare.stakeLiquidity(address(childBare), 20_000e18, 20_000e18, 1, id, type(uint256).max);
         (uint256 shares, uint256 totalLp,,,,,,) = stakeBare.totalStake(address(childBare));
         console.log("bare fork shares / totalLp:", shares, totalLp);
         assertGt(shares, 0, "stake worked on a fork without kLast/feeTo");
@@ -911,7 +911,7 @@ contract StakeProtocolFeeTest is Test {
         stakeBare.unstake(address(childBare), id);
         phaseBare.setPhase(3);
         vm.prank(alice);
-        stakeBare.withdraw(address(childBare), id);
+        stakeBare.withdraw(address(childBare), id, type(uint256).max);
         (uint256 left,,,,,,) = stakeBare.memberStake(address(childBare), id);
         assertEq(left, 0, "withdraw worked on a bare fork");
     }
@@ -949,7 +949,7 @@ contract StakeProtocolFeeTest is Test {
 
         // Must not revert: the empty answer is read as feeTo == 0.
         vm.prank(alice);
-        stakeOnEmpty.stakeLiquidity(address(child), 1_000e18, 1_000e18, 1, aliceId);
+        stakeOnEmpty.stakeLiquidity(address(child), 1_000e18, 1_000e18, 1, aliceId, type(uint256).max);
         (uint256 shares,,,,,,) = stakeOnEmpty.memberStake(address(child), aliceId);
         assertGt(shares, 0, "stake works when the factory answers nothing");
     }
@@ -1122,7 +1122,7 @@ contract StakeProtocolFeeTest is Test {
         uint256 c0 = child.balanceOf(alice);
         uint256 p0 = parent.balanceOf(alice);
         vm.prank(alice);
-        stake.withdraw(address(child), aliceId);
+        stake.withdraw(address(child), aliceId, type(uint256).max);
         childRatio = (child.balanceOf(alice) - c0) * 1e18 / childIn;
         parentRatio = (parent.balanceOf(alice) - p0) * 1e18 / parentIn;
     }
@@ -1157,7 +1157,7 @@ contract StakeProtocolFeeTest is Test {
         uint256 c0 = child.balanceOf(alice);
         uint256 p0 = parent.balanceOf(alice);
         vm.prank(alice);
-        stake.withdraw(address(child), aliceId);
+        stake.withdraw(address(child), aliceId, type(uint256).max);
         uint256 childOut = child.balanceOf(alice) - c0;
         uint256 parentOut = parent.balanceOf(alice) - p0;
         ratio = (childOut * 1e18 / childIn + parentOut * 1e18 / parentIn) / 2;
@@ -1244,7 +1244,7 @@ contract StakeProtocolFeeTest is Test {
         uint256 c0 = child.balanceOf(alice);
         uint256 p0 = parent.balanceOf(alice);
         vm.prank(alice);
-        stake.withdraw(address(child), aliceId);
+        stake.withdraw(address(child), aliceId, type(uint256).max);
         ratio = ((child.balanceOf(alice) - c0) * 1e18 / childIn + (parent.balanceOf(alice) - p0) * 1e18 / parentIn) / 2;
     }
 

@@ -139,7 +139,7 @@ contract StakeInvariantTest {
         phases = bound(phases, currentPhases < WAIT_MIN ? WAIT_MIN : currentPhases, WAIT_MAX);
 
         vm.prank(_members[memberIndex]);
-        stake.stakeLiquidity(address(token), tokenAmount, parentAmount, phases, memberId);
+        stake.stakeLiquidity(address(token), tokenAmount, parentAmount, phases, memberId, type(uint256).max);
     }
 
     function stakeBoost(uint256 memberIndex, uint256 boostAmount, uint256 phases) public {
@@ -153,7 +153,7 @@ contract StakeInvariantTest {
         phases = bound(phases, currentPhases < WAIT_MIN ? WAIT_MIN : currentPhases, WAIT_MAX);
 
         vm.prank(_members[memberIndex]);
-        stake.stakeBoost(address(token), boostAmount, phases, memberId);
+        stake.stakeBoost(address(token), boostAmount, phases, memberId, type(uint256).max);
     }
 
     function unlock(uint256 memberIndex) public {
@@ -172,7 +172,7 @@ contract StakeInvariantTest {
         if (!stake.canWithdraw(address(token), memberId)) return;
 
         vm.prank(_members[memberIndex]);
-        stake.withdraw(address(token), memberId);
+        stake.withdraw(address(token), memberId, type(uint256).max);
     }
 
     function merge(uint256 sourceIndex, uint256 targetIndex) public {

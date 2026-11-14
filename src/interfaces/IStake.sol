@@ -26,6 +26,7 @@ struct DexConfig {
 }
 
 interface IStakeErrors {
+    error DeadlineExpired(uint256 deadline);
     error StakeNotStarted();
     error ZeroTokenAmount();
     error ZeroParentTokenAmount();
@@ -206,16 +207,18 @@ interface IStake is IStakeErrors, IStakeEvents {
         uint256 tokenAmount,
         uint256 parentTokenAmount,
         uint256 promisedWaitingPhases,
-        uint256 memberId
+        uint256 memberId,
+        uint256 deadline
     ) external returns (uint256 govVotesAdded, uint256 liquiditySharesAdded);
     function stakeBoost(
         address tokenAddress,
         uint256 boostAmount,
         uint256 promisedWaitingPhases,
-        uint256 memberId
+        uint256 memberId,
+        uint256 deadline
     ) external returns (uint256 govVotesAdded);
     function unstake(address tokenAddress, uint256 memberId) external;
-    function withdraw(address tokenAddress, uint256 memberId) external;
+    function withdraw(address tokenAddress, uint256 memberId, uint256 deadline) external;
     function mergeStake(address tokenAddress, uint256 sourceMemberId, uint256 targetMemberId) external;
 
     function PROMISED_WAITING_PHASES_MIN() external view returns (uint256);

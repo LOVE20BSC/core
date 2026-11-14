@@ -231,7 +231,7 @@ contract MintRealIntegrationTest {
             amount1,
             PROMISED_WAITING_PHASES,
             1  // memberId
-        );
+        , type(uint256).max);
 
         // Member2 stakes
         _approveBothTokens(member2, amount2);
@@ -242,7 +242,7 @@ contract MintRealIntegrationTest {
             amount2,
             PROMISED_WAITING_PHASES,
             2  // memberId
-        );
+        , type(uint256).max);
     }
 
     /// @notice Setup: Vote in a round
@@ -661,14 +661,14 @@ contract MintRealIntegrationTest {
         _approveBothTokens(member1, STAKE_AMOUNT_MEMBER1);
         vm.prank(member1);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER1,
-                            PROMISED_WAITING_PHASES, 1);
+                            PROMISED_WAITING_PHASES, 1, type(uint256).max);
 
         // Member2: 9500 tokens for more voting power
         uint256 member2StakeAmount = 9500;
         _approveBothTokens(member2, member2StakeAmount);
         vm.prank(member2);
         stake.stakeLiquidity(address(token), member2StakeAmount, member2StakeAmount,
-                            PROMISED_WAITING_PHASES, 2);
+                            PROMISED_WAITING_PHASES, 2, type(uint256).max);
 
         ThresholdTestData memory data;
         data.testRound = phase.currentPhase();
@@ -862,7 +862,7 @@ contract MintRealIntegrationTest {
         _approveBothTokens(member1, STAKE_AMOUNT_MEMBER1);
         vm.prank(member1);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER1,
-                            PROMISED_WAITING_PHASES, 1);
+                            PROMISED_WAITING_PHASES, 1, type(uint256).max);
 
         address proposalTarget = address(0x6001);
         vm.prank(member1);
@@ -963,7 +963,7 @@ contract MintRealIntegrationTest {
         _approveBothTokens(member1, 20000);
         vm.prank(member1);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER1,
-                            PROMISED_WAITING_PHASES, 1);
+                            PROMISED_WAITING_PHASES, 1, type(uint256).max);
 
         data.proposalTarget1 = address(0x7001);
         vm.prank(member1);
@@ -1010,14 +1010,14 @@ contract MintRealIntegrationTest {
 
         // Withdraw liquidity
         vm.prank(member1);
-        stake.withdraw(address(token), 1);
+        stake.withdraw(address(token), 1, type(uint256).max);
     }
 
     function _restakeAndVoteRound4(UnstakeTestData memory data) internal {
         // Re-stake with less (3000 instead of 5000)
         vm.prank(member1);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER2, STAKE_AMOUNT_MEMBER2,
-                            PROMISED_WAITING_PHASES, 1);
+                            PROMISED_WAITING_PHASES, 1, type(uint256).max);
 
         data.proposalTarget2 = address(0x7002);
         vm.prank(member1);
@@ -1113,12 +1113,12 @@ contract MintRealIntegrationTest {
         // Boost on top of the liquidity stake so the round's boost pool survives preparation
         vm.startPrank(member1);
         token.approve(address(stake), BOOST_AMOUNT);
-        stake.stakeBoost(address(token), BOOST_AMOUNT, PROMISED_WAITING_PHASES, 1);
+        stake.stakeBoost(address(token), BOOST_AMOUNT, PROMISED_WAITING_PHASES, 1, type(uint256).max);
         vm.stopPrank();
 
         vm.startPrank(member2);
         token.approve(address(stake), BOOST_AMOUNT);
-        stake.stakeBoost(address(token), BOOST_AMOUNT, PROMISED_WAITING_PHASES, 2);
+        stake.stakeBoost(address(token), BOOST_AMOUNT, PROMISED_WAITING_PHASES, 2, type(uint256).max);
         vm.stopPrank();
     }
 
@@ -1265,7 +1265,7 @@ contract MintRealIntegrationTest {
 
         // Round 1: Member 1 stakes, votes, and mints gov reward to earn launch credits
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER1,
-                            PROMISED_WAITING_PHASES, 1);
+                            PROMISED_WAITING_PHASES, 1, type(uint256).max);
         vm.stopPrank();
 
         address proposalTarget1 = address(0x8001);
@@ -1356,14 +1356,14 @@ contract MintRealIntegrationTest {
         token.approve(address(stake), type(uint256).max);
         rootToken.approve(address(stake), type(uint256).max);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER1,
-                            PROMISED_WAITING_PHASES, 1);
+                            PROMISED_WAITING_PHASES, 1, type(uint256).max);
         vm.stopPrank();
 
         vm.startPrank(member2);
         token.approve(address(stake), type(uint256).max);
         rootToken.approve(address(stake), type(uint256).max);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER2, STAKE_AMOUNT_MEMBER2,
-                            PROMISED_WAITING_PHASES, 2);
+                            PROMISED_WAITING_PHASES, 2, type(uint256).max);
         vm.stopPrank();
 
         // Simulate trading fees accumulating in the pair
@@ -1402,14 +1402,14 @@ contract MintRealIntegrationTest {
         token.approve(address(stake), type(uint256).max);
         rootToken.approve(address(stake), type(uint256).max);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER1,
-                            PROMISED_WAITING_PHASES, 1);
+                            PROMISED_WAITING_PHASES, 1, type(uint256).max);
         vm.stopPrank();
 
         vm.startPrank(member2);
         token.approve(address(stake), type(uint256).max);
         rootToken.approve(address(stake), type(uint256).max);
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER2, STAKE_AMOUNT_MEMBER2,
-                            PROMISED_WAITING_PHASES, 2);
+                            PROMISED_WAITING_PHASES, 2, type(uint256).max);
         vm.stopPrank();
 
         // Query initial stake amounts
@@ -1501,7 +1501,7 @@ contract MintRealIntegrationTest {
 
         // Round 1: Member 1 stakes and submits a proposal
         stake.stakeLiquidity(address(token), STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER1,
-                            PROMISED_WAITING_PHASES, 1);
+                            PROMISED_WAITING_PHASES, 1, type(uint256).max);
         vm.stopPrank();
 
         address proposalTarget1 = address(0x9001);

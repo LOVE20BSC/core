@@ -57,7 +57,7 @@ contract ProposalBot is IProposalTarget {
     }
 
     function stakeLiquidity(uint256 amount, uint256 phases) external {
-        STAKE.stakeLiquidity(TOKEN, amount, amount, phases, botId);
+        STAKE.stakeLiquidity(TOKEN, amount, amount, phases, botId, type(uint256).max);
     }
 
     function mergeStake() external {
@@ -194,7 +194,7 @@ contract CoreSecurityPoC {
         vm.startPrank(who);
         token.approve(address(stake), type(uint256).max);
         root.approve(address(stake), type(uint256).max);
-        stake.stakeLiquidity(address(token), amount, amount, phases, memberId);
+        stake.stakeLiquidity(address(token), amount, amount, phases, memberId, type(uint256).max);
         vm.stopPrank();
     }
 
@@ -241,7 +241,7 @@ contract CoreSecurityPoC {
 
         vm.startPrank(m1);
         token.approve(address(stake), 1);
-        stake.stakeBoost(address(token), 1, WAIT_MAX, 1);
+        stake.stakeBoost(address(token), 1, WAIT_MAX, 1, type(uint256).max);
         vm.stopPrank();
 
         uint256 total = stake.totalValidGovVotes(address(token), round);
@@ -280,7 +280,7 @@ contract CoreSecurityPoC {
         LOVE20Token(child).approve(address(stake), type(uint256).max);
         token.approve(address(stake), type(uint256).max);
         (uint256 votesAdded, uint256 sharesAdded) =
-            stake.stakeLiquidity(child, 1e18, 1e18, WAIT_MIN, 1);
+            stake.stakeLiquidity(child, 1e18, 1e18, WAIT_MIN, 1, type(uint256).max);
         vm.stopPrank();
         _true(sharesAdded > 0 && votesAdded > 0, "stake into the reused pair succeeds");
     }
@@ -331,11 +331,11 @@ contract CoreSecurityPoC {
 
         vm.startPrank(m1);
         token.approve(address(stake), 1e18);
-        stake.stakeBoost(address(token), 1.5e17, WAIT_MIN, 1);
+        stake.stakeBoost(address(token), 1.5e17, WAIT_MIN, 1, type(uint256).max);
         vm.stopPrank();
         vm.startPrank(m2);
         token.approve(address(stake), 1e18);
-        stake.stakeBoost(address(token), 1.5e17, WAIT_MIN, 2);
+        stake.stakeBoost(address(token), 1.5e17, WAIT_MIN, 2, type(uint256).max);
         vm.stopPrank();
 
         (, , , , uint256 totalBoostShares, ,,) = stake.totalStake(address(token));
@@ -361,13 +361,13 @@ contract CoreSecurityPoC {
         vm.startPrank(m1);
         token.approve(address(stake), type(uint256).max);
         root.approve(address(stake), type(uint256).max);
-        stake.stakeLiquidity(address(token), 1e6, 1e7, WAIT_MIN, 1);
+        stake.stakeLiquidity(address(token), 1e6, 1e7, WAIT_MIN, 1, type(uint256).max);
         vm.stopPrank();
 
         vm.startPrank(m2);
         token.approve(address(stake), type(uint256).max);
         root.approve(address(stake), type(uint256).max);
-        (, uint256 dustShares) = stake.stakeLiquidity(address(token), 1, 10, WAIT_MIN, 2);
+        (, uint256 dustShares) = stake.stakeLiquidity(address(token), 1, 10, WAIT_MIN, 2, type(uint256).max);
         vm.stopPrank();
         _true(dustShares > 0 && dustShares <= 3, "dust share count");
 
@@ -378,7 +378,7 @@ contract CoreSecurityPoC {
 
         uint256 tokenBalanceBefore = token.balanceOf(m2);
         vm.prank(m2);
-        stake.withdraw(address(token), 2);
+        stake.withdraw(address(token), 2, type(uint256).max);
 
         _eq(token.balanceOf(m2), tokenBalanceBefore, "no token payout");
         _eq(pair.balanceOf(m2), dustShares, "LP handed to the member instead of burning");

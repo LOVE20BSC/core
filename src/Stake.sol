@@ -189,13 +189,31 @@ contract Stake is IStake {
         _;
     }
 
+    modifier beforeDeadline(uint256 deadline) {
+        // The caller sets the latest acceptable inclusion time.
+        // forge-lint: disable-next-item(block-timestamp)
+        if (block.timestamp > deadline) revert DeadlineExpired(deadline);
+        _;
+    }
+
     function stakeLiquidity(
         address tokenAddress,
         uint256 tokenAmount,
         uint256 parentTokenAmount,
         uint256 promisedWaitingPhases,
+        uint256 memberId,
+        uint256 deadline
+    ) external beforeDeadline(deadline) returns (uint256 govVotesAdded, uint256 liquiditySharesAdded) {
+        return _stakeLiquidity(tokenAddress, tokenAmount, parentTokenAmount, promisedWaitingPhases, memberId);
+    }
+
+    function _stakeLiquidity(
+        address tokenAddress,
+        uint256 tokenAmount,
+        uint256 parentTokenAmount,
+        uint256 promisedWaitingPhases,
         uint256 memberId
-    ) external returns (uint256 govVotesAdded, uint256 liquiditySharesAdded) {
+    ) private returns (uint256 govVotesAdded, uint256 liquiditySharesAdded) {
         if (tokenAmount == 0) revert ZeroTokenAmount();
         if (parentTokenAmount == 0) revert ZeroParentTokenAmount();
         _checkPromisedWaitingPhases(promisedWaitingPhases);
@@ -219,9 +237,16 @@ contract Stake is IStake {
         return _creditLiquidity(tokenAddress, pair, write, added);
     }
 
-    function stakeBoost(address tokenAddress, uint256 boostAmount, uint256 promisedWaitingPhases, uint256 memberId)
+    function stakeBoost(address tokenAddress, uint256 boostAmount, uint256 promisedWaitingPhases, uint256 memberId, uint256 deadline)
         external
+        beforeDeadline(deadline)
         returns (uint256 govVotesAdded)
+    {
+        return _stakeBoost(tokenAddress, boostAmount, promisedWaitingPhases, memberId);
+    }
+
+    function _stakeBoost(address tokenAddress, uint256 boostAmount, uint256 promisedWaitingPhases, uint256 memberId)
+        private returns (uint256 govVotesAdded)
     {
         if (boostAmount == 0) revert ZeroBoostAmount();
         _checkPromisedWaitingPhases(promisedWaitingPhases);
@@ -303,7 +328,11 @@ contract Stake is IStake {
         });
     }
 
-    function withdraw(address tokenAddress, uint256 memberId) external onlyMemberOwner(memberId) {
+    function withdraw(address tokenAddress, uint256 memberId, uint256 deadline) external beforeDeadline(deadline) onlyMemberOwner(memberId) {
+        _withdraw(tokenAddress, memberId);
+    }
+
+    function _withdraw(address tokenAddress, uint256 memberId) private {
         _checkToken(tokenAddress);
         address pair = _pairFor(tokenAddress);
 
