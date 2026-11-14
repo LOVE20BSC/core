@@ -49,6 +49,14 @@ contract MintTest {
             proposalRatio
         );
         token = new LOVE20Token("Review", "REV", supply, maxSupply, address(this), address(mint), address(this));
+        if (totalVoteAmountValue != 0) reserveRound(1);
+    }
+
+    function reserveRound(uint256 round) internal {
+        uint256 phaseBefore = currentPhaseValue;
+        currentPhaseValue = round;
+        mint.reserveRoundReward(address(token), round);
+        currentPhaseValue = phaseBefore;
     }
 
     function testFirstVoteReservationFixesBudgetsBeforeReverseSettlement() external {
@@ -143,15 +151,16 @@ contract MintTest {
 
     function testBatchMustPreserveMemberOwner() public {
         setupMint(1000, 10000, 1e17, 0);
+        reserveRound(2);
         uint256[] memory rounds = new uint256[](2);
         rounds[0] = 1;
         rounds[1] = 2;
         (uint256[] memory votes, uint256[] memory boosts) =
             mint.mintGovRewards(address(token), rounds, 1, address(this));
         require(votes.length == 2 && boosts.length == 2, "array lengths");
-        require(votes[0] == 450 && votes[1] == 427, "round order");
+        require(votes[0] == 450 && votes[1] == 405, "round order");
         require(boosts[0] + boosts[1] == 0, "cancelled boost");
-        require(token.balanceOf(address(this)) == 1877 && mint.totalRewardMinted(address(token)) == 877, "batch reward");
+        require(token.balanceOf(address(this)) == 1855 && mint.totalRewardMinted(address(token)) == 855, "batch reward");
     }
 
     function testBatchFailureRollsBackRewardsAndLaunchCounts() public {
@@ -218,6 +227,7 @@ contract MintTest {
         mint.mintGovReward(address(token), 1, 1, address(this));
         require(issuedLaunchCount[address(token)] == MAX_LAUNCH_COUNT, "cap exceeded");
         require(mint.launchCredit(address(token), 1) == 40, "capped credit lost");
+        reserveRound(2);
         mint.mintGovReward(address(token), 2, 1, address(this));
         require(mint.launchCredit(address(token), 1) == 40, "credit grew after cap");
     }
@@ -308,10 +318,10 @@ contract MintTest {
     }
 
     function testZeroVotePreparationMustEmitEvent() public {
-        setupMint(1000, 10000, 1e17, 0);
         totalVoteAmountValue = 0;
         firstVotes = 0;
         memberVoteAmount = 0;
+        setupMint(1000, 10000, 1e17, 0);
         vm.recordLogs();
         // Trigger auto-prepare by attempting to mint
         vm.expectRevert(
@@ -347,10 +357,10 @@ contract MintTest {
     }
 
     function testZeroVoteRoundSettlementMustReject() public {
-        setupMint(1000, 10000, 1e17, 1e17);
         totalVoteAmountValue = 0;
         memberVoteAmount = 0;
         firstVotes = 0;
+        setupMint(1000, 10000, 1e17, 1e17);
         vm.expectRevert(
             abi.encodeWithSelector(IMintErrors.MemberHasNoVote.selector, address(token), 2, 1)
         );
@@ -378,7 +388,7 @@ contract MintTest {
         setupMint(1000, 10000, 1e17, 0);
         // Query before any mint - should calculate real-time
         (uint256 voteReward, uint256 boostReward, bool minted) =
-            mint.govRewardByMemberId(address(token), 2, 1);
+            mint.govRewardByMemberId(address(token), 1, 1);
         require(voteReward == 450 && boostReward == 0 && !minted, "unprepared calculates real-time");
         // Trigger prepare for round 1 by minting (memberVoteAmount = 1 for this round)
         mint.mintGovReward(address(token), 1, 1, address(this));

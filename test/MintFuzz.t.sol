@@ -27,6 +27,7 @@ contract MintFuzzTest {
     uint256 public mockTotalBoost;
     uint256 public mockMemberBoost;
     uint256 public proposalCount = 1;
+    uint256 currentPhaseValue = 1;
 
     uint256 public constant LAUNCH_COUNT_THRESHOLD_RATIO = 1e16;
     uint256 public constant MAX_LAUNCH_COUNT = 1000;
@@ -44,6 +45,8 @@ contract MintFuzzTest {
             propRatio
         );
         token = new LOVE20Token("Fuzz", "FUZ", supply, maxSup, address(this), address(mint), address(this));
+        mint.reserveRoundReward(address(token), 1);
+        currentPhaseValue = type(uint256).max;
     }
 
     function PHASE_ADDRESS() external view returns (address) {
@@ -54,8 +57,8 @@ contract MintFuzzTest {
         return tokenAddress == address(token);
     }
 
-    function currentPhase() external pure returns (uint256) {
-        return type(uint256).max;
+    function currentPhase() external view returns (uint256) {
+        return currentPhaseValue;
     }
 
     function ownerOf(uint256 id) external view returns (address) {
@@ -253,7 +256,10 @@ contract MintFuzzTest {
         uint256[] memory rounds = new uint256[](roundCount);
         for (uint256 i; i < roundCount; i++) {
             rounds[i] = i + 1;
+            currentPhaseValue = rounds[i];
+            mint.reserveRoundReward(address(token), rounds[i]);
         }
+        currentPhaseValue = type(uint256).max;
 
         uint256 supplyBefore = token.totalSupply();
         (uint256[] memory votes,) = mint.mintGovRewards(address(token), rounds, 1, address(this));

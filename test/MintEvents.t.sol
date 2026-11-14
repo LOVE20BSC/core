@@ -33,6 +33,7 @@ contract MintEventsTest {
     address constant TARGET = address(0x1234);
     bool zeroBoost;
     uint256 issuedCount;
+    uint256 currentPhaseValue = 1;
 
     event RewardPrepared(
         address indexed tokenAddress,
@@ -90,6 +91,8 @@ contract MintEventsTest {
             1e17
         );
         token = new LOVE20Token("Test", "TST", 10000, 1000000, address(this), address(mint), address(this));
+        mint.reserveRoundReward(address(token), 1);
+        currentPhaseValue = type(uint256).max;
     }
 
     // Mock interfaces
@@ -101,8 +104,8 @@ contract MintEventsTest {
         return tokenAddress == address(token);
     }
 
-    function currentPhase() external pure returns (uint256) {
-        return type(uint256).max;
+    function currentPhase() external view returns (uint256) {
+        return currentPhaseValue;
     }
 
     function ownerOf(uint256 id) external view returns (address) {
@@ -261,6 +264,11 @@ contract MintEventsTest {
         rounds[0] = 1;
         rounds[1] = 2;
         rounds[2] = 3;
+        for (uint256 i; i < rounds.length; i++) {
+            currentPhaseValue = rounds[i];
+            mint.reserveRoundReward(address(token), rounds[i]);
+        }
+        currentPhaseValue = type(uint256).max;
 
         // Verify first event from the spec formula, not from the contract's own query.
         uint256 govReward = (1000000 - 10000) * 100 / 1000;
@@ -327,6 +335,9 @@ contract MintEventsTest {
         uint256 foldedBurned;
 
         for (uint256 round = 1; round <= 2; ++round) {
+            currentPhaseValue = round;
+            mint.reserveRoundReward(address(token), round);
+            currentPhaseValue = round + 1;
             vm.recordLogs();
             mint.mintGovReward(address(token), round, 1, address(this));
 

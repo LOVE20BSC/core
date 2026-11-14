@@ -148,7 +148,6 @@ contract Mint is IMint {
             uint256 minVoteAmount = _minProposalVoteAmount(totalVoteAmount);
             eligibleVoteAmount = _calculateEligibleProposalVoteAmount(tokenAddress, round, minVoteAmount);
 
-            _reserveRewardIfNeeded(tokenAddress, round);
             govRewardAmount = _govReward[tokenAddress][round];
             proposalRewardAmount = _proposalReward[tokenAddress][round];
 // forge-lint: disable-next-item(calls-loop)

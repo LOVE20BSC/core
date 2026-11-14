@@ -67,6 +67,11 @@ contract MintInvariantTest {
         targets[0] = address(this);
     }
 
+    function excludeSenders() public view returns (address[] memory senders) {
+        senders = new address[](1);
+        senders[0] = address(mint);
+    }
+
     // ============ Handler ============
 
     function castVotes(uint256 weightsSeed, uint256 boostSeed) public {
@@ -87,6 +92,7 @@ contract MintInvariantTest {
             _totalVotes[round] += 1;
         }
         _memberVotes[round][1] = MAX_PROPOSALS;
+        mint.reserveRoundReward(address(token), round);
     }
 
     function advanceRound(uint256 count) public {
@@ -144,12 +150,10 @@ contract MintInvariantTest {
         assert(reservedAvailable + token.totalSupply() <= token.MAX_SUPPLY());
     }
 
-    /// @notice `reserved` is exactly the sum of the frozen pools: it is only ever increased at
-    ///         prepare, so a second increase for the same round would break this identity.
+    /// @notice `reserved` is exactly the sum of pools frozen at each round's first vote.
     function invariant_ReservedEqualsSumOfFrozenPools() public view {
         uint256 expected;
         for (uint256 round = 1; round <= MAX_ROUNDS; round++) {
-            if (!mint.isRewardPrepared(address(token), round)) continue;
             expected += mint.govReward(address(token), round) + mint.proposalReward(address(token), round);
         }
         assert(mint.totalRewardReserved(address(token)) == expected);
@@ -385,6 +389,7 @@ contract MintInvariantTest {
     // ============ Handler internals ============
 
     function _seedVotes(uint256 weightsSeed, uint256 boostSeed, bool withBoost) private {
+        if (uint64(weightsSeed) == 0) return;
         uint256 round = currentRound;
         _clearRound(round);
 
@@ -407,6 +412,7 @@ contract MintInvariantTest {
                 _totalBoost[round] += boost;
             }
         }
+        mint.reserveRoundReward(address(token), round);
     }
 
     function _clearRound(uint256 round) private {

@@ -30,6 +30,7 @@ contract MintCoverageTest {
     uint256 minVoteRatio = 5e16;
     uint256 totalBoost;
     uint256 memberBoost;
+    uint256 currentPhaseValue = 1;
     uint256 public LAUNCH_COUNT_THRESHOLD_RATIO = 1e16;
     uint256 public constant MAX_LAUNCH_COUNT = 1000;
     mapping(address => uint256) public issuedLaunchCount;
@@ -48,6 +49,8 @@ contract MintCoverageTest {
             proposalRatio
         );
         token = new LOVE20Token("Coverage", "COV", supply, maxSupply, address(this), address(mint), address(this));
+        mint.reserveRoundReward(address(token), 1);
+        currentPhaseValue = type(uint256).max;
     }
 
     function PHASE_ADDRESS() external view returns (address) {
@@ -58,8 +61,8 @@ contract MintCoverageTest {
         return tokenAddress == address(token);
     }
 
-    function currentPhase() external pure returns (uint256) {
-        return type(uint256).max;
+    function currentPhase() external view returns (uint256) {
+        return currentPhaseValue;
     }
 
     function ownerOf(uint256 id) external view returns (address) {

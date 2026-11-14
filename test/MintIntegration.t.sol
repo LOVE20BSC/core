@@ -645,7 +645,15 @@ contract MockVote {
     }
 
     function setTotalVotes(address token, uint256 round, uint256 amount) external {
+        bool firstVote = votesByTokenByRound[token][round] == 0 && amount != 0;
         votesByTokenByRound[token][round] = amount;
+        if (firstVote) {
+            MockPhase phase = MockPhase(PHASE_ADDRESS);
+            uint256 phaseBefore = phase.currentPhase();
+            phase.setCurrentPhase(round);
+            Mint(LOVE20Token(token).MINTER()).reserveRoundReward(token, round);
+            phase.setCurrentPhase(phaseBefore);
+        }
     }
 
     function setMemberVotes(address token, uint256 round, uint256 memberId, uint256 amount) external {
