@@ -244,8 +244,8 @@ contract CoreSecurityPoC {
         stake.stakeBoost(address(token), 1, WAIT_MAX, 1, type(uint256).max);
         vm.stopPrank();
 
-        uint256 total = stake.totalValidGovVotes(address(token), round);
-        _true(stake.validGovVotes(address(token), round, 1) * 100 >= total * 90, "m1 holds >= 90%");
+        uint256 total = stake.totalGovVotes(address(token), round);
+        _true(stake.govVotes(address(token), round, 1) * 100 >= total * 90, "m1 holds >= 90%");
         _true(submit.canSubmit(address(token), 1), "m1 keeps the gate");
         _true(!submit.canSubmit(address(token), 2), "m2 lost the gate");
         _true(!submit.canSubmit(address(token), 3), "m3 lost the gate");

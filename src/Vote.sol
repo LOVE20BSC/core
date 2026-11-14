@@ -276,7 +276,7 @@ contract Vote is IVote {
     }
 
     function _maxVoteAmount(address tokenAddress, uint256 round, uint256 memberId) internal view returns (uint256) {
-        return IStake(STAKE_ADDRESS).validGovVotes(tokenAddress, round, memberId);
+        return IStake(STAKE_ADDRESS).govVotes(tokenAddress, round, memberId);
     }
 
     function _emitVoteCast(

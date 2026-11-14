@@ -279,13 +279,13 @@ contract StakeInvariantTest {
     // ============ Invariants: the round ledgers ============
 
     /// @notice `Added - Removed` is the same thing as the sum over members of the round's valid votes.
-    function invariant_ValidGovVotesMatchMemberSum() public view {
+    function invariant_GovVotesMatchMemberSum() public view {
         uint256 round = phase.currentPhase();
         uint256 sum;
         for (uint256 i = 0; i < MEMBER_COUNT; i++) {
-            sum += stake.validGovVotes(address(token), round, _memberIds[i]);
+            sum += stake.govVotes(address(token), round, _memberIds[i]);
         }
-        assert(stake.totalValidGovVotes(address(token), round) == sum);
+        assert(stake.totalGovVotes(address(token), round) == sum);
     }
 
     function invariant_ValidBoostSharesMatchMemberSum() public view {
@@ -303,8 +303,8 @@ contract StakeInvariantTest {
         uint256 currentRound = phase.currentPhase();
         for (uint256 round = 1; round <= currentRound; round++) {
             assert(
-                stake.totalValidGovVotesAdded(address(token), round)
-                    >= stake.totalValidGovVotesRemoved(address(token), round)
+                stake.totalGovVotesAdded(address(token), round)
+                    >= stake.totalGovVotesRemoved(address(token), round)
             );
             assert(
                 stake.totalValidBoostSharesAdded(address(token), round)
@@ -320,7 +320,7 @@ contract StakeInvariantTest {
         for (uint256 i = 0; i < MEMBER_COUNT; i++) {
             (, , , uint256 unlockRequestPhase,,,) = stake.memberStake(address(token), _memberIds[i]);
             if (unlockRequestPhase == 0) continue;
-            assert(stake.validGovVotes(address(token), round, _memberIds[i]) == 0);
+            assert(stake.govVotes(address(token), round, _memberIds[i]) == 0);
             assert(stake.validBoostShares(address(token), round, _memberIds[i]) == 0);
         }
     }
@@ -332,7 +332,7 @@ contract StakeInvariantTest {
         for (uint256 i = 0; i < MEMBER_COUNT; i++) {
             (uint256 liquidityShares,,,,,,) = stake.memberStake(address(token), _memberIds[i]);
             if (liquidityShares != 0) continue;
-            assert(stake.validGovVotes(address(token), round, _memberIds[i]) == 0);
+            assert(stake.govVotes(address(token), round, _memberIds[i]) == 0);
         }
     }
 
@@ -364,7 +364,7 @@ contract StakeInvariantTest {
         invariant_BoostSharesAreFullyBacked();
         invariant_AccountedLpWithinHeldBalance();
         invariant_PrincipalLedgerWithinHeldTokens();
-        invariant_ValidGovVotesMatchMemberSum();
+        invariant_GovVotesMatchMemberSum();
         invariant_ValidBoostSharesMatchMemberSum();
         invariant_RemovedNeverExceedsAdded();
         invariant_UnlockZeroesTheCurrentRound();

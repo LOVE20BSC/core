@@ -60,7 +60,7 @@ contract MockStake {
         boostReadDisabled = disabled;
     }
 
-    function setValidGovVotes(address tokenAddress, uint256 memberId, uint256 votes) external {
+    function setGovVotes(address tokenAddress, uint256 memberId, uint256 votes) external {
         _defaultValidVotes[tokenAddress][memberId] = votes;
     }
 
@@ -68,7 +68,7 @@ contract MockStake {
         _defaultGlobalVotes[tokenAddress] = votes;
     }
 
-    function setValidGovVotesAtRound(address tokenAddress, uint256 round, uint256 memberId, uint256 votes)
+    function setGovVotesAtRound(address tokenAddress, uint256 round, uint256 memberId, uint256 votes)
         external
     {
         _validVotesByRound[tokenAddress][round][memberId] = votes;
@@ -84,7 +84,7 @@ contract MockStake {
         _boost[tokenAddress][round][memberId] = boostShares;
     }
 
-    function validGovVotes(address tokenAddress, uint256 round, uint256 memberId)
+    function govVotes(address tokenAddress, uint256 round, uint256 memberId)
         external
         view
         returns (uint256)
@@ -96,7 +96,7 @@ contract MockStake {
         return _defaultValidVotes[tokenAddress][memberId];
     }
 
-    function totalValidGovVotes(address tokenAddress, uint256 round) external view returns (uint256) {
+    function totalGovVotes(address tokenAddress, uint256 round) external view returns (uint256) {
         _checkRoundStarted(round);
         if (_globalVoteRecorded[tokenAddress][round]) {
             return _globalVotesByRound[tokenAddress][round];
@@ -276,7 +276,7 @@ contract MockTarget is IProposalTarget {
 
         if (_mutateCapOnce) {
             _mutateCapOnce = false;
-            _mutatedStake.setValidGovVotes(_mutationTokenAddress, _mutationMemberId, _mutationValue);
+            _mutatedStake.setGovVotes(_mutationTokenAddress, _mutationMemberId, _mutationValue);
         }
         if (_mutateBoostOnce) {
             _mutateBoostOnce = false;
@@ -430,10 +430,10 @@ contract VoteTest {
         stake.setGlobalGovVotes(TOKEN, 1000);
         stake.setGlobalGovVotes(TOKEN2, 1000);
         for (uint256 i = 0; i < _memberIds.length; i++) {
-            stake.setValidGovVotes(TOKEN, _memberIds[i], DEFAULT_CAP);
-            stake.setValidGovVotes(TOKEN2, _memberIds[i], DEFAULT_CAP);
+            stake.setGovVotes(TOKEN, _memberIds[i], DEFAULT_CAP);
+            stake.setGovVotes(TOKEN2, _memberIds[i], DEFAULT_CAP);
         }
-        stake.setValidGovVotes(TOKEN, _outsiderMemberId, DEFAULT_CAP);
+        stake.setGovVotes(TOKEN, _outsiderMemberId, DEFAULT_CAP);
     }
 
     // ============ Helpers ============
@@ -654,16 +654,16 @@ contract VoteTest {
         uint256 memberId = _memberIds[0];
         require(vote.maxVoteAmount(TOKEN, memberId) == DEFAULT_CAP, "cap passthrough");
 
-        stake.setValidGovVotes(TOKEN, memberId, 0);
+        stake.setGovVotes(TOKEN, memberId, 0);
         require(vote.maxVoteAmount(TOKEN, memberId) == 0, "zero cap passthrough");
 
-        stake.setValidGovVotes(TOKEN, memberId, 1);
+        stake.setGovVotes(TOKEN, memberId, 1);
         require(vote.maxVoteAmount(TOKEN, memberId) == 1, "unit cap passthrough");
     }
 
     function testMaxVotesPassesThroughExtremes() external {
         uint256 memberId = _memberIds[0];
-        stake.setValidGovVotes(TOKEN, memberId, type(uint256).max);
+        stake.setGovVotes(TOKEN, memberId, type(uint256).max);
         require(vote.maxVoteAmount(TOKEN, memberId) == type(uint256).max, "max cap passthrough");
     }
 
@@ -751,13 +751,13 @@ contract VoteTest {
         uint256 roundOne = phase.currentPhase();
         require(roundOne == 1, "fixture starts in round 1");
 
-        stake.setValidGovVotesAtRound(TOKEN, roundOne, memberId, 500);
+        stake.setGovVotesAtRound(TOKEN, roundOne, memberId, 500);
         _advanceRounds(1);
         uint256 roundTwo = phase.currentPhase();
         require(roundTwo == roundOne + 1, "phase advanced");
 
         uint256 proposalId = _proposeNoCallback(TOKEN);
-        stake.setValidGovVotesAtRound(TOKEN, roundTwo, memberId, 0);
+        stake.setGovVotesAtRound(TOKEN, roundTwo, memberId, 0);
         _expectRevertAs(
             memberId,
             abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(1), new bytes[][](0))),
@@ -765,14 +765,14 @@ contract VoteTest {
             "round 1 allowance must not carry into round 2"
         );
 
-        stake.setValidGovVotesAtRound(TOKEN, roundOne, memberId, 0);
-        stake.setValidGovVotesAtRound(TOKEN, roundTwo, memberId, 500);
+        stake.setGovVotesAtRound(TOKEN, roundOne, memberId, 0);
+        stake.setGovVotesAtRound(TOKEN, roundTwo, memberId, 500);
         _voteWithoutData(TOKEN, memberId, _singleton(proposalId), _singleton(1));
         require(vote.voteAmountByMemberId(TOKEN, roundTwo, memberId) == 1, "round 2 vote recorded");
         require(vote.voteAmountByMemberId(TOKEN, roundOne, memberId) == 0, "round 1 stays untouched");
 
-        require(stake.validGovVotes(TOKEN, roundOne, memberId) == 0, "round 1 record must stay");
-        require(stake.validGovVotes(TOKEN, roundTwo, memberId) == 500, "round 2 record must stay");
+        require(stake.govVotes(TOKEN, roundOne, memberId) == 0, "round 1 record must stay");
+        require(stake.govVotes(TOKEN, roundTwo, memberId) == 500, "round 2 record must stay");
     }
 
     function testStakeStandInRejectsFutureRounds() external {
@@ -782,13 +782,13 @@ contract VoteTest {
 
         _expectRevertOn(
             address(stake),
-            abi.encodeCall(stake.validGovVotes, (TOKEN, currentRound + 1, _memberIds[0])),
+            abi.encodeCall(stake.govVotes, (TOKEN, currentRound + 1, _memberIds[0])),
             expected,
             "future round votes"
         );
         _expectRevertOn(
             address(stake),
-            abi.encodeCall(stake.totalValidGovVotes, (TOKEN, currentRound + 1)),
+            abi.encodeCall(stake.totalGovVotes, (TOKEN, currentRound + 1)),
             expected,
             "future round total"
         );
@@ -798,7 +798,7 @@ contract VoteTest {
         uint256 memberId = _memberIds[0];
         uint256 proposalId = _proposeNoCallback(TOKEN);
         // Both the owner check and the cap check would fail; ownership is reported.
-        stake.setValidGovVotes(TOKEN, memberId, 0);
+        stake.setGovVotes(TOKEN, memberId, 0);
         bytes memory expected = abi.encodeWithSelector(IVoteErrors.NotMemberOwner.selector, memberId);
 
         vm.prank(ALICE);
@@ -813,7 +813,7 @@ contract VoteTest {
     function testLengthsAreCheckedBeforeEligibility() external {
         uint256 memberId = _memberIds[0];
         uint256 proposalId = _proposeNoCallback(TOKEN);
-        stake.setValidGovVotes(TOKEN, memberId, 0);
+        stake.setGovVotes(TOKEN, memberId, 0);
 
         // Shape errors surface before the voting-power lookup.
         _expectRevertAs(
@@ -1148,7 +1148,7 @@ contract VoteTest {
 
         require(target.votedCalls() == 1, "the callback proposal fired once");
         // The mutation must really have landed, otherwise the batch would pass for the wrong reason.
-        require(stake.validGovVotes(TOKEN, 1, memberId) == 0, "the cap was lowered during the batch");
+        require(stake.govVotes(TOKEN, 1, memberId) == 0, "the cap was lowered during the batch");
         require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == 100, "the cap captured up front governs the batch");
     }
 
@@ -1595,7 +1595,7 @@ contract VoteTest {
         vm.prank(ALICE);
         memberNFT.transferFrom(ALICE, address(reentering), memberId);
         reentering.configure(memberId);
-        stake.setValidGovVotes(TOKEN, memberId, DEFAULT_CAP);
+        stake.setGovVotes(TOKEN, memberId, DEFAULT_CAP);
 
         uint256 proposalId = _proposeCallback(TOKEN, address(reentering));
         reentering.voteOnce(proposalId, DEFAULT_CAP);
@@ -1971,7 +1971,7 @@ contract VoteTest {
         uint256 amount = 1 + (uint256(amountSeed) % cap);
 
         uint256 memberId = _memberIds[0];
-        stake.setValidGovVotes(TOKEN, memberId, cap);
+        stake.setGovVotes(TOKEN, memberId, cap);
         uint256[] memory ids = _proposeBatch(TOKEN, 1);
 
         _voteWithoutData(TOKEN, memberId, ids, _singleton(amount));
@@ -1986,7 +1986,7 @@ contract VoteTest {
         uint256 amount = cap + 1 + (uint256(extraSeed) % 1e24);
 
         uint256 memberId = _memberIds[0];
-        stake.setValidGovVotes(TOKEN, memberId, cap);
+        stake.setGovVotes(TOKEN, memberId, cap);
         uint256[] memory ids = _proposeBatch(TOKEN, 1);
 
         bytes memory expected =
@@ -2005,7 +2005,7 @@ contract VoteTest {
         uint256 secondAmount = 1 + (uint256(secondSeed) % 1e20);
 
         uint256 memberId = _memberIds[0];
-        stake.setValidGovVotes(TOKEN, memberId, 1e24);
+        stake.setGovVotes(TOKEN, memberId, 1e24);
         uint256[] memory ids = _proposeBatch(TOKEN, 2);
 
         uint256[] memory votes = _filled(2, firstAmount);
@@ -2140,7 +2140,7 @@ contract VoteStubTest {
 
         vm.prank(OWNER);
         (_memberId,) = memberNFT.mint("voter");
-        stake.setValidGovVotes(TOKEN, _memberId, type(uint256).max);
+        stake.setGovVotes(TOKEN, _memberId, type(uint256).max);
 
         for (uint256 proposalId = 1; proposalId <= MAX_PROPOSAL_ID; proposalId++) {
             submitStub.setSubmitted(TOKEN, 1, proposalId, true);

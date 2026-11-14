@@ -42,7 +42,7 @@ contract MockStake {
         PHASE_ADDRESS = phaseAddress;
     }
 
-    function setValidGovVotes(address token, uint256 memberId, uint256 votes) external {
+    function setGovVotes(address token, uint256 memberId, uint256 votes) external {
         _defaultValidVotes[token][memberId] = votes;
     }
 
@@ -50,7 +50,7 @@ contract MockStake {
         _defaultGlobalVotes[token] = votes;
     }
 
-    function setValidGovVotesAtRound(address token, uint256 round, uint256 memberId, uint256 votes) external {
+    function setGovVotesAtRound(address token, uint256 round, uint256 memberId, uint256 votes) external {
         _validVotesByRound[token][round][memberId] = votes;
         _validVoteRecorded[token][round][memberId] = true;
     }
@@ -60,7 +60,7 @@ contract MockStake {
         _globalVoteRecorded[token][round] = true;
     }
 
-    function validGovVotes(address token, uint256 round, uint256 memberId) external view returns (uint256) {
+    function govVotes(address token, uint256 round, uint256 memberId) external view returns (uint256) {
         _checkRoundStarted(round);
         if (_validVoteRecorded[token][round][memberId]) {
             return _validVotesByRound[token][round][memberId];
@@ -68,7 +68,7 @@ contract MockStake {
         return _defaultValidVotes[token][memberId];
     }
 
-    function totalValidGovVotes(address token, uint256 round) external view returns (uint256) {
+    function totalGovVotes(address token, uint256 round) external view returns (uint256) {
         _checkRoundStarted(round);
         if (_globalVoteRecorded[token][round]) {
             return _globalVotesByRound[token][round];
@@ -195,7 +195,7 @@ contract SubmitTest {
         memberNFT.setOwner(1, address(this));
         memberNFT.setOwner(2, ALICE);
         memberNFT.setOwner(3, BOB);
-        stake.setValidGovVotes(TOKEN, 1, 100);
+        stake.setGovVotes(TOKEN, 1, 100);
         stake.setGlobalGovVotes(TOKEN, 1000);
     }
 
@@ -215,7 +215,7 @@ contract SubmitTest {
     }
 
     function testCannotSubmitWithInsufficientVotes() external {
-        stake.setValidGovVotes(TOKEN, 1, 9);
+        stake.setGovVotes(TOKEN, 1, 9);
         require(!submit.canSubmit(TOKEN, 1), "should not be able to submit");
     }
 
@@ -225,21 +225,21 @@ contract SubmitTest {
     }
 
     function testCannotSubmitWithZeroValidVotes() external {
-        stake.setValidGovVotes(TOKEN, 1, 0);
+        stake.setGovVotes(TOKEN, 1, 0);
         require(!submit.canSubmit(TOKEN, 1), "should not submit with zero valid");
     }
 
     function testCanSubmitExactThreshold() external {
-        stake.setValidGovVotes(TOKEN, 1, 10);
+        stake.setGovVotes(TOKEN, 1, 10);
         require(submit.canSubmit(TOKEN, 1), "should submit at exact threshold");
     }
 
     function testCeilThresholdRoundsUpAgainstPartialVote() external {
         stake.setGlobalGovVotes(TOKEN, 1001);
-        stake.setValidGovVotes(TOKEN, 1, 10);
+        stake.setGovVotes(TOKEN, 1, 10);
         require(!submit.canSubmit(TOKEN, 1), "10/1001 below the ceil threshold 11");
 
-        stake.setValidGovVotes(TOKEN, 1, 11);
+        stake.setGovVotes(TOKEN, 1, 11);
         require(submit.canSubmit(TOKEN, 1), "11/1001 reaches the ceil threshold");
     }
 
@@ -249,7 +249,7 @@ contract SubmitTest {
         uint256 roundOne = phase.currentPhase();
         require(roundOne == 1, "fixture starts in round 1");
 
-        stake.setValidGovVotesAtRound(TOKEN, roundOne, 1, 100);
+        stake.setGovVotesAtRound(TOKEN, roundOne, 1, 100);
         stake.setGlobalGovVotesAtRound(TOKEN, roundOne, 1000);
         require(submit.canSubmit(TOKEN, 1), "round 1 has enough weight");
 
@@ -257,25 +257,25 @@ contract SubmitTest {
         uint256 roundTwo = phase.currentPhase();
         require(roundTwo == roundOne + 1, "phase advanced");
 
-        stake.setValidGovVotesAtRound(TOKEN, roundTwo, 1, 9);
+        stake.setGovVotesAtRound(TOKEN, roundTwo, 1, 9);
         stake.setGlobalGovVotesAtRound(TOKEN, roundTwo, 1000);
         require(!submit.canSubmit(TOKEN, 1), "round 1 weight must not carry into round 2");
 
-        stake.setValidGovVotesAtRound(TOKEN, roundOne, 1, 9);
-        stake.setValidGovVotesAtRound(TOKEN, roundTwo, 1, 100);
+        stake.setGovVotesAtRound(TOKEN, roundOne, 1, 9);
+        stake.setGovVotesAtRound(TOKEN, roundTwo, 1, 100);
         require(submit.canSubmit(TOKEN, 1), "round 2 weight must be used");
 
-        require(stake.validGovVotes(TOKEN, roundOne, 1) == 9, "round 1 record must stay");
-        require(stake.validGovVotes(TOKEN, roundTwo, 1) == 100, "round 2 record must stay");
+        require(stake.govVotes(TOKEN, roundOne, 1) == 9, "round 1 record must stay");
+        require(stake.govVotes(TOKEN, roundTwo, 1) == 100, "round 2 record must stay");
     }
 
     function testStakeStandInRejectsFutureRounds() external {
         uint256 currentRound = phase.currentPhase();
         vm.expectRevert(abi.encodeWithSelector(IStakeErrors.RoundNotStarted.selector, currentRound + 1, currentRound));
-        stake.validGovVotes(TOKEN, currentRound + 1, 1);
+        stake.govVotes(TOKEN, currentRound + 1, 1);
 
         vm.expectRevert(abi.encodeWithSelector(IStakeErrors.RoundNotStarted.selector, currentRound + 1, currentRound));
-        stake.totalValidGovVotes(TOKEN, currentRound + 1);
+        stake.totalGovVotes(TOKEN, currentRound + 1);
     }
 
     // ============ Proposal Creation Tests ============
@@ -310,8 +310,8 @@ contract SubmitTest {
 
     function testGasBurningTargetRevertsTheWholeCallAndLeavesNoState() external {
         GasBurningTarget target = new GasBurningTarget();
-        stake.setValidGovVotes(TOKEN, 2, 100);
-        stake.setValidGovVotes(TOKEN, 3, 100);
+        stake.setGovVotes(TOKEN, 2, 100);
+        stake.setGovVotes(TOKEN, 3, 100);
 
         // Control: the same target address without a callback must succeed under the same budget.
         ProposalBody memory controlBody = ProposalBody({
@@ -346,7 +346,7 @@ contract SubmitTest {
 
     function testTargetCannotReenterSubmitForTheSameMemberInTheRound() external {
         // Round 1: member 2 (ALICE) creates the proposal the re-entry will target.
-        stake.setValidGovVotes(TOKEN, 2, 100);
+        stake.setGovVotes(TOKEN, 2, 100);
         ProposalBody memory seedBody = ProposalBody({
             title: "Seed",
             details: "Created in round 1 by another member",
@@ -446,7 +446,7 @@ contract SubmitTest {
     }
 
     function testSubmitNewProposalRejectsInsufficientVotes() external {
-        stake.setValidGovVotes(TOKEN, 1, 9);
+        stake.setGovVotes(TOKEN, 1, 9);
         ProposalBody memory body = ProposalBody({
             title: "Test",
             details: "Details",
@@ -478,7 +478,7 @@ contract SubmitTest {
     }
 
     function testSubmitNewProposalChecksParametersBeforeThreshold() external {
-        stake.setValidGovVotes(TOKEN, 1, 9);
+        stake.setGovVotes(TOKEN, 1, 9);
         ProposalBody memory body = ProposalBody({
             title: "",
             details: "",
@@ -512,7 +512,7 @@ contract SubmitTest {
         submit.submitNewProposal(TOKEN, 1, body);
 
         vm.roll(200);
-        stake.setValidGovVotes(TOKEN, 1, 9);
+        stake.setGovVotes(TOKEN, 1, 9);
         bytes memory expected = abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, TOKEN, uint256(999));
         (bool ok, bytes memory data) = address(submit).call(
             abi.encodeCall(submit.submit, (TOKEN, 1, 999))
@@ -532,7 +532,7 @@ contract SubmitTest {
         require(!submit.isSubmitted(TOKEN, 1, 0) && submit.submitterIdByProposalId(TOKEN, 1, 0) == 0, "zero sentinel");
 
         vm.roll(200);
-        stake.setValidGovVotes(TOKEN, 2, 100);
+        stake.setGovVotes(TOKEN, 2, 100);
         memberNFT.setOwner(2, address(this));
         body.title = "second";
         require(submit.submitNewProposal(TOKEN, 2, body) == 2, "next id");
@@ -575,7 +575,7 @@ contract SubmitTest {
         require(stored == address(target) && mode == TargetMode.Callback, "callback target");
 
         vm.roll(200);
-        stake.setValidGovVotes(TOKEN, 2, 100);
+        stake.setGovVotes(TOKEN, 2, 100);
         memberNFT.setOwner(2, address(this));
         ProposalBody memory noCallback =
             ProposalBody("second", "", address(0xE1E1), TargetMode.NoCallback, new bytes[](0));
@@ -643,7 +643,7 @@ contract SubmitTest {
         uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
 
         vm.roll(200);
-        stake.setValidGovVotes(TOKEN, 3, 100);
+        stake.setGovVotes(TOKEN, 3, 100);
         memberNFT.setOwner(3, address(this));
         vm.recordLogs();
         submit.submit(TOKEN, 3, proposalId);
@@ -683,7 +683,7 @@ contract SubmitTest {
         });
         uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
 
-        stake.setValidGovVotes(TOKEN, 2, 100);
+        stake.setGovVotes(TOKEN, 2, 100);
         memberNFT.setOwner(2, address(this));
         bytes memory expected =
             abi.encodeWithSelector(ISubmitErrors.ProposalAlreadySubmitted.selector, TOKEN, 1, proposalId);
@@ -706,7 +706,7 @@ contract SubmitTest {
 
         // Create proposal 2 with member 2 (creates but doesn't submit yet)
         body.title = "Second";
-        stake.setValidGovVotes(TOKEN, 2, 100);
+        stake.setGovVotes(TOKEN, 2, 100);
         memberNFT.setOwner(2, address(this));
 
         // We can't use submitNewProposal here because it auto-submits
@@ -756,7 +756,7 @@ contract SubmitTest {
         uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
 
         vm.roll(200);
-        stake.setValidGovVotes(TOKEN, 1, 9);
+        stake.setGovVotes(TOKEN, 1, 9);
         bytes memory expected =
             abi.encodeWithSelector(ISubmitErrors.InsufficientSubmitPower.selector, TOKEN, 1, 9, 10);
         (bool ok, bytes memory data) = address(submit).call(
@@ -831,7 +831,7 @@ contract SubmitTest {
         vm.roll(200);
         submit.submitNewProposal(TOKEN, 1, body);
 
-        stake.setValidGovVotes(TOKEN, 2, 100);
+        stake.setGovVotes(TOKEN, 2, 100);
         memberNFT.setOwner(2, address(this));
         vm.roll(300);
         submit.submitNewProposal(TOKEN, 2, body);
@@ -857,7 +857,7 @@ contract SubmitTest {
 
         uint256 p1 = submit.submitNewProposal(TOKEN, 1, body);
 
-        stake.setValidGovVotes(TOKEN, 2, 100);
+        stake.setGovVotes(TOKEN, 2, 100);
         memberNFT.setOwner(2, address(this));
         uint256 p2 = submit.submitNewProposal(TOKEN, 2, body);
 
@@ -898,12 +898,12 @@ contract SubmitTest {
         });
 
         stake.setGlobalGovVotes(TOKEN, 1000);
-        stake.setValidGovVotes(TOKEN, 1, 100);
+        stake.setGovVotes(TOKEN, 1, 100);
         uint256 p1 = submit.submitNewProposal(TOKEN, 1, body);
 
         vm.roll(200);
         stake.setGlobalGovVotes(TOKEN2, 1000);
-        stake.setValidGovVotes(TOKEN2, 1, 100);
+        stake.setGovVotes(TOKEN2, 1, 100);
         body.title = "Token2 Proposal";
         uint256 p2 = submit.submitNewProposal(TOKEN2, 1, body);
 
@@ -926,7 +926,7 @@ contract SubmitTest {
         vm.warp(1505);
         require(submit.currentRound() == 2, "round before sync");
 
-        stake.setValidGovVotes(TOKEN, 2, 100);
+        stake.setGovVotes(TOKEN, 2, 100);
         memberNFT.setOwner(2, address(this));
         submit.submit(TOKEN, 2, id);
         require(submit.currentRound() == 2 && phase.currentPhase() == 2, "current round unchanged");
@@ -1013,7 +1013,7 @@ contract SubmitTest {
         uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
 
         vm.roll(200);
-        stake.setValidGovVotes(TOKEN, 2, 100);
+        stake.setGovVotes(TOKEN, 2, 100);
         memberNFT.setOwner(2, address(this));
         submit.submit(TOKEN, 2, proposalId);
 
@@ -1106,13 +1106,13 @@ contract SubmitTest {
         vm.pauseGasMetering();
         for (uint256 memberId = 1; memberId <= 1000; memberId++) {
             memberNFT.setOwner(memberId, address(this));
-            stake.setValidGovVotes(TOKEN, memberId, 100);
+            stake.setGovVotes(TOKEN, memberId, 100);
             submit.submitNewProposal(TOKEN, memberId, body);
         }
         vm.resumeGasMetering();
 
         memberNFT.setOwner(1001, address(this));
-        stake.setValidGovVotes(TOKEN, 1001, 100);
+        stake.setGovVotes(TOKEN, 1001, 100);
         require(submit.canSubmit(TOKEN, 1001), "vote threshold still met");
         vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.SubmitRoundFull.selector, TOKEN, 2, 1000));
         submit.submitNewProposal(TOKEN, 1001, body);
@@ -1129,7 +1129,7 @@ contract SubmitTest {
         require(!submit.isSubmitted(TOKEN, 2, oldProposalId), "old proposal not submitted");
 
         stake.setGlobalGovVotes(TOKEN2, 1000);
-        stake.setValidGovVotes(TOKEN2, 1001, 100);
+        stake.setGovVotes(TOKEN2, 1001, 100);
         require(submit.submitNewProposal(TOKEN2, 1001, body) == 1, "other token independent");
 
         vm.roll(300);
@@ -1140,35 +1140,35 @@ contract SubmitTest {
 
     function testThresholdBoundaries() external {
         // Test exact threshold
-        stake.setValidGovVotes(TOKEN, 1, 10);
+        stake.setGovVotes(TOKEN, 1, 10);
         stake.setGlobalGovVotes(TOKEN, 1000);
         require(submit.canSubmit(TOKEN, 1), "should submit at exact threshold");
 
         // Test just below threshold
-        stake.setValidGovVotes(TOKEN, 1, 9);
+        stake.setGovVotes(TOKEN, 1, 9);
         require(!submit.canSubmit(TOKEN, 1), "should not submit below threshold");
 
         // Test just above threshold
-        stake.setValidGovVotes(TOKEN, 1, 11);
+        stake.setGovVotes(TOKEN, 1, 11);
         require(submit.canSubmit(TOKEN, 1), "should submit above threshold");
     }
 
     function testMaximumThreshold() external {
         Submit newSubmit = new Submit(address(phase), address(stake), address(memberNFT), 1000);
-        stake.setValidGovVotes(TOKEN, 1, 1000);
+        stake.setGovVotes(TOKEN, 1, 1000);
         stake.setGlobalGovVotes(TOKEN, 1000);
         require(newSubmit.canSubmit(TOKEN, 1), "should submit at max threshold");
     }
 
     function testMinimumThreshold() external {
         Submit newSubmit = new Submit(address(phase), address(stake), address(memberNFT), 1);
-        stake.setValidGovVotes(TOKEN, 1, 1);
+        stake.setGovVotes(TOKEN, 1, 1);
         stake.setGlobalGovVotes(TOKEN, 1000);
         require(newSubmit.canSubmit(TOKEN, 1), "should submit at min threshold");
     }
 
     function testLargeVoteNumbers() external {
-        stake.setValidGovVotes(TOKEN, 1, type(uint256).max / 1000);
+        stake.setGovVotes(TOKEN, 1, type(uint256).max / 1000);
         stake.setGlobalGovVotes(TOKEN, type(uint256).max / 1000);
         require(submit.canSubmit(TOKEN, 1), "should handle large numbers");
     }
@@ -1215,7 +1215,7 @@ contract SubmitTest {
         });
 
         // A prior proposal keeps `proposalId` and `authorId` from collapsing onto the same value.
-        stake.setValidGovVotes(TOKEN, 2, 100);
+        stake.setGovVotes(TOKEN, 2, 100);
         vm.prank(ALICE);
         submit.submitNewProposal(TOKEN, 2, body);
         vm.recordLogs();

@@ -32,7 +32,7 @@ struct MergedStake {
     uint256 targetLiquidityShares;
     uint256 targetBoostShares;
     uint256 targetPromisedWaitingPhases;
-    uint256 totalValidGovVotes;
+    uint256 totalGovVotes;
 }
 
 struct PairSnapshot {
@@ -66,7 +66,7 @@ struct LiquidityStakedPayload {
     uint256 liquiditySharesAdded;
     uint256 liquidityShares;
     uint256 totalLiquidityShares;
-    uint256 totalValidGovVotes;
+    uint256 totalGovVotes;
     uint256 totalWithdrawableLp;
 }
 
@@ -84,7 +84,7 @@ struct BoostStakedPayload {
     uint256 boostShares;
     uint256 totalBoostShares;
     uint256 totalValidBoostShares;
-    uint256 totalValidGovVotes;
+    uint256 totalGovVotes;
 }
 
 contract Stake is IStake {
@@ -116,11 +116,11 @@ contract Stake is IStake {
     mapping(address => mapping(uint256 => MemberStake)) internal _memberStake;
     mapping(address => uint256) internal _totalBurnedToken;
     mapping(address => uint256) internal _totalParentTokenBurned;
-    mapping(address => RoundHistoryUint256.History) internal _totalValidGovVotesAdded;
-    mapping(address => RoundHistoryUint256.History) internal _totalValidGovVotesRemoved;
+    mapping(address => RoundHistoryUint256.History) internal _totalGovVotesAdded;
+    mapping(address => RoundHistoryUint256.History) internal _totalGovVotesRemoved;
     mapping(address => RoundHistoryUint256.History) internal _totalValidBoostSharesAdded;
     mapping(address => RoundHistoryUint256.History) internal _totalValidBoostSharesRemoved;
-    mapping(address => mapping(uint256 => RoundHistoryUint256.History)) internal _validGovVotesByMember;
+    mapping(address => mapping(uint256 => RoundHistoryUint256.History)) internal _govVotesByMember;
     mapping(address => mapping(uint256 => RoundHistoryUint256.History)) internal _validBoostSharesByMember;
     // tokenAddress => phase of the last realised settlement; one settlement per community per phase
     mapping(address => uint256) internal _lastSettlePhase;
@@ -280,8 +280,8 @@ contract Stake is IStake {
         if (promisedWaitingPhases > write.prevPromisedWaitingPhases) {
             govVotesAdded = member.liquidityShares * (promisedWaitingPhases - write.prevPromisedWaitingPhases);
             member.promisedWaitingPhases = promisedWaitingPhases;
-            _totalValidGovVotesAdded[tokenAddress].increase(round, govVotesAdded);
-            _validGovVotesByMember[tokenAddress][memberId].increase(round, govVotesAdded);
+            _totalGovVotesAdded[tokenAddress].increase(round, govVotesAdded);
+            _govVotesByMember[tokenAddress][memberId].increase(round, govVotesAdded);
         }
 
         _validBoostSharesByMember[tokenAddress][memberId].increase(round, boostAmount);
@@ -303,8 +303,8 @@ contract Stake is IStake {
         uint256 round = _checkActiveRound();
         govVotesAdded = member.liquidityShares * (promisedWaitingPhases - previous);
         member.promisedWaitingPhases = promisedWaitingPhases;
-        _totalValidGovVotesAdded[tokenAddress].increase(round, govVotesAdded);
-        _validGovVotesByMember[tokenAddress][memberId].increase(round, govVotesAdded);
+        _totalGovVotesAdded[tokenAddress].increase(round, govVotesAdded);
+        _govVotesByMember[tokenAddress][memberId].increase(round, govVotesAdded);
         emit PromisedWaitingPhasesIncreased(tokenAddress, memberId, round, previous, promisedWaitingPhases, govVotesAdded);
     }
 
@@ -320,12 +320,12 @@ contract Stake is IStake {
             revert StakeRightsUsed(tokenAddress, round, memberId);
         }
 
-        uint256 govVotes = _govVotesOf(member);
+        uint256 govVotesRemoved = _govVotesOf(member);
         uint256 boostShares = member.boostShares;
 
         member.unlockRequestPhase = round;
-        _totalValidGovVotesRemoved[tokenAddress].increase(round, govVotes);
-        _validGovVotesByMember[tokenAddress][memberId].decrease(round, govVotes);
+        _totalGovVotesRemoved[tokenAddress].increase(round, govVotesRemoved);
+        _govVotesByMember[tokenAddress][memberId].decrease(round, govVotesRemoved);
 
         if (boostShares > 0) {
             _validBoostSharesByMember[tokenAddress][memberId].decrease(round, boostShares);
@@ -333,18 +333,18 @@ contract Stake is IStake {
         }
 
         uint256 validBoostSharesTotal = _totalValidBoostSharesAt(tokenAddress, round);
-        uint256 govVotesTotal = _totalValidGovVotesAt(tokenAddress, round);
+        uint256 govVotesTotal = _totalGovVotesAt(tokenAddress, round);
 
         emit Unstaked({
             tokenAddress: tokenAddress,
             round: round,
             memberId: memberId,
             promisedWaitingPhases: member.promisedWaitingPhases,
-            govVotes: govVotes,
+            govVotes: govVotesRemoved,
             liquidityShares: member.liquidityShares,
             boostShares: member.boostShares,
             totalValidBoostShares: validBoostSharesTotal,
-            totalValidGovVotes: govVotesTotal
+            totalGovVotes: govVotesTotal
         });
     }
 
@@ -458,7 +458,7 @@ contract Stake is IStake {
             targetPromisedWaitingPhases: merged.targetPromisedWaitingPhases,
             prevSourceGovVotes: merged.prevSourceGovVotes,
             prevSourcePromisedWaitingPhases: merged.prevSourcePromisedWaitingPhases,
-            totalValidGovVotes: merged.totalValidGovVotes
+            totalGovVotes: merged.totalGovVotes
         });
     }
 
@@ -474,28 +474,28 @@ contract Stake is IStake {
         return _totalParentTokenBurned[tokenAddress];
     }
 
-    function validGovVotes(address tokenAddress, uint256 round, uint256 memberId)
+    function govVotes(address tokenAddress, uint256 round, uint256 memberId)
         external
         view
         returns (uint256)
     {
         _checkRoundStarted(round);
-        return _validGovVotesByMember[tokenAddress][memberId].value(round);
+        return _govVotesByMember[tokenAddress][memberId].value(round);
     }
 
-    function totalValidGovVotes(address tokenAddress, uint256 round) external view returns (uint256) {
+    function totalGovVotes(address tokenAddress, uint256 round) external view returns (uint256) {
         _checkRoundStarted(round);
-        return _totalValidGovVotesAt(tokenAddress, round);
+        return _totalGovVotesAt(tokenAddress, round);
     }
 
-    function totalValidGovVotesAdded(address tokenAddress, uint256 round) external view returns (uint256) {
+    function totalGovVotesAdded(address tokenAddress, uint256 round) external view returns (uint256) {
         _checkRoundStarted(round);
-        return _totalValidGovVotesAdded[tokenAddress].value(round);
+        return _totalGovVotesAdded[tokenAddress].value(round);
     }
 
-    function totalValidGovVotesRemoved(address tokenAddress, uint256 round) external view returns (uint256) {
+    function totalGovVotesRemoved(address tokenAddress, uint256 round) external view returns (uint256) {
         _checkRoundStarted(round);
-        return _totalValidGovVotesRemoved[tokenAddress].value(round);
+        return _totalGovVotesRemoved[tokenAddress].value(round);
     }
 
     function memberStake(address tokenAddress, uint256 memberId)
@@ -622,9 +622,9 @@ contract Stake is IStake {
         if (round > currentRound) revert RoundNotStarted(round, currentRound);
     }
 
-    function _totalValidGovVotesAt(address tokenAddress, uint256 round) private view returns (uint256) {
-        return _totalValidGovVotesAdded[tokenAddress].value(round)
-            - _totalValidGovVotesRemoved[tokenAddress].value(round);
+    function _totalGovVotesAt(address tokenAddress, uint256 round) private view returns (uint256) {
+        return _totalGovVotesAdded[tokenAddress].value(round)
+            - _totalGovVotesRemoved[tokenAddress].value(round);
     }
 
     function _totalValidBoostSharesAt(address tokenAddress, uint256 round) private view returns (uint256) {
@@ -648,10 +648,10 @@ contract Stake is IStake {
             baseCap = mintedShare * LIQUIDITY_TOKEN_EQUIVALENCE_FACTOR * BOOST_STAKE_SUPPLY_FACTOR;
         }
 
-        uint256 totalVotes = _totalValidGovVotesAt(tokenAddress, round);
+        uint256 totalVotes = _totalGovVotesAt(tokenAddress, round);
         if (totalVotes == 0) return (baseCap, 0);
 
-        uint256 memberVotes = _validGovVotesByMember[tokenAddress][memberId].value(round);
+        uint256 memberVotes = _govVotesByMember[tokenAddress][memberId].value(round);
         memberCap = Math.mulDiv(baseCap, memberVotes, totalVotes) * BOOST_STAKE_MULTIPLIER;
     }
 
@@ -787,19 +787,19 @@ contract Stake is IStake {
 
         uint256 govVotesAdded = _govVotesOf(target) - govVotesBefore;
         if (merged.prevSourceGovVotes > 0) {
-            _totalValidGovVotesRemoved[tokenAddress].increase(round, merged.prevSourceGovVotes);
-            _validGovVotesByMember[tokenAddress][sourceMemberId].decrease(round, merged.prevSourceGovVotes);
+            _totalGovVotesRemoved[tokenAddress].increase(round, merged.prevSourceGovVotes);
+            _govVotesByMember[tokenAddress][sourceMemberId].decrease(round, merged.prevSourceGovVotes);
         }
         if (govVotesAdded > 0) {
-            _totalValidGovVotesAdded[tokenAddress].increase(round, govVotesAdded);
-            _validGovVotesByMember[tokenAddress][targetMemberId].increase(round, govVotesAdded);
+            _totalGovVotesAdded[tokenAddress].increase(round, govVotesAdded);
+            _govVotesByMember[tokenAddress][targetMemberId].increase(round, govVotesAdded);
         }
 
         merged.targetGovVotes = _govVotesOf(target);
         merged.targetLiquidityShares = target.liquidityShares;
         merged.targetBoostShares = target.boostShares;
         merged.targetPromisedWaitingPhases = target.promisedWaitingPhases;
-        merged.totalValidGovVotes = _totalValidGovVotesAt(tokenAddress, round);
+        merged.totalGovVotes = _totalGovVotesAt(tokenAddress, round);
 
         delete _memberStake[tokenAddress][sourceMemberId];
         delete lastMajorStakeRound[tokenAddress][sourceMemberId];
@@ -837,8 +837,8 @@ contract Stake is IStake {
         totals.totalLiquidityShares += liquiditySharesAdded;
         totals.lastWithdrawableLp += added.lpMinted;
         _totalLiquidityTokenAmount[tokenAddress] += added.tokenAmount;
-        _totalValidGovVotesAdded[tokenAddress].increase(write.round, govVotesAdded);
-        _validGovVotesByMember[tokenAddress][write.memberId].increase(write.round, govVotesAdded);
+        _totalGovVotesAdded[tokenAddress].increase(write.round, govVotesAdded);
+        _govVotesByMember[tokenAddress][write.memberId].increase(write.round, govVotesAdded);
 
         _updateSqrtKBaseline(totals, pair, tokenAddress);
 
@@ -868,7 +868,7 @@ contract Stake is IStake {
         payload.liquiditySharesAdded = liquiditySharesAdded;
         payload.liquidityShares = member.liquidityShares;
         payload.totalLiquidityShares = totals.totalLiquidityShares;
-        payload.totalValidGovVotes = _totalValidGovVotesAt(tokenAddress, write.round);
+        payload.totalGovVotes = _totalGovVotesAt(tokenAddress, write.round);
         payload.totalWithdrawableLp = totals.lastWithdrawableLp;
     }
 
@@ -888,7 +888,7 @@ contract Stake is IStake {
             liquiditySharesAdded: payload.liquiditySharesAdded,
             liquidityShares: payload.liquidityShares,
             totalLiquidityShares: payload.totalLiquidityShares,
-            totalValidGovVotes: payload.totalValidGovVotes,
+            totalGovVotes: payload.totalGovVotes,
             totalWithdrawableLp: payload.totalWithdrawableLp
         });
     }
@@ -915,7 +915,7 @@ contract Stake is IStake {
         payload.boostShares = member.boostShares;
         payload.totalBoostShares = totals.totalBoostShares;
         payload.totalValidBoostShares = _totalValidBoostSharesAt(tokenAddress, write.round);
-        payload.totalValidGovVotes = _totalValidGovVotesAt(tokenAddress, write.round);
+        payload.totalGovVotes = _totalGovVotesAt(tokenAddress, write.round);
     }
 
     function _emitBoostStaked(BoostStakedPayload memory payload) private {
@@ -934,7 +934,7 @@ contract Stake is IStake {
             boostShares: payload.boostShares,
             totalBoostShares: payload.totalBoostShares,
             totalValidBoostShares: payload.totalValidBoostShares,
-            totalValidGovVotes: payload.totalValidGovVotes
+            totalGovVotes: payload.totalGovVotes
         });
     }
 

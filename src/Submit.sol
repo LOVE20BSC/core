@@ -73,8 +73,8 @@ contract Submit is ISubmit {
     ) private view returns (uint256 validVotes, uint256 requiredVotes, uint256 totalVotes) {
         IStake stake = IStake(STAKE_ADDRESS);
         uint256 round = currentRound();
-        validVotes = stake.validGovVotes(tokenAddress, round, memberId);
-        totalVotes = stake.totalValidGovVotes(tokenAddress, round);
+        validVotes = stake.govVotes(tokenAddress, round, memberId);
+        totalVotes = stake.totalGovVotes(tokenAddress, round);
         requiredVotes = Math.mulDiv(totalVotes, SUBMIT_MIN_RATIO, PRECISION, Math.Rounding.Ceil);
     }
 

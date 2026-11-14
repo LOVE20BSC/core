@@ -115,7 +115,7 @@ interface IStakeEvents {
         uint256 liquiditySharesAdded,
         uint256 liquidityShares,
         uint256 totalLiquidityShares,
-        uint256 totalValidGovVotes,
+        uint256 totalGovVotes,
         uint256 totalWithdrawableLp
     );
     event BoostStaked(
@@ -132,7 +132,7 @@ interface IStakeEvents {
         uint256 boostShares,
         uint256 totalBoostShares,
         uint256 totalValidBoostShares,
-        uint256 totalValidGovVotes
+        uint256 totalGovVotes
     );
     event Unstaked(
         address indexed tokenAddress,
@@ -143,7 +143,7 @@ interface IStakeEvents {
         uint256 liquidityShares,
         uint256 boostShares,
         uint256 totalValidBoostShares,
-        uint256 totalValidGovVotes
+        uint256 totalGovVotes
     );
     event StakeWithdrawn(
         address indexed tokenAddress,
@@ -193,7 +193,7 @@ interface IStakeEvents {
         uint256 targetPromisedWaitingPhases,
         uint256 prevSourceGovVotes,
         uint256 prevSourcePromisedWaitingPhases,
-        uint256 totalValidGovVotes
+        uint256 totalGovVotes
     );
 }
 
@@ -250,10 +250,10 @@ interface IStake is IStakeErrors, IStakeEvents {
             uint256 parentTokenAmountForLiquidity,
             uint256 firstGovVoteRound
         );
-    function validGovVotes(address tokenAddress, uint256 round, uint256 memberId) external view returns (uint256);
-    function totalValidGovVotes(address tokenAddress, uint256 round) external view returns (uint256);
-    function totalValidGovVotesAdded(address tokenAddress, uint256 round) external view returns (uint256);
-    function totalValidGovVotesRemoved(address tokenAddress, uint256 round) external view returns (uint256);
+    function govVotes(address tokenAddress, uint256 round, uint256 memberId) external view returns (uint256);
+    function totalGovVotes(address tokenAddress, uint256 round) external view returns (uint256);
+    function totalGovVotesAdded(address tokenAddress, uint256 round) external view returns (uint256);
+    function totalGovVotesRemoved(address tokenAddress, uint256 round) external view returns (uint256);
     function totalStake(address tokenAddress)
         external view returns (
             uint256 totalLiquidityShares,
