@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.37;
 
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Stake} from "../src/Stake.sol";
 import {DexConfig} from "../src/interfaces/IStake.sol";
 import {IStakeErrors} from "../src/interfaces/IStake.sol";
@@ -140,6 +141,17 @@ contract MockPair {
 
     function _min(uint256 a, uint256 b) private pure returns (uint256) {
         return a < b ? a : b;
+    }
+}
+
+contract TaxedStakeParent is ERC20 {
+    address public taxedRecipient;
+    constructor(address owner) ERC20("Taxed parent", "TAX") { _mint(owner, 1000e18); }
+    function setTaxedRecipient(address recipient) external { taxedRecipient = recipient; }
+    function _update(address from, address to, uint256 amount) internal override {
+        uint256 fee = from != address(0) && to == taxedRecipient ? amount / 10 : 0;
+        super._update(from, to, amount - fee);
+        if (fee != 0) super._update(from, address(0), fee);
     }
 }
 
@@ -380,6 +392,25 @@ contract StakeTest {
     {
         StakeWithdrawnEventData memory eventData = _decodeStakeWithdrawn(data);
         return (eventData.withdrawableLpBurned, eventData.withdrawableLpToMember);
+    }
+
+    function testStakeRejectsTaxedParentAtBothTransferBoundaries() external {
+        TaxedStakeParent taxedParent = new TaxedStakeParent(owner1);
+        LOVE20Token child = new LOVE20Token("Child", "CH", 1000e18, 2000e18, owner1, address(this), address(taxedParent));
+        MockPair taxedPair = new MockPair(address(child), address(taxedParent));
+        mockLaunch.register(address(child));
+        pairFactory.setPair(address(child), address(taxedParent), address(taxedPair));
+        vm().prank(owner1);
+        child.approve(address(stake), type(uint256).max);
+        vm().prank(owner1);
+        taxedParent.approve(address(stake), type(uint256).max);
+        for (uint256 i; i < 2; i++) {
+            taxedParent.setTaxedRecipient(i == 0 ? address(stake) : address(taxedPair));
+            vm().prank(owner1);
+            vm().expectRevert(abi.encodeWithSelector(IStakeErrors.InexactTokenTransfer.selector, address(taxedParent), 100e18, 90e18));
+            stake.stakeLiquidity(address(child), 100e18, 100e18, 10, memberId1, block.timestamp);
+            require(taxedParent.balanceOf(owner1) == 1000e18, "failed transfer fully rolls back");
+        }
     }
 
     function testOwnerCanIncreaseCommitmentWithoutAddingStake() external {

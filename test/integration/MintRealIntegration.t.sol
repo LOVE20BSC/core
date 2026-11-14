@@ -1566,6 +1566,7 @@ contract MockUniswapV2Pair {
     uint112 private reserve1;
     uint32 private blockTimestampLast;
     uint256 private _totalSupply;
+    mapping(address => uint256) private _balances;
 
     constructor(address _token0, address _token1) {
         token0 = _token0;
@@ -1580,9 +1581,10 @@ contract MockUniswapV2Pair {
         return _totalSupply;
     }
 
-    function mint(address /* to */) external returns (uint256 liquidity) {
+    function mint(address to) external returns (uint256 liquidity) {
         liquidity = 1000;
         _totalSupply += liquidity;
+        _balances[to] += liquidity;
         reserve0 = 5000;
         reserve1 = 5000;
         blockTimestampLast = uint32(block.timestamp);
@@ -1608,12 +1610,14 @@ contract MockUniswapV2Pair {
         _totalSupply = supply;
     }
 
-    function transfer(address /* to */, uint256 /* amount */) external pure returns (bool) {
+    function transfer(address to, uint256 amount) external returns (bool) {
+        _balances[msg.sender] -= amount;
+        _balances[to] += amount;
         return true;
     }
 
-    function balanceOf(address /* account */) external view returns (uint256) {
-        return _totalSupply;
+    function balanceOf(address account) external view returns (uint256) {
+        return _balances[account];
     }
 }
 

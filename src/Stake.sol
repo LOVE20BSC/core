@@ -728,12 +728,18 @@ contract Stake is IStake {
     }
 
     function _pull(address tokenAddress, address from, uint256 amount) private {
+        uint256 beforeBalance = IERC20(tokenAddress).balanceOf(address(this));
         IERC20(tokenAddress).safeTransferFrom(from, address(this), amount);
+        uint256 received = IERC20(tokenAddress).balanceOf(address(this)) - beforeBalance;
+        if (received != amount) revert InexactTokenTransfer(tokenAddress, amount, received);
     }
 
     function _push(address tokenAddress, address to, uint256 amount) private {
+        uint256 beforeBalance = IERC20(tokenAddress).balanceOf(to);
         // forge-lint: disable-next-line(reentrancy-no-eth)
         IERC20(tokenAddress).safeTransfer(to, amount);
+        uint256 received = IERC20(tokenAddress).balanceOf(to) - beforeBalance;
+        if (received != amount) revert InexactTokenTransfer(tokenAddress, amount, received);
     }
 
     function _pairFor(address tokenAddress) private returns (address pair) {

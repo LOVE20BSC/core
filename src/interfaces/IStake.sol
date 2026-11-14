@@ -26,6 +26,7 @@ struct DexConfig {
 }
 
 interface IStakeErrors {
+    error InexactTokenTransfer(address tokenAddress, uint256 expected, uint256 received);
     error DeadlineExpired(uint256 deadline);
     error StakeNotStarted();
     error ZeroTokenAmount();
