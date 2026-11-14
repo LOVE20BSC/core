@@ -105,10 +105,6 @@ contract Vote is IVote {
         return IPhase(PHASE_ADDRESS).currentPhase() > round;
     }
 
-    function canVote(address tokenAddress, uint256 memberId) public view returns (bool) {
-        return maxVoteAmount(tokenAddress, memberId) > 0;
-    }
-
     function maxVoteAmount(address tokenAddress, uint256 memberId) public view returns (uint256) {
         return _maxVoteAmount(tokenAddress, currentRound(), memberId);
     }

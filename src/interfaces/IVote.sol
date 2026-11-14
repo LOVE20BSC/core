@@ -67,8 +67,6 @@ interface IVote is IVoteErrors, IVoteEvents {
 
     function isRoundEnded(uint256 round) external view returns (bool);
 
-    function canVote(address tokenAddress, uint256 memberId) external view returns (bool);
-
     function maxVoteAmount(address tokenAddress, uint256 memberId) external view returns (uint256);
 
     function totalVoteAmount(address tokenAddress, uint256 round) external view returns (uint256);

@@ -642,24 +642,21 @@ contract VoteTest {
         require(!vote.isRoundEnded(round + 1), "round after the previous one is current");
     }
 
-    function testCanVoteFollowsTheStakeCapBoundaries() external {
+    function testMaxVoteAmountFollowsTheStakeCapBoundaries() external {
         uint256 memberId = _memberIds[0];
         require(vote.maxVoteAmount(TOKEN, memberId) == DEFAULT_CAP, "cap passthrough");
-        require(vote.canVote(TOKEN, memberId), "cap of one or more can vote");
 
         stake.setValidGovVotes(TOKEN, memberId, 0);
-        require(!vote.canVote(TOKEN, memberId), "zero cap cannot vote");
         require(vote.maxVoteAmount(TOKEN, memberId) == 0, "zero cap passthrough");
 
         stake.setValidGovVotes(TOKEN, memberId, 1);
-        require(vote.canVote(TOKEN, memberId), "cap of exactly one can vote");
+        require(vote.maxVoteAmount(TOKEN, memberId) == 1, "unit cap passthrough");
     }
 
     function testMaxVotesPassesThroughExtremes() external {
         uint256 memberId = _memberIds[0];
         stake.setValidGovVotes(TOKEN, memberId, type(uint256).max);
         require(vote.maxVoteAmount(TOKEN, memberId) == type(uint256).max, "max cap passthrough");
-        require(vote.canVote(TOKEN, memberId), "max cap can vote");
     }
 
     /// @dev Vote is a pure reader for unknown members, tokens and rounds: nothing reverts and
@@ -669,7 +666,6 @@ contract VoteTest {
         require(vote.voteAmountByProposalId(TOKEN, 1, 77) == 0, "unknown proposal");
         require(vote.voteAmountByMemberId(TOKEN, 1, 999) == 0, "unknown member");
         require(!vote.isProposalIdVoted(TOKEN, 1, 77), "unknown proposal is not voted");
-        require(!vote.canVote(TOKEN, 999), "unknown member cannot vote");
         require(vote.maxVoteAmount(TOKEN, 999) == 0, "unknown member has no cap");
         require(vote.totalVoterBoost(TOKEN, 1) == 0, "unknown round boost");
         require(vote.voterBoost(TOKEN, 1, 999) == 0, "unknown member boost");
