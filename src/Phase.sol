@@ -26,10 +26,13 @@ contract Phase is IPhase {
     uint256[] private _observationBlocks;
     uint256[] private _observationTimestamps;
     OrderedHistoryIndex.Index private _observationBlockIndex;
+    // blockNumber => observation index plus one (0 = not recorded)
     mapping(uint256 => uint256) private _observationIdByBlock;
     OrderedHistoryIndex.Index private _segmentPhaseIndex;
     OrderedHistoryIndex.Index private _segmentStartBlockIndex;
+    // segment start phase => phase-length segment
     mapping(uint256 => Segment) private _segmentByPhase;
+    // segment start block => phase-length segment
     mapping(uint256 => Segment) private _segmentByStartBlock;
 
     constructor(

@@ -111,20 +111,33 @@ contract Stake is IStake {
     uint256 internal _feeNumerator;
     uint256 internal _feeDenominator;
 
+    // tokenAddress => community token and parent token pair address
     mapping(address => address) internal _pairAddressByTokenAddress;
+    // tokenAddress => aggregate community stake state
     mapping(address => TotalStake) internal _totalStake;
+    // tokenAddress => memberId => member stake state
     mapping(address => mapping(uint256 => MemberStake)) internal _memberStake;
+    // tokenAddress => cumulative community tokens burned during fee settlements
     mapping(address => uint256) internal _totalBurnedToken;
+    // tokenAddress => cumulative parent tokens burned during fee settlements
     mapping(address => uint256) internal _totalParentTokenBurned;
+    // tokenAddress => cumulative governance votes added, by round
     mapping(address => RoundHistoryUint256.History) internal _totalGovVotesAdded;
+    // tokenAddress => cumulative governance votes removed, by round
     mapping(address => RoundHistoryUint256.History) internal _totalGovVotesRemoved;
+    // tokenAddress => cumulative active boost shares added, by round
     mapping(address => RoundHistoryUint256.History) internal _totalValidBoostSharesAdded;
+    // tokenAddress => cumulative active boost shares removed, by round
     mapping(address => RoundHistoryUint256.History) internal _totalValidBoostSharesRemoved;
+    // tokenAddress => memberId => governance vote history
     mapping(address => mapping(uint256 => RoundHistoryUint256.History)) internal _govVotesByMember;
+    // tokenAddress => memberId => active boost share history
     mapping(address => mapping(uint256 => RoundHistoryUint256.History)) internal _validBoostSharesByMember;
     // tokenAddress => phase of the last realised settlement; one settlement per community per phase
     mapping(address => uint256) internal _lastSettlePhase;
+    // tokenAddress => tracked community-token liquidity principal
     mapping(address => uint256) internal _totalLiquidityTokenAmount;
+    // tokenAddress => memberId => last round a liquidity or boost addition exceeded existing shares
     mapping(address => mapping(uint256 => uint256)) public lastMajorStakeRound;
 
     // forge-lint: disable-next-item(missing-zero-check)

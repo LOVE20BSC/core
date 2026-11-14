@@ -14,19 +14,30 @@ contract Mint is IMint {
     uint256 private constant PRECISION = 1e18;
     uint256 private constant VOTE_POOL_DIVISOR = 2;
 
+    // tokenAddress => cumulative reward reserved across rounds
     mapping(address => uint256) internal _totalRewardReserved;
+    // tokenAddress => cumulative reward minted across rounds
     mapping(address => uint256) internal _totalRewardMinted;
+    // tokenAddress => cumulative reward burned across rounds
     mapping(address => uint256) internal _totalRewardBurned;
 
+    // tokenAddress => round => governance reward pool
     mapping(address => mapping(uint256 => uint256)) internal _govReward;
+    // tokenAddress => round => proposal reward pool
     mapping(address => mapping(uint256 => uint256)) internal _proposalReward;
+    // tokenAddress => round => total votes for proposals eligible for rewards
     mapping(address => mapping(uint256 => uint256)) internal _eligibleProposalVoteAmount;
+    // tokenAddress => round => whether reward preparation is complete
     mapping(address => mapping(uint256 => bool)) internal _isRewardPrepared;
+    // tokenAddress => round => whether the reward pools have been reserved
     mapping(address => mapping(uint256 => bool)) internal _isRewardReserved;
 
+    // tokenAddress => round => proposalId => whether the proposal reward is settled
     mapping(address => mapping(uint256 => mapping(uint256 => bool))) internal _proposalMinted;
+    // tokenAddress => round => memberId => whether the governance reward is settled
     mapping(address => mapping(uint256 => mapping(uint256 => bool))) internal _govMinted;
 
+    // tokenAddress => memberId => minted reward credit not yet converted into launch count
     mapping(address => mapping(uint256 => uint256)) internal _launchCredit;
 
     address public VOTE_ADDRESS;
