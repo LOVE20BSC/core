@@ -99,6 +99,7 @@ interface IStakeErrors {
 }
 
 interface IStakeEvents {
+    event PromisedWaitingPhasesIncreased(address indexed tokenAddress, uint256 indexed memberId, uint256 round, uint256 previous, uint256 promisedWaitingPhases, uint256 govVotesAdded);
     event LiquidityStaked(
         address indexed tokenAddress,
         uint256 indexed round,
@@ -218,6 +219,7 @@ interface IStake is IStakeErrors, IStakeEvents {
         uint256 memberId,
         uint256 deadline
     ) external returns (uint256 govVotesAdded);
+    function increasePromisedWaitingPhases(address tokenAddress, uint256 memberId, uint256 promisedWaitingPhases) external returns (uint256 govVotesAdded);
     function unstake(address tokenAddress, uint256 memberId) external;
     function withdraw(address tokenAddress, uint256 memberId, uint256 deadline) external;
     function lastMajorStakeRound(address tokenAddress, uint256 memberId) external view returns (uint256);

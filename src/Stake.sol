@@ -290,6 +290,24 @@ contract Stake is IStake {
         _emitBoostStaked(_boostStakedPayload(tokenAddress, write, boostAmount, govVotesAdded));
     }
 
+    function increasePromisedWaitingPhases(address tokenAddress, uint256 memberId, uint256 promisedWaitingPhases)
+        external onlyMemberOwner(memberId) returns (uint256 govVotesAdded)
+    {
+        _checkToken(tokenAddress);
+        _checkPromisedWaitingPhases(promisedWaitingPhases);
+        MemberStake storage member = _memberStake[tokenAddress][memberId];
+        _checkNoUnstakeRequest(member, tokenAddress, memberId);
+        _checkStakedLiquidity(member, tokenAddress, memberId);
+        uint256 previous = member.promisedWaitingPhases;
+        if (promisedWaitingPhases < previous) revert PromisedWaitingPhasesDecreased(promisedWaitingPhases, previous);
+        uint256 round = _checkActiveRound();
+        govVotesAdded = member.liquidityShares * (promisedWaitingPhases - previous);
+        member.promisedWaitingPhases = promisedWaitingPhases;
+        _totalValidGovVotesAdded[tokenAddress].increase(round, govVotesAdded);
+        _validGovVotesByMember[tokenAddress][memberId].increase(round, govVotesAdded);
+        emit PromisedWaitingPhasesIncreased(tokenAddress, memberId, round, previous, promisedWaitingPhases, govVotesAdded);
+    }
+
     function unstake(address tokenAddress, uint256 memberId) external onlyMemberOwner(memberId) {
         _checkToken(tokenAddress);
 

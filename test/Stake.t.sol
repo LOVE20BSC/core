@@ -382,6 +382,28 @@ contract StakeTest {
         return (eventData.withdrawableLpBurned, eventData.withdrawableLpToMember);
     }
 
+    function testOwnerCanIncreaseCommitmentWithoutAddingStake() external {
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+        (uint256 shares,,,,,,) = stake.memberStake(address(childToken), memberId1);
+        phase.setPhase(2);
+        vm().prank(owner2);
+        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.NotMemberOwner.selector, memberId1));
+        stake.increasePromisedWaitingPhases(address(childToken), memberId1, 20);
+        vm().prank(owner1);
+        uint256 added = stake.increasePromisedWaitingPhases(address(childToken), memberId1, 20);
+        require(added == shares * 10, "governance weight updated without a deposit");
+        require(stake.validGovVotes(address(childToken), 1, memberId1) == shares * 10, "past round unchanged");
+        require(stake.validGovVotes(address(childToken), 2, memberId1) == shares * 20, "current round increased");
+        vm().prank(owner1);
+        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.PromisedWaitingPhasesDecreased.selector, 10, 20));
+        stake.increasePromisedWaitingPhases(address(childToken), memberId1, 10);
+        vm().prank(owner1);
+        stake.unstake(address(childToken), memberId1);
+        vm().prank(owner1);
+        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.UnstakeAlreadyRequested.selector, address(childToken), memberId1));
+        stake.increasePromisedWaitingPhases(address(childToken), memberId1, 30);
+    }
+
     function testFundOperationsRejectExpiredDeadlineBeforeMovingFunds() external {
         uint256 expired = block.timestamp - 1;
         bytes memory expected = abi.encodeWithSelector(IStakeErrors.DeadlineExpired.selector, expired);
