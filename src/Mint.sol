@@ -20,7 +20,7 @@ contract Mint is IMint {
 
     mapping(address => mapping(uint256 => uint256)) internal _govReward;
     mapping(address => mapping(uint256 => uint256)) internal _proposalReward;
-    mapping(address => mapping(uint256 => uint256)) internal _eligibleProposalVoteAmountByRound;
+    mapping(address => mapping(uint256 => uint256)) internal _eligibleProposalVoteAmount;
     mapping(address => mapping(uint256 => bool)) internal _isRewardPrepared;
     mapping(address => mapping(uint256 => bool)) internal _isRewardReserved;
 
@@ -59,7 +59,7 @@ contract Mint is IMint {
     }
 
     function eligibleProposalVoteAmount(address tokenAddress, uint256 round) external view returns (uint256) {
-        return _eligibleProposalVoteAmountByRound[tokenAddress][round];
+        return _eligibleProposalVoteAmount[tokenAddress][round];
     }
 
     function isRewardPrepared(address tokenAddress, uint256 round) external view returns (bool) {
@@ -167,7 +167,7 @@ contract Mint is IMint {
 
         _govReward[tokenAddress][round] = govRewardAmount;
         _proposalReward[tokenAddress][round] = proposalRewardAmount;
-        _eligibleProposalVoteAmountByRound[tokenAddress][round] = eligibleVoteAmount;
+        _eligibleProposalVoteAmount[tokenAddress][round] = eligibleVoteAmount;
         // forge-lint: disable-next-line(missing-events-access-control)
         _isRewardPrepared[tokenAddress][round] = true;
 
@@ -361,7 +361,7 @@ contract Mint is IMint {
             ? _proposalReward[tokenAddress][round]
             : Math.mulDiv(rewardAvailable(tokenAddress), ROUND_REWARD_PROPOSAL_RATIO, PRECISION);
         eligibleVoteAmount = _isRewardPrepared[tokenAddress][round]
-            ? _eligibleProposalVoteAmountByRound[tokenAddress][round]
+            ? _eligibleProposalVoteAmount[tokenAddress][round]
             : _calculateEligibleProposalVoteAmount(tokenAddress, round, minVoteAmount);
 
         if (eligibleVoteAmount == 0) {
@@ -457,7 +457,7 @@ contract Mint is IMint {
         uint256 proposalId
     ) external view returns (bool) {
         if (_isRewardPrepared[tokenAddress][round]) {
-            uint256 eligibleVoteAmount = _eligibleProposalVoteAmountByRound[tokenAddress][round];
+            uint256 eligibleVoteAmount = _eligibleProposalVoteAmount[tokenAddress][round];
             if (eligibleVoteAmount == 0) {
                 return false;
             }
