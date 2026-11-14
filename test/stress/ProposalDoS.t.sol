@@ -97,6 +97,7 @@ contract ProposalDoSTest is Test {
         vm.pauseGasMetering();
         vm.startPrank(actor);
         uint256[] memory memberIds = new uint256[](count);
+        uint256 expectedPool;
         for (uint256 i; i < count; i++) {
             (uint256 memberId,) = memberNFT.mint(string.concat("member", vm.toString(i)));
             memberIds[i] = memberId;
@@ -110,6 +111,7 @@ contract ProposalDoSTest is Test {
                 targetData: new bytes[](0)
             }));
             amounts[0] = amount;
+            if (i == 0) expectedPool = mint.rewardAvailable(address(token)) / 10;
             vote.vote(address(token), memberId, ids, amounts, new bytes[][](0));
             assertEq(stake.validGovVotes(address(token), 1, memberId), amount);
         }
@@ -126,7 +128,6 @@ contract ProposalDoSTest is Test {
         assertEq(actualCount, count);
         assertEq(vote.totalVoteAmount(address(token), 1), (2 * count - 1) * 1e18);
 
-        uint256 available = mint.rewardAvailable(address(token));
         address launchAddress = mint.LAUNCH_ADDRESS();
         // A fresh external call models cold reads instead of reusing warmed setup slots.
         vm.cool(address(mint));
@@ -146,13 +147,13 @@ contract ProposalDoSTest is Test {
         assertTrue(mint.isRewardPrepared(address(token), 1));
         uint256 eligibleVoteAmount = count <= 10 ? (2 * count - 1) * 1e18 : count * 1e18;
         assertEq(mint.eligibleProposalVoteAmount(address(token), 1), eligibleVoteAmount);
-        assertEq(mint.govReward(address(token), 1), available / 10);
+        assertEq(mint.govReward(address(token), 1), expectedPool);
         assertGt(govReward, 0);
 
         uint256 reserved = mint.totalRewardReserved(address(token));
         vm.prank(actor);
         uint256 reward = mint.mintProposalReward(address(token), 1, 1, actor);
-        assertEq(reward, (available / 10) * count * 1e18 / eligibleVoteAmount);
+        assertEq(reward, expectedPool * count * 1e18 / eligibleVoteAmount);
         assertEq(mint.totalRewardReserved(address(token)), reserved, "prepared twice");
     }
 }

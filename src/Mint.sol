@@ -22,6 +22,7 @@ contract Mint is IMint {
     mapping(address => mapping(uint256 => uint256)) internal _proposalReward;
     mapping(address => mapping(uint256 => uint256)) internal _eligibleProposalVoteAmountByRound;
     mapping(address => mapping(uint256 => bool)) internal _isRewardPrepared;
+    mapping(address => mapping(uint256 => bool)) internal _isRewardReserved;
 
     mapping(address => mapping(uint256 => mapping(uint256 => bool))) internal _proposalMinted;
     mapping(address => mapping(uint256 => mapping(uint256 => bool))) internal _govMinted;
@@ -95,6 +96,27 @@ contract Mint is IMint {
         return round != 0 && IPhase(PHASE_ADDRESS).currentPhase() > round;
     }
 
+    function reserveRoundReward(address tokenAddress, uint256 round) external {
+        if (msg.sender != VOTE_ADDRESS) revert NotVoteContract(msg.sender);
+        uint256 current = IPhase(PHASE_ADDRESS).currentPhase();
+        if (round == 0 || round != current) revert RoundNotCurrent(round, current);
+        if (!ILaunch(LAUNCH_ADDRESS).isLOVE20Token(tokenAddress)) revert TokenNotRegistered(tokenAddress);
+        _reserveRewardIfNeeded(tokenAddress, round);
+    }
+
+    function _reserveRewardIfNeeded(address tokenAddress, uint256 round) private {
+        if (_isRewardReserved[tokenAddress][round]) return;
+        uint256 available = rewardAvailable(tokenAddress);
+        uint256 gov = Math.mulDiv(available, ROUND_REWARD_GOV_RATIO, PRECISION);
+        uint256 proposal = Math.mulDiv(available, ROUND_REWARD_PROPOSAL_RATIO, PRECISION);
+        _govReward[tokenAddress][round] = gov;
+        _proposalReward[tokenAddress][round] = proposal;
+        _totalRewardReserved[tokenAddress] += gov + proposal;
+        _isRewardReserved[tokenAddress][round] = true;
+        // forge-lint: disable-next-item(reentrancy-events)
+        emit RoundRewardReserved(tokenAddress, round, gov, proposal);
+    }
+
     function prepareRewardIfNeeded(address tokenAddress, uint256 round) external {
         _prepareRewardIfNeeded(tokenAddress, round);
     }
@@ -122,11 +144,9 @@ contract Mint is IMint {
             uint256 minVoteAmount = _minProposalVoteAmount(totalVoteAmount);
             eligibleVoteAmount = _calculateEligibleProposalVoteAmount(tokenAddress, round, minVoteAmount);
 
-            uint256 available = rewardAvailable(tokenAddress);
-            govRewardAmount = Math.mulDiv(available, ROUND_REWARD_GOV_RATIO, PRECISION);
-            proposalRewardAmount = Math.mulDiv(available, ROUND_REWARD_PROPOSAL_RATIO, PRECISION);
-
-            _totalRewardReserved[tokenAddress] += govRewardAmount + proposalRewardAmount;
+            _reserveRewardIfNeeded(tokenAddress, round);
+            govRewardAmount = _govReward[tokenAddress][round];
+            proposalRewardAmount = _proposalReward[tokenAddress][round];
 // forge-lint: disable-next-item(calls-loop)
 
             uint256 totalVoterBoost = IVote(VOTE_ADDRESS).totalVoterBoost(tokenAddress, round);
@@ -333,14 +353,12 @@ contract Mint is IMint {
         uint256 proposalRewardAmount;
         uint256 eligibleVoteAmount;
 
-        if (_isRewardPrepared[tokenAddress][round]) {
-            proposalRewardAmount = _proposalReward[tokenAddress][round];
-            eligibleVoteAmount = _eligibleProposalVoteAmountByRound[tokenAddress][round];
-        } else {
-            uint256 available = rewardAvailable(tokenAddress);
-            proposalRewardAmount = Math.mulDiv(available, ROUND_REWARD_PROPOSAL_RATIO, PRECISION);
-            eligibleVoteAmount = _calculateEligibleProposalVoteAmount(tokenAddress, round, minVoteAmount);
-        }
+        proposalRewardAmount = _isRewardReserved[tokenAddress][round]
+            ? _proposalReward[tokenAddress][round]
+            : Math.mulDiv(rewardAvailable(tokenAddress), ROUND_REWARD_PROPOSAL_RATIO, PRECISION);
+        eligibleVoteAmount = _isRewardPrepared[tokenAddress][round]
+            ? _eligibleProposalVoteAmountByRound[tokenAddress][round]
+            : _calculateEligibleProposalVoteAmount(tokenAddress, round, minVoteAmount);
 
         if (eligibleVoteAmount == 0) {
             return (0, minted);
@@ -386,7 +404,7 @@ contract Mint is IMint {
         }
 
         uint256 govRewardAmount;
-        if (_isRewardPrepared[tokenAddress][round]) {
+        if (_isRewardReserved[tokenAddress][round]) {
             govRewardAmount = _govReward[tokenAddress][round];
         } else {
             uint256 available = rewardAvailable(tokenAddress);

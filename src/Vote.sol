@@ -6,6 +6,8 @@ import {IPhase} from "./interfaces/IPhase.sol";
 import {IStake} from "./interfaces/IStake.sol";
 import {ISubmit, TargetMode} from "./interfaces/ISubmit.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
+import {IMint} from "./interfaces/IMint.sol";
+import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
 import {IProposalTarget} from "./interfaces/IProposalTarget.sol";
 import {Pagination} from "@libs/Pagination.sol";
 
@@ -258,6 +260,11 @@ contract Vote is IVote {
                 _votedProposalIdsByMemberId[tokenAddress][round][memberId].push(proposalId);
                 _voterIdsByProposalId[tokenAddress][round][proposalId].push(memberId);
             }
+        }
+
+        if (_totalVoteAmountByRound[tokenAddress][round] == voteAmount) {
+            // forge-lint: disable-next-item(calls-loop)
+            IMint(ILOVE20Token(tokenAddress).MINTER()).reserveRoundReward(tokenAddress, round);
         }
 
         _emitVoteCast(tokenAddress, round, memberId, proposalId, voteAmount);

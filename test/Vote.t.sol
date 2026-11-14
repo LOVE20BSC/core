@@ -21,6 +21,7 @@ interface VoteVm {
     }
 
     function roll(uint256 blockNumber) external;
+    function etch(address target, bytes calldata code) external;
     function warp(uint256 timestamp) external;
     function prank(address sender) external;
     function expectRevert(bytes calldata revertData) external;
@@ -358,6 +359,11 @@ contract MockSubmit {
 }
 
 /// @notice Vote against the real Phase, MemberNFT and Submit, with Stake and the Target stubbed.
+contract VoteRewardReserveStub {
+    function MINTER() external view returns (address) { return address(this); }
+    function reserveRoundReward(address, uint256) external {}
+}
+
 contract VoteTest {
     VoteVm private constant vm = VoteVm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -390,6 +396,8 @@ contract VoteTest {
     uint256 private _cursor;
 
     function setUp() public {
+        vm.etch(TOKEN, address(new VoteRewardReserveStub()).code);
+        vm.etch(TOKEN2, TOKEN.code);
         vm.roll(ORIGIN_BLOCKS);
         vm.warp(1000);
 
@@ -2115,6 +2123,7 @@ contract VoteStubTest {
     uint256 private _memberId;
 
     function setUp() public {
+        vm.etch(TOKEN, address(new VoteRewardReserveStub()).code);
         vm.roll(ORIGIN_BLOCKS);
         vm.warp(1000);
 

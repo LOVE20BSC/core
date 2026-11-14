@@ -51,6 +51,36 @@ contract MintTest {
         token = new LOVE20Token("Review", "REV", supply, maxSupply, address(this), address(mint), address(this));
     }
 
+    function testFirstVoteReservationFixesBudgetsBeforeReverseSettlement() external {
+        setupMint(1000e18, 10000e18, 1e17, 1e17);
+        currentPhaseValue = 1;
+        mint.reserveRoundReward(address(token), 1);
+        uint256 first = mint.govReward(address(token), 1);
+        mint.reserveRoundReward(address(token), 1);
+        require(mint.totalRewardReserved(address(token)) == first * 2, "reserved once");
+        currentPhaseValue = 2;
+        mint.reserveRoundReward(address(token), 2);
+        uint256 second = mint.govReward(address(token), 2);
+        require(second < first, "next round sees prior reservation");
+        totalBoost = 10;
+        currentPhaseValue = 3;
+        mint.prepareRewardIfNeeded(address(token), 2);
+        mint.prepareRewardIfNeeded(address(token), 1);
+        require(mint.govReward(address(token), 1) == first, "first budget fixed");
+        require(mint.govReward(address(token), 2) == second, "second budget fixed");
+    }
+
+    function testReservationCannotBeCalledByAnyoneOrMintBeforeRoundEnd() external {
+        setupMint(1000e18, 10000e18, 1e17, 1e17);
+        currentPhaseValue = 1;
+        vm.prank(address(0xBAD));
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.NotVoteContract.selector, address(0xBAD)));
+        mint.reserveRoundReward(address(token), 1);
+        mint.reserveRoundReward(address(token), 1);
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 1));
+        mint.mintGovReward(address(token), 1, 1, address(this));
+    }
+
     function PHASE_ADDRESS() external view returns (address) {
         return address(this);
     }

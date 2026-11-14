@@ -7,6 +7,7 @@ enum BurnReason {
 }
 
 interface IMintEvents {
+    event RoundRewardReserved(address indexed tokenAddress, uint256 indexed round, uint256 govReward, uint256 proposalReward);
     event RewardPrepared(
         address indexed tokenAddress,
         uint256 indexed round,
@@ -42,6 +43,8 @@ interface IMintEvents {
 }
 
 interface IMintErrors {
+    error NotVoteContract(address caller);
+    error RoundNotCurrent(uint256 round, uint256 current);
     error NotProposalTarget(
         address caller,
         address expectedTarget
@@ -102,6 +105,7 @@ interface IMint is IMintEvents, IMintErrors {
     function PROPOSAL_REWARD_MIN_VOTE_RATIO() external view returns (uint256);
     function ROUND_REWARD_GOV_RATIO() external view returns (uint256);
     function ROUND_REWARD_PROPOSAL_RATIO() external view returns (uint256);
+    function reserveRoundReward(address tokenAddress, uint256 round) external;
     function prepareRewardIfNeeded(address tokenAddress, uint256 round) external;
     function mintProposalReward(
         address tokenAddress,
