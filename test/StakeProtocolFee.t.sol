@@ -324,6 +324,25 @@ contract EmptyFallbackFactory {
     fallback() external {}
 }
 
+contract TaxedSwapParent is LOVE20Token {
+    address private _taxedSender;
+    address private _taxedRecipient;
+
+    constructor(address owner)
+        LOVE20Token("Parent", "PARENT", 1_000_000e18, 2_000_000e18, owner, owner, owner) {}
+
+    function setTaxedRoute(address sender, address recipient) external {
+        _taxedSender = sender;
+        _taxedRecipient = recipient;
+    }
+
+    function _update(address from, address to, uint256 amount) internal override {
+        uint256 fee = amount != 0 && from != address(0) && from == _taxedSender && to == _taxedRecipient ? 1 : 0;
+        super._update(from, to, amount - fee);
+        if (fee != 0) super._update(from, address(0), fee);
+    }
+}
+
 contract StakeProtocolFeeTest is Test {
     uint256 internal constant FEE_SETTLEMENT_RATIO = 25e14;
 
@@ -370,9 +389,7 @@ contract StakeProtocolFeeTest is Test {
         factory.setFeeFraction(feeA, feeB);
         router = new FeeOnRouter(address(factory));
 
-        parent = new LOVE20Token(
-            "Parent", "PARENT", 1_000_000e18, 2_000_000e18, address(this), address(this), address(this)
-        );
+        parent = new TaxedSwapParent(address(this));
         memberNFT = new MemberNFT(1e8, 7, 10, 32, address(parent));
         child = new LOVE20Token(
             "Child", "CHILD", 1_000_000e18, 1_000_000_000e18, address(this), address(this), address(parent)
@@ -443,6 +460,22 @@ contract StakeProtocolFeeTest is Test {
     function _stake(address who, uint256 id, uint256 tokenAmount, uint256 parentAmount) internal {
         vm.prank(who);
         stake.stakeLiquidity(address(child), tokenAmount, parentAmount, 1, id, type(uint256).max);
+    }
+
+    function testFeeSwapRejectsOneWeiInputTaxDespiteQuoteRounding() public {
+        _deploy(false, 100_000e18);
+        _stake(alice, aliceId, 20_000e18, 20_000e18);
+        parent.transfer(address(pair), 300_000e18);
+        pair.sync();
+        TaxedSwapParent(address(parent)).setTaxedRoute(address(stake), address(pair));
+        uint256 balanceBefore = parent.balanceOf(address(pair));
+        uint256 supplyBefore = child.totalSupply();
+        vm.expectRevert(abi.encodeWithSelector(
+            IStakeErrors.InexactTokenTransfer.selector, address(parent), 1050e18, 1050e18 - 1
+        ));
+        stake.settleFees(address(child));
+        assertEq(parent.balanceOf(address(pair)), balanceBefore, "swap rolls back");
+        assertEq(child.totalSupply(), supplyBefore, "settlement rolls back");
     }
 
     /// @dev Raw pool value of a staker's claim, in the parent token. Deliberately reads the pair

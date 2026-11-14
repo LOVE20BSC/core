@@ -1205,7 +1205,7 @@ contract Stake is IStake {
 
         uint256 totalTokenBurned = tokenBurned;
         if (parentTokenBurned > 0) {
-            totalTokenBurned += _swapParentTokenForToken(tokenAddress, parentTokenBurned);
+            totalTokenBurned += _swapParentTokenForToken(tokenAddress, pair, parentTokenBurned);
         }
         if (totalTokenBurned > 0) {
             // forge-lint: disable-next-line(reentrancy-no-eth)
@@ -1232,7 +1232,7 @@ contract Stake is IStake {
         });
     }
 
-    function _swapParentTokenForToken(address tokenAddress, uint256 parentTokenAmount)
+    function _swapParentTokenForToken(address tokenAddress, address pair, uint256 parentTokenAmount)
         private
         returns (uint256 tokenAmountOut)
     {
@@ -1246,11 +1246,17 @@ contract Stake is IStake {
 
         // forge-lint: disable-next-line(reentrancy-no-eth)
         IERC20(parentTokenAddress).forceApprove(ROUTER_ADDRESS, parentTokenAmount);
+        uint256 parentBalanceBefore = IERC20(parentTokenAddress).balanceOf(pair);
+        uint256 tokenBalanceBefore = IERC20(tokenAddress).balanceOf(address(this));
         // forge-lint: disable-next-item(reentrancy-no-eth)
         amounts = IUniswapV2Router02(ROUTER_ADDRESS).swapExactTokensForTokens(
             parentTokenAmount, amountOutMin, path, address(this), block.timestamp
         );
         tokenAmountOut = amounts[amounts.length - 1];
+        uint256 received = IERC20(parentTokenAddress).balanceOf(pair) - parentBalanceBefore;
+        if (received != parentTokenAmount) revert InexactTokenTransfer(parentTokenAddress, parentTokenAmount, received);
+        received = IERC20(tokenAddress).balanceOf(address(this)) - tokenBalanceBefore;
+        if (received != tokenAmountOut) revert InexactTokenTransfer(tokenAddress, tokenAmountOut, received);
     }
 
     function _govVotesOf(MemberStake storage member) private view returns (uint256) {

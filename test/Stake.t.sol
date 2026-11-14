@@ -24,10 +24,13 @@ contract MockRouter {
     function swapExactTokensForTokens(
         uint256 amountIn,
         uint256,
-        address[] calldata,
-        address,
+        address[] calldata path,
+        address to,
         uint256
-    ) external pure returns (uint256[] memory amounts) {
+    ) external returns (uint256[] memory amounts) {
+        MockPair pair = MockPair(MockPairFactory(Stake(msg.sender).PAIR_FACTORY_ADDRESS()).getPair(path[0], path[1]));
+        LOVE20Token(path[0]).transferFrom(msg.sender, address(pair), amountIn);
+        pair.swap(path[1] == pair.token0() ? amountIn : 0, path[1] == pair.token1() ? amountIn : 0, to, "");
         amounts = new uint256[](2);
         amounts[0] = amountIn;
         amounts[1] = amountIn;
@@ -124,6 +127,13 @@ contract MockPair {
         // Transfer tokens out
         require(token0Contract.transfer(to, amount0), "Transfer failed");
         require(token1Contract.transfer(to, amount1), "Transfer failed");
+    }
+
+    function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata) external {
+        if (amount0Out != 0) LOVE20Token(token0).transfer(to, amount0Out);
+        if (amount1Out != 0) LOVE20Token(token1).transfer(to, amount1Out);
+        _reserve0 = LOVE20Token(token0).balanceOf(address(this));
+        _reserve1 = LOVE20Token(token1).balanceOf(address(this));
     }
 
     function _sqrt(uint256 y) private pure returns (uint256 z) {
@@ -432,9 +442,6 @@ contract StakeTest {
             vm().prank(owner1);
             taxedParent.transfer(address(taxedPair), 100e18);
             taxedPair.setReserves(200e18, 200e18);
-            // The mock router reports swap output without transferring it.
-            vm().prank(owner1);
-            child.transfer(address(stake), 1e18);
             taxedParent.setTaxedRecipient(address(stake));
         } else {
             vm().prank(owner1);
