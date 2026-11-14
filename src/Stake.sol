@@ -1147,12 +1147,20 @@ contract Stake is IStake {
         private
         returns (uint256 tokenAmount, uint256 parentTokenAmount)
     {
+        address parentTokenAddress = ILOVE20Token(tokenAddress).PARENT_TOKEN_ADDRESS();
+        uint256 tokenBalanceBefore = IERC20(tokenAddress).balanceOf(to);
+        uint256 parentBalanceBefore = IERC20(parentTokenAddress).balanceOf(to);
         // forge-lint: disable-next-line(reentrancy-no-eth)
         (uint256 amount0, uint256 amount1) = pairContract.burn(to);
         if (tokenAddress == pairContract.token0()) {
-            return (amount0, amount1);
+            (tokenAmount, parentTokenAmount) = (amount0, amount1);
+        } else {
+            (tokenAmount, parentTokenAmount) = (amount1, amount0);
         }
-        return (amount1, amount0);
+        uint256 received = IERC20(tokenAddress).balanceOf(to) - tokenBalanceBefore;
+        if (received != tokenAmount) revert InexactTokenTransfer(tokenAddress, tokenAmount, received);
+        received = IERC20(parentTokenAddress).balanceOf(to) - parentBalanceBefore;
+        if (received != parentTokenAmount) revert InexactTokenTransfer(parentTokenAddress, parentTokenAmount, received);
     }
 
     function _settleFees(address tokenAddress, address pair, uint256 round) private {

@@ -413,6 +413,48 @@ contract StakeTest {
         }
     }
 
+    function testFuzzLpBurnRejectsTaxedParentAtRecipient(bool feeSettlement) external {
+        TaxedStakeParent taxedParent = new TaxedStakeParent(owner1);
+        LOVE20Token child = new LOVE20Token("Child", "CH", 1000e18, 2000e18, owner1, address(this), address(taxedParent));
+        MockPair taxedPair = new MockPair(address(child), address(taxedParent));
+        mockLaunch.register(address(child));
+        pairFactory.setPair(address(child), address(taxedParent), address(taxedPair));
+        vm().prank(owner1);
+        child.approve(address(stake), type(uint256).max);
+        vm().prank(owner1);
+        taxedParent.approve(address(stake), type(uint256).max);
+        vm().prank(owner1);
+        stake.stakeLiquidity(address(child), 100e18, 100e18, 10, memberId1, block.timestamp);
+
+        if (feeSettlement) {
+            vm().prank(owner1);
+            child.transfer(address(taxedPair), 100e18);
+            vm().prank(owner1);
+            taxedParent.transfer(address(taxedPair), 100e18);
+            taxedPair.setReserves(200e18, 200e18);
+            // The mock router reports swap output without transferring it.
+            vm().prank(owner1);
+            child.transfer(address(stake), 1e18);
+            taxedParent.setTaxedRecipient(address(stake));
+        } else {
+            vm().prank(owner1);
+            stake.unstake(address(child), memberId1);
+            phase.setPhase(12);
+            taxedParent.setTaxedRecipient(owner1);
+        }
+        uint256 expectedAmount = feeSettlement ? 2e17 : 100e18;
+        uint256 pairBalance = taxedParent.balanceOf(address(taxedPair));
+        vm().prank(owner1);
+        vm().expectRevert(abi.encodeWithSelector(
+            IStakeErrors.InexactTokenTransfer.selector, address(taxedParent), expectedAmount, expectedAmount * 9 / 10
+        ));
+        if (feeSettlement) stake.settleFees(address(child));
+        else stake.withdraw(address(child), memberId1, block.timestamp);
+        require(taxedParent.balanceOf(address(taxedPair)) == pairBalance, "LP burn rolls back");
+        (uint256 shares,,,,,,) = stake.memberStake(address(child), memberId1);
+        require(shares == 100e18, "stake accounting rolls back");
+    }
+
     function testOwnerCanIncreaseCommitmentWithoutAddingStake() external {
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
         (uint256 shares,,,,,,) = stake.memberStake(address(childToken), memberId1);
