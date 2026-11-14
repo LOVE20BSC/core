@@ -96,8 +96,12 @@ contract Mint is IMint {
         return round != 0 && IPhase(PHASE_ADDRESS).currentPhase() > round;
     }
 
-    function reserveRoundReward(address tokenAddress, uint256 round) external {
+    modifier onlyVote() {
         if (msg.sender != VOTE_ADDRESS) revert NotVoteContract(msg.sender);
+        _;
+    }
+
+    function reserveRoundReward(address tokenAddress, uint256 round) external onlyVote {
         uint256 current = IPhase(PHASE_ADDRESS).currentPhase();
         if (round == 0 || round != current) revert RoundNotCurrent(round, current);
         if (!ILaunch(LAUNCH_ADDRESS).isLOVE20Token(tokenAddress)) revert TokenNotRegistered(tokenAddress);
