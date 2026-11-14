@@ -271,7 +271,7 @@ contract Stake is IStake {
             prevPromisedWaitingPhases: member.promisedWaitingPhases
         });
 
-        _pull(tokenAddress, msg.sender, boostAmount);
+        IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), boostAmount);
 
         if (boostAmount > member.boostShares) lastMajorStakeRound[tokenAddress][memberId] = round;
         member.boostShares += boostAmount;
@@ -381,7 +381,7 @@ contract Stake is IStake {
         // Only the asset and the community share total move here: the boost history was already reduced
         // when the unlock was requested.
         if (boostShares > 0) {
-            _push(tokenAddress, msg.sender, boostShares);
+            IERC20(tokenAddress).safeTransfer(msg.sender, boostShares);
             _totalStake[tokenAddress].totalBoostShares -= boostShares;
         }
 
@@ -727,21 +727,6 @@ contract Stake is IStake {
         return ISubmit(IVote(VOTE_ADDRESS).SUBMIT_ADDRESS()).proposalIdBySubmitterId(tokenAddress, round, memberId) != 0;
     }
 
-    function _pull(address tokenAddress, address from, uint256 amount) private {
-        uint256 beforeBalance = IERC20(tokenAddress).balanceOf(address(this));
-        IERC20(tokenAddress).safeTransferFrom(from, address(this), amount);
-        uint256 received = IERC20(tokenAddress).balanceOf(address(this)) - beforeBalance;
-        if (received != amount) revert InexactTokenTransfer(tokenAddress, amount, received);
-    }
-
-    function _push(address tokenAddress, address to, uint256 amount) private {
-        uint256 beforeBalance = IERC20(tokenAddress).balanceOf(to);
-        // forge-lint: disable-next-line(reentrancy-no-eth)
-        IERC20(tokenAddress).safeTransfer(to, amount);
-        uint256 received = IERC20(tokenAddress).balanceOf(to) - beforeBalance;
-        if (received != amount) revert InexactTokenTransfer(tokenAddress, amount, received);
-    }
-
     function _pairFor(address tokenAddress) private returns (address pair) {
         pair = _pairAddressByTokenAddress[tokenAddress];
         if (pair == address(0)) {
@@ -955,10 +940,20 @@ contract Stake is IStake {
             _optimalAmounts(tokenAmount, parentTokenAmount, snapshot.reserveToken, snapshot.reserveParent);
 
         address parentTokenAddress = ILOVE20Token(tokenAddress).PARENT_TOKEN_ADDRESS();
-        _pull(tokenAddress, msg.sender, added.tokenAmount);
-        _pull(parentTokenAddress, msg.sender, added.parentTokenAmount);
-        _push(tokenAddress, pair, added.tokenAmount);
-        _push(parentTokenAddress, pair, added.parentTokenAmount);
+        IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), added.tokenAmount);
+        uint256 parentBalanceBefore = IERC20(parentTokenAddress).balanceOf(address(this));
+        IERC20(parentTokenAddress).safeTransferFrom(msg.sender, address(this), added.parentTokenAmount);
+        uint256 received = IERC20(parentTokenAddress).balanceOf(address(this)) - parentBalanceBefore;
+        if (received != added.parentTokenAmount) {
+            revert InexactTokenTransfer(parentTokenAddress, added.parentTokenAmount, received);
+        }
+        IERC20(tokenAddress).safeTransfer(pair, added.tokenAmount);
+        parentBalanceBefore = IERC20(parentTokenAddress).balanceOf(pair);
+        IERC20(parentTokenAddress).safeTransfer(pair, added.parentTokenAmount);
+        received = IERC20(parentTokenAddress).balanceOf(pair) - parentBalanceBefore;
+        if (received != added.parentTokenAmount) {
+            revert InexactTokenTransfer(parentTokenAddress, added.parentTokenAmount, received);
+        }
 
         added.lpMinted = IUniswapV2Pair(pair).mint(address(this));
         if (added.lpMinted == 0) revert ZeroLiquidityMinted();
@@ -1132,11 +1127,11 @@ contract Stake is IStake {
             PairSnapshot memory snapshot = _pairSnapshot(pair, tokenAddress);
             if (_canBurn(lpAmount, snapshot)) {
                 withdrawableLpBurned = lpAmount;
-                _push(pair, pair, lpAmount);
+                IERC20(pair).safeTransfer(pair, lpAmount);
                 (tokenAmount, parentTokenAmount) = _burnLp(IUniswapV2Pair(pair), tokenAddress, msg.sender);
             } else {
                 withdrawableLpToMember = lpAmount;
-                _push(pair, msg.sender, lpAmount);
+                IERC20(pair).safeTransfer(msg.sender, lpAmount);
             }
         }
 
@@ -1198,7 +1193,7 @@ contract Stake is IStake {
         IUniswapV2Pair pairContract = IUniswapV2Pair(pair);
         _lastSettlePhase[tokenAddress] = round;
 
-        _push(pair, pair, processedFeeLp);
+        IERC20(pair).safeTransfer(pair, processedFeeLp);
         (uint256 tokenBurned, uint256 parentTokenBurned) = _burnLp(pairContract, tokenAddress, address(this));
 
         _totalParentTokenBurned[tokenAddress] += parentTokenBurned;
