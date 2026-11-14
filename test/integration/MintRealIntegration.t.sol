@@ -1420,6 +1420,7 @@ contract MintRealIntegrationTest {
         assertTrue(m2LiqBefore > 0, "Member 2 must have liquidity shares");
 
         // Merge Member 1's stake into Member 2
+        vm.roll(block.number + (PROMISED_WAITING_PHASES + 1) * BLOCKS_PER_ROUND);
         vm.prank(member1);
         stake.mergeStake(address(token), 1, 2);
 

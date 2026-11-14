@@ -315,7 +315,7 @@ contract CoreSecurityPoC {
             "merge reverted with StakeRightsUsed"
         );
 
-        _advancePhase();
+        for (uint256 i; i <= WAIT_MIN; i++) _advancePhase();
         bot.mergeStake();
         (uint256 sharesAfterMerge,,,,,,) = stake.memberStake(address(token), botId);
         _eq(sharesAfterMerge, 0, "merge succeeds in a fresh round");

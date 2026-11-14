@@ -907,6 +907,47 @@ contract StakeTest {
 
     // ============ Merge Tests ============
 
+    function testMergeWaitResetsOnlyAfterReceivingMoreThanExistingShares() external {
+        vm().prank(address(pair));
+        childToken.burn(100000e18);
+        vm().prank(address(pair));
+        parentToken.burn(100000e18);
+        pair.setReserves(0, 0);
+        stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
+        require(stake.lastMajorStakeRound(address(childToken), memberId1) == 1, "first stake starts the wait");
+        phase.setPhase(2);
+        stakeAsOwner(owner1, memberId1, 100e18, 100e18, 10);
+        require(stake.lastMajorStakeRound(address(childToken), memberId1) == 1, "small top-up keeps the wait");
+        phase.setPhase(3);
+        stakeAsOwner(owner1, memberId1, 2000e18, 2000e18, 10);
+        require(stake.lastMajorStakeRound(address(childToken), memberId1) == 3, "large liquidity top-up resets");
+        vm().prank(owner1);
+        childToken.approve(address(stake), 100e18);
+        phase.setPhase(4);
+        vm().prank(owner1);
+        stake.stakeBoost(address(childToken), 10e18, 10, memberId1, type(uint256).max);
+        phase.setPhase(5);
+        vm().prank(owner1);
+        stake.stakeBoost(address(childToken), 10e18, 10, memberId1, type(uint256).max);
+        require(stake.lastMajorStakeRound(address(childToken), memberId1) == 4, "equal boost does not reset");
+        phase.setPhase(6);
+        vm().prank(owner1);
+        stake.stakeBoost(address(childToken), 21e18, 10, memberId1, type(uint256).max);
+        require(stake.lastMajorStakeRound(address(childToken), memberId1) == 6, "large boost resets");
+        phase.setPhase(16);
+        vm().prank(owner1);
+        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.MergeWaitingPeriodNotElapsed.selector, 16, 16));
+        stake.mergeStake(address(childToken), memberId1, memberId2);
+        phase.setPhase(17);
+        vm().prank(owner1);
+        stake.mergeStake(address(childToken), memberId1, memberId2);
+        require(stake.lastMajorStakeRound(address(childToken), memberId1) == 0, "source cleared");
+        require(stake.lastMajorStakeRound(address(childToken), memberId2) == 17, "empty receiver starts a new wait");
+        vm().prank(owner2);
+        vm().expectRevert(abi.encodeWithSelector(IStakeErrors.MergeWaitingPeriodNotElapsed.selector, 17, 27));
+        stake.mergeStake(address(childToken), memberId2, memberId3);
+    }
+
     function testMergeStakeBasic() external {
         // Stake in source
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
@@ -915,6 +956,7 @@ contract StakeTest {
         require(sourceShares > 0, "Source should have shares");
 
         // Merge to empty target
+        phase.setPhase(20);
         vm().prank(owner1);
         stake.mergeStake(address(childToken), memberId1, memberId3);
 
@@ -965,6 +1007,7 @@ contract StakeTest {
         stakeAsOwner(owner1, memberId3, 500e18, 500e18, 5);
 
         // Try to merge (should fail because target phases < source phases)
+        phase.setPhase(20);
         vm().prank(owner1);
         _expectRevertData(
             address(stake),
@@ -986,6 +1029,7 @@ contract StakeTest {
         (uint256 targetSharesBefore, , , , , ,) = stake.memberStake(address(childToken), memberId3);
 
         // Merge should succeed
+        phase.setPhase(20);
         vm().prank(owner1);
         stake.mergeStake(address(childToken), memberId1, memberId3);
 
@@ -995,6 +1039,7 @@ contract StakeTest {
         require(sourceSharesAfter == 0, "Source should be cleared");
         require(targetSharesAfter == targetSharesBefore + sourceShares, "Target should accumulate shares");
         require(targetPhases == 10, "Target should keep its phases");
+        require(stake.lastMajorStakeRound(address(childToken), memberId3) == 20, "major received liquidity resets the wait");
     }
 
 
@@ -2173,11 +2218,12 @@ contract StakeTest {
         require(targetBoostBefore == 0, "Target should have no boost");
 
         // Merge
+        phase.setPhase(20);
         vm().prank(owner1);
         stake.mergeStake(address(childToken), memberId1, memberId3);
 
-        uint256 sourceBoostAfter = stake.validBoostShares(address(childToken), 1, memberId1);
-        uint256 targetBoostAfter = stake.validBoostShares(address(childToken), 1, memberId3);
+        uint256 sourceBoostAfter = stake.validBoostShares(address(childToken), 20, memberId1);
+        uint256 targetBoostAfter = stake.validBoostShares(address(childToken), 20, memberId3);
 
         require(sourceBoostAfter == 0, "Source boost should be moved");
         require(targetBoostAfter == 500e18, "Target should receive boost");
@@ -2812,6 +2858,7 @@ contract StakeTest {
         stakeAsOwner(owner1, memberId1, 400e18, 400e18, 10);
 
         vm().recordLogs();
+        phase.setPhase(20);
         vm().prank(owner2);
         stake.mergeStake(address(childToken), memberId2, memberId3);
 
@@ -2828,7 +2875,7 @@ contract StakeTest {
             require(logs[i].topics[2] == bytes32(memberId2), "event source member");
             require(logs[i].topics[3] == bytes32(memberId3), "event target member");
             StakesMergedPayload memory payload = abi.decode(logs[i].data, (StakesMergedPayload));
-            require(payload.round == 1, "event round is not indexed");
+            require(payload.round == 20, "event round is not indexed");
             require(payload.liquiditySharesMerged == shares, "event merged shares");
             require(payload.boostSharesMerged == 0, "event merged boost");
             require(payload.targetLiquidityShares == shares + targetSharesBefore, "event target shares");
@@ -3351,6 +3398,7 @@ contract StakeTest {
         stake.stakeBoost(address(childToken), 100e18, 10, memberId1, type(uint256).max);
 
         (, , , , uint256 totalUsedBefore, ,,) = stake.totalStake(address(childToken));
+        phase.setPhase(20);
         vm().prank(owner2);
         stake.mergeStake(address(childToken), memberId2, memberId1);
         (, , , , uint256 totalUsedAfter, ,,) = stake.totalStake(address(childToken));
@@ -3376,6 +3424,7 @@ contract StakeTest {
         (uint256 shrunkCap, uint256 usedBefore) = stake.boostStakeCap(address(childToken), memberId1);
         require(usedBefore > shrunkCap, "target must be above its cap");
 
+        phase.setPhase(20);
         vm().prank(owner2);
         stake.mergeStake(address(childToken), memberId2, memberId1);
 
@@ -3400,6 +3449,7 @@ contract StakeTest {
 
         (, , , , uint256 totalUsedBefore, ,,) = stake.totalStake(address(childToken));
 
+        phase.setPhase(20);
         vm().prank(owner2);
         stake.mergeStake(address(childToken), memberId2, memberId1);
 
@@ -3436,6 +3486,7 @@ contract StakeTest {
         uint256 allowed = (baseCap * votesAfter / stake.totalValidGovVotes(address(childToken), round))
             * BOOST_STAKE_MULTIPLIER;
 
+        phase.setPhase(20);
         vm().prank(owner2);
         vm().expectRevert(
             abi.encodeWithSelector(
@@ -3463,6 +3514,7 @@ contract StakeTest {
 
         childToken.burn(600000e18);
 
+        phase.setPhase(20);
         vm().prank(owner1);
         stake.mergeStake(address(childToken), memberId1, memberId2);
 
@@ -3500,6 +3552,7 @@ contract StakeTest {
         uint256 allowed = (baseCap * votesAfter / stake.totalValidGovVotes(address(childToken), round))
             * BOOST_STAKE_MULTIPLIER;
 
+        phase.setPhase(20);
         vm().prank(owner1);
         vm().expectRevert(
             abi.encodeWithSelector(
@@ -3586,7 +3639,7 @@ contract StakeTest {
         phase.setPhase(5);
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 
-        phase.setPhase(11);
+        phase.setPhase(16);
         vm().prank(owner1);
         stake.mergeStake(address(childToken), memberId1, memberId2);
 
@@ -3594,7 +3647,7 @@ contract StakeTest {
         (, , , , , , uint256 targetFirstRound) = stake.memberStake(address(childToken), memberId2);
 
         require(sourceFirstRound == 0, "Merged source is cleared");
-        require(targetFirstRound == 11, "Empty target records the merge round");
+        require(targetFirstRound == 16, "Empty target records the merge round");
     }
 
     function testFirstGovVoteRoundOnMergeIntoFundedTarget() external {
@@ -3604,7 +3657,7 @@ contract StakeTest {
         phase.setPhase(5);
         stakeAsOwner(owner1, memberId1, 1000e18, 1000e18, 10);
 
-        phase.setPhase(9);
+        phase.setPhase(16);
         vm().prank(owner1);
         stake.mergeStake(address(childToken), memberId1, memberId2);
 

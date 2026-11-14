@@ -68,6 +68,7 @@ interface IStakeErrors {
         uint256 round,
         uint256 memberId
     );
+    error MergeWaitingPeriodNotElapsed(uint256 currentRound, uint256 mergeAfter);
     error SourceEqualsTarget(uint256 sourceMemberId);
     error TargetPromisedWaitingPhasesTooShort(
         uint256 targetPhases,
@@ -219,6 +220,7 @@ interface IStake is IStakeErrors, IStakeEvents {
     ) external returns (uint256 govVotesAdded);
     function unstake(address tokenAddress, uint256 memberId) external;
     function withdraw(address tokenAddress, uint256 memberId, uint256 deadline) external;
+    function lastMajorStakeRound(address tokenAddress, uint256 memberId) external view returns (uint256);
     function mergeStake(address tokenAddress, uint256 sourceMemberId, uint256 targetMemberId) external;
 
     function PROMISED_WAITING_PHASES_MIN() external view returns (uint256);

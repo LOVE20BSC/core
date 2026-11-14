@@ -125,6 +125,7 @@ contract Stake is IStake {
     // tokenAddress => phase of the last realised settlement; one settlement per community per phase
     mapping(address => uint256) internal _lastSettlePhase;
     mapping(address => uint256) internal _totalLiquidityTokenAmount;
+    mapping(address => mapping(uint256 => uint256)) public lastMajorStakeRound;
 
     // forge-lint: disable-next-item(missing-zero-check)
     constructor(
@@ -272,6 +273,7 @@ contract Stake is IStake {
 
         _pull(tokenAddress, msg.sender, boostAmount);
 
+        if (boostAmount > member.boostShares) lastMajorStakeRound[tokenAddress][memberId] = round;
         member.boostShares += boostAmount;
         totals.totalBoostShares += boostAmount;
 
@@ -349,6 +351,7 @@ contract Stake is IStake {
         }
 
         delete _memberStake[tokenAddress][memberId];
+        delete lastMajorStakeRound[tokenAddress][memberId];
 
         (
             uint256 tokenAmountForLiquidity,
@@ -404,6 +407,9 @@ contract Stake is IStake {
         if (_hasUsedStakeRights(tokenAddress, round, sourceMemberId)) {
             revert StakeRightsUsed(tokenAddress, round, sourceMemberId);
         }
+
+        uint256 mergeAfter = lastMajorStakeRound[tokenAddress][sourceMemberId] + source.promisedWaitingPhases;
+        if (round <= mergeAfter) revert MergeWaitingPeriodNotElapsed(round, mergeAfter);
 
         bool targetHadPosition = target.liquidityShares != 0 || target.boostShares != 0;
 
@@ -745,6 +751,9 @@ contract Stake is IStake {
         merged.prevSourceGovVotes = _govVotesOf(source);
         uint256 govVotesBefore = _govVotesOf(target);
 
+        if (merged.liquidityShares > target.liquidityShares || merged.boostShares > target.boostShares) {
+            lastMajorStakeRound[tokenAddress][targetMemberId] = round;
+        }
         target.liquidityShares += merged.liquidityShares;
         target.boostShares += merged.boostShares;
         if (targetIsEmpty) {
@@ -769,6 +778,7 @@ contract Stake is IStake {
         merged.totalValidGovVotes = _totalValidGovVotesAt(tokenAddress, round);
 
         delete _memberStake[tokenAddress][sourceMemberId];
+        delete lastMajorStakeRound[tokenAddress][sourceMemberId];
     }
 
     function _moveBoostHistory(address tokenAddress, uint256 sourceMemberId, uint256 targetMemberId, uint256 shares, uint256 round)
@@ -797,6 +807,7 @@ contract Stake is IStake {
         if (member.firstGovVoteRound == 0 && liquiditySharesAdded != 0) member.firstGovVoteRound = write.round;
         if (totals.firstGovVoteRound == 0 && liquiditySharesAdded != 0) totals.firstGovVoteRound = write.round;
 
+        if (liquiditySharesAdded > member.liquidityShares) lastMajorStakeRound[tokenAddress][write.memberId] = write.round;
         member.liquidityShares += liquiditySharesAdded;
         member.promisedWaitingPhases = write.promisedWaitingPhases;
         totals.totalLiquidityShares += liquiditySharesAdded;
