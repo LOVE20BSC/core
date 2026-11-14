@@ -1591,12 +1591,14 @@ contract MockUniswapV2Pair {
         return liquidity;
     }
 
-    function burn(address /* to */) external returns (uint256 amount0, uint256 amount1) {
+    function burn(address to) external returns (uint256 amount0, uint256 amount1) {
         amount0 = 5000;
         amount1 = 5000;
         _totalSupply = 0;
         reserve0 = 0;
         reserve1 = 0;
+        LOVE20Token(token0).transfer(to, amount0);
+        LOVE20Token(token1).transfer(to, amount1);
         return (amount0, amount1);
     }
 
