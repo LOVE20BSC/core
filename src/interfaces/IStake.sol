@@ -100,7 +100,14 @@ interface IStakeErrors {
 }
 
 interface IStakeEvents {
-    event PromisedWaitingPhasesIncreased(address indexed tokenAddress, uint256 indexed memberId, uint256 round, uint256 previous, uint256 promisedWaitingPhases, uint256 govVotesAdded);
+    event PromisedWaitingPhasesIncreased(
+        address indexed tokenAddress,
+        uint256 indexed memberId,
+        uint256 round,
+        uint256 previous,
+        uint256 promisedWaitingPhases,
+        uint256 govVotesAdded
+    );
     event LiquidityStaked(
         address indexed tokenAddress,
         uint256 indexed round,

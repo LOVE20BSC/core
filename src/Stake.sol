@@ -318,7 +318,14 @@ contract Stake is IStake {
         member.promisedWaitingPhases = promisedWaitingPhases;
         _totalGovVotesAdded[tokenAddress].increase(round, govVotesAdded);
         _govVotesByMember[tokenAddress][memberId].increase(round, govVotesAdded);
-        emit PromisedWaitingPhasesIncreased(tokenAddress, memberId, round, previous, promisedWaitingPhases, govVotesAdded);
+        emit PromisedWaitingPhasesIncreased({
+            tokenAddress: tokenAddress,
+            memberId: memberId,
+            round: round,
+            previous: previous,
+            promisedWaitingPhases: promisedWaitingPhases,
+            govVotesAdded: govVotesAdded
+        });
     }
 
     function unstake(address tokenAddress, uint256 memberId) external onlyMemberOwner(memberId) {

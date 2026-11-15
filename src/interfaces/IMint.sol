@@ -7,7 +7,12 @@ enum BurnReason {
 }
 
 interface IMintEvents {
-    event RoundRewardReserved(address indexed tokenAddress, uint256 indexed round, uint256 govReward, uint256 proposalReward);
+    event RoundRewardReserved(
+        address indexed tokenAddress,
+        uint256 indexed round,
+        uint256 govReward,
+        uint256 proposalReward
+    );
     event RewardPrepared(
         address indexed tokenAddress,
         uint256 indexed round,

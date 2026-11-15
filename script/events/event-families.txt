@@ -8,11 +8,13 @@ LaunchCountAdded core.registry
 LaunchCountMerged core.registry
 LaunchCountConsumed core.registry
 MemberMinted core.member
+RoundRewardReserved core.round
 RewardPrepared core.round
 GovRewardMinted core.round
 ProposalRewardMinted core.round
 RewardBurned core.round
 PhaseSynchronized core.phase
+PromisedWaitingPhasesIncreased core.stake
 LiquidityStaked core.stake
 BoostStaked core.stake
 Unstaked core.stake

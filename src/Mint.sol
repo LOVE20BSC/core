@@ -129,7 +129,12 @@ contract Mint is IMint {
         _totalRewardReserved[tokenAddress] += gov + proposal;
         _isRewardReserved[tokenAddress][round] = true;
         // forge-lint: disable-next-item(reentrancy-events)
-        emit RoundRewardReserved(tokenAddress, round, gov, proposal);
+        emit RoundRewardReserved({
+            tokenAddress: tokenAddress,
+            round: round,
+            govReward: gov,
+            proposalReward: proposal
+        });
     }
 
     function prepareRewardIfNeeded(address tokenAddress, uint256 round) external {
