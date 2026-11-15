@@ -26,7 +26,11 @@ struct DexConfig {
 }
 
 interface IStakeErrors {
-    error InexactTokenTransfer(address tokenAddress, uint256 expected, uint256 received);
+    error InexactTokenTransfer(
+        address tokenAddress,
+        uint256 expected,
+        uint256 received
+    );
     error DeadlineExpired(uint256 deadline);
     error StakeNotStarted();
     error ZeroTokenAmount();
@@ -69,7 +73,10 @@ interface IStakeErrors {
         uint256 round,
         uint256 memberId
     );
-    error MergeWaitingPeriodNotElapsed(uint256 currentRound, uint256 mergeAfter);
+    error MergeWaitingPeriodNotElapsed(
+        uint256 currentRound,
+        uint256 mergeAfter
+    );
     error SourceEqualsTarget(uint256 sourceMemberId);
     error TargetPromisedWaitingPhasesTooShort(
         uint256 targetPhases,

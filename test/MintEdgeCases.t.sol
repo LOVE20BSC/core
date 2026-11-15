@@ -114,6 +114,19 @@ contract MintEdgeCasesTest {
         require(mint.PHASE_ADDRESS() == address(this), "phase injected and exposed");
     }
 
+    function testReserveRejectsZeroAndNonCurrentRounds() public {
+        setupMint(1000, 10000);
+        currentPhaseValue = 0;
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotCurrent.selector, 0, 0));
+        mint.reserveRoundReward(address(token), 0);
+
+        currentPhaseValue = 5;
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotCurrent.selector, 4, 5));
+        mint.reserveRoundReward(address(token), 4);
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotCurrent.selector, 6, 5));
+        mint.reserveRoundReward(address(token), 6);
+    }
+
     function testPrepareRejectsUnregisteredToken() public {
         setupMint(1000, 10000);
         currentPhaseValue = 5;

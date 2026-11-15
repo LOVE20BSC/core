@@ -49,7 +49,10 @@ interface IMintEvents {
 
 interface IMintErrors {
     error NotVoteContract(address caller);
-    error RoundNotCurrent(uint256 round, uint256 current);
+    error RoundNotCurrent(
+        uint256 round,
+        uint256 current
+    );
     error NotProposalTarget(
         address caller,
         address expectedTarget
