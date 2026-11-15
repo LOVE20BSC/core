@@ -203,7 +203,7 @@ contract Stake is IStake {
         _;
     }
 
-    modifier beforeDeadline(uint256 deadline) {
+    modifier nonExpired(uint256 deadline) {
         // The caller sets the latest acceptable inclusion time.
         // forge-lint: disable-next-item(block-timestamp)
         if (block.timestamp > deadline) revert DeadlineExpired(deadline);
@@ -217,7 +217,7 @@ contract Stake is IStake {
         uint256 promisedWaitingPhases,
         uint256 memberId,
         uint256 deadline
-    ) external beforeDeadline(deadline) returns (uint256 govVotesAdded, uint256 liquiditySharesAdded) {
+    ) external nonExpired(deadline) returns (uint256 govVotesAdded, uint256 liquiditySharesAdded) {
         return _stakeLiquidity(tokenAddress, tokenAmount, parentTokenAmount, promisedWaitingPhases, memberId);
     }
 
@@ -253,7 +253,7 @@ contract Stake is IStake {
 
     function stakeBoost(address tokenAddress, uint256 boostAmount, uint256 promisedWaitingPhases, uint256 memberId, uint256 deadline)
         external
-        beforeDeadline(deadline)
+        nonExpired(deadline)
         returns (uint256 govVotesAdded)
     {
         return _stakeBoost(tokenAddress, boostAmount, promisedWaitingPhases, memberId);
@@ -368,7 +368,7 @@ contract Stake is IStake {
         });
     }
 
-    function withdraw(address tokenAddress, uint256 memberId, uint256 deadline) external beforeDeadline(deadline) onlyMemberOwner(memberId) {
+    function withdraw(address tokenAddress, uint256 memberId, uint256 deadline) external nonExpired(deadline) onlyMemberOwner(memberId) {
         _withdraw(tokenAddress, memberId);
     }
 
