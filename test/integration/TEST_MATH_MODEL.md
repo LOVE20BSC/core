@@ -148,7 +148,7 @@ govVotes = liquidityShares × promisedWaitingPhases
 ```
 
 其中：
-- `liquidityShares`: 成员质押的流动性份额
+- `liquidityShares`: 成员质押的流动性质押份额
 - `promisedWaitingPhases`: 承诺的等待轮次数（1-100）
 
 ### 6.2 Boost 值

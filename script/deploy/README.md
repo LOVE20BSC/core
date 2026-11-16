@@ -75,7 +75,7 @@ ROUTER_ADDRESS=0x...     # dex 部署的 Uniswap V2 Router02
 TOKEN_NAME=LOVE@WBNB                          # 首币名称，惯例为 <首币符号>@<根父币符号>
 TOKEN_SYMBOL=LOVE                             # 首币符号；以 "Test" 开头时，子币符号自动加 "Test" 前缀
 LAUNCH_AMOUNT=1e27                           # 每个代币的首批供应，10亿枚（18位小数）；不得小于 1e18
-MAX_SUPPLY=1e28                              # 每个代币的供应上限，100亿枚（18位小数）
+MAX_SUPPLY=1e28                              # 每个代币的最大铸币上限，100亿枚（18位小数）
 
 # 首币空投（distributor 为首币首批供应的接收方，由部署顺序决定，不再配置地址）
 GENESIS_AIRDROP_MERKLE_ROOT=0x...            # 首币份额 Merkle Root；零值在广播前失败

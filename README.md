@@ -19,7 +19,7 @@ Core 负责 MemberNFT、Phase、Stake、Proposal、Vote、Mint、LOVE20Token 和
 - `src/LOVE20Token.sol`：已完成 BSC 版，构造函数接收名称、符号、首批供应量、最大供应量、`distributor`、`minter` 和父币。
 - `src/Launch.sol`：已完成 BSC 版，负责首币部署、代币创建与登记、发射次数账本、次数融合和子币发射。
 - `src/MemberNFT.sol`：已完成 BSC 版成员身份 NFT，首币地址在构造函数传入（部署脚本从 `Launch.FIRST_TOKEN_ADDRESS()` 读取）。
-- `src/Phase.sol`：已完成 BSC 版无业务语义时间片，含同步观测分页查询与动态校准。
+- `src/Phase.sol`：已完成 BSC 版无业务语义的阶段，含同步观测分页查询与动态校准。
 - `src/Stake.sol`：已完成 BSC 版流动性质押、加速质押、份额与手续费重分类、按轮次的治理票与加速份额账本。
 - `src/Submit.sol`：已完成 BSC 版 Proposal 创建与推举，含创建与推举两个 Target 回调。
 - `src/Vote.sol`：已完成 BSC 版本轮投票、票数上限与加速快照，含投票回调。
