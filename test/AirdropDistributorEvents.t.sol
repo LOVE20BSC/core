@@ -47,7 +47,7 @@ contract AirdropDistributorEventsTest is LaunchDeployFixture {
         require(found, "genesis AirdropConfigured missing");
     }
 
-    function testGenesisConfigurationEventIsTheOnlyLogOfTheDistributorConstructor() external {
+    function testConstructorEmitsGenesisConfigurationAndSnapshotUri() external {
         vm.recordLogs();
         _redeployForEventCapture();
 
@@ -55,10 +55,14 @@ contract AirdropDistributorEventsTest is LaunchDeployFixture {
         uint256 configuredCount;
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(distributor)) continue;
-            require(logs[i].topics[0] == CONFIGURED_TOPIC, "unexpected distributor log in constructor");
+            if (logs[i].topics[0] != CONFIGURED_TOPIC) continue;
             configuredCount += 1;
         }
         require(configuredCount == 1, "exactly one configuration event");
+        require(_countSnapshotUriEvents(logs) == 1, "exactly one snapshot URI event");
+        (string memory uri, string memory previous) = _readSnapshotUriUpdatedEvent(logs, address(firstToken));
+        require(keccak256(bytes(uri)) == keccak256(bytes(GENESIS_SNAPSHOT_URI)), "constructor snapshot URI");
+        require(bytes(previous).length == 0, "no previous URI");
     }
 
     // ============ 23. 普通发射的 AirdropConfigured 三字段 ============

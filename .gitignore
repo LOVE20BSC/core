@@ -1,11 +1,14 @@
 /out/
 /cache/
 /broadcast/
+/_site/
+__pycache__/
+/script/network/.check-network-tests/
 *.bin
 lcov.info
 
 # 敏感部署配置
-script/network/**/.account
+.account
 
 # 本地审计 PoC，不进仓库
 /test/audit/

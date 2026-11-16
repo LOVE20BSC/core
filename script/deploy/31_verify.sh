@@ -37,6 +37,7 @@ fi
 
 # Parameters come from files only: clear every key the files define, so a value exported by the
 # caller cannot override a file value.
+params_require_values "$NETWORK_DIR/core.params" GENESIS_AIRDROP_MERKLE_ROOT GENESIS_AIRDROP_SNAPSHOT_URI || exit 1
 params_unset_all "$NETWORK_DIR/network.params" "$VERIFIER_PARAMS" \
     "$NETWORK_DIR/addresses.uniswapv2.params" "$NETWORK_DIR/core.params" \
     "$NETWORK_DIR/addresses.core.params"
@@ -62,7 +63,15 @@ fi
 
 # The endpoint is a mandatory key: an empty URL would be passed straight to forge.
 params_require_values "$VERIFIER_PARAMS" ETHERSCAN_VERIFIER_URL || exit 1
-: "${ETHERSCAN_API_KEY:?Set an Etherscan API key; source verification has not run.}"
+unset ETHERSCAN_API_KEY
+if [ ! -f "$NETWORK_DIR/.account" ]; then
+    echo "Error: Missing required configuration: $NETWORK_DIR/.account" >&2
+    exit 1
+fi
+set -a
+source "$NETWORK_DIR/.account"
+set +a
+: "${ETHERSCAN_API_KEY:?Set ETHERSCAN_API_KEY in .account; source verification has not run.}"
 
 require_core_addresses() {
     local field
@@ -101,9 +110,9 @@ if ! TOKEN_ARGS=$(cast abi-encode "constructor(string,string,uint256,uint256,add
     echo "Error: Failed to encode LOVE20Token constructor arguments"
     exit 1
 fi
-if ! AIRDROP_ARGS=$(cast abi-encode "constructor(address,address,address,bytes32,uint256)" \
+if ! AIRDROP_ARGS=$(cast abi-encode "constructor(address,address,address,bytes32,uint256,string)" \
     "$LAUNCH_ADDRESS" "$PHASE_ADDRESS" "$LOVE20_TOKEN_ADDRESS" \
-    "$GENESIS_AIRDROP_MERKLE_ROOT" "$GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS"); then
+    "$GENESIS_AIRDROP_MERKLE_ROOT" "$GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS" "$GENESIS_AIRDROP_SNAPSHOT_URI"); then
     echo "Error: Failed to encode AirdropDistributor constructor arguments"
     exit 1
 fi

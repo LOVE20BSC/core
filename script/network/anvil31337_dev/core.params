@@ -9,12 +9,10 @@ MAX_SUPPLY=1e28                         # 1e10 tokens
 # The genesis token's first supply is minted to the AirdropDistributor deployed by 11_deploy.sh;
 # DISTRIBUTOR_ADDRESS is gone - the distributor address is predicted (nonce+1) and fixed by the
 # deployment order, not configured.
-# Root MUST equal the merkle root of the snapshot actually served/seeded (the local fixture
-# fixtures/airdrop/anvil31337_dev.json in the sibling `anvil` repo, root 0x046a5d53…). A mismatched
-# root makes every claim revert InvalidProof while the chain still looks healthy. Kept in sync with
-# anvil/params/anvil31337_dev/core.params (owner 2026-11-12).
+# The snapshot is kept beside this file; its filename contains the immutable root.
 GENESIS_AIRDROP_MERKLE_ROOT=0x046a5d5357fd4da6986a88fb1e2baf3603375d2099ce9f46b9d6fbe333c6c404
 GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS=1     # 首币可领取轮 = max(currentPhase,1) + 该值；<= 1000
+GENESIS_AIRDROP_SNAPSHOT_URI=https://love20bsc.github.io/core/script/network/anvil31337_dev/airdrop.json
 # Root parent token is read from Router.WETH(); do not configure it here.
 
 # MemberNFT

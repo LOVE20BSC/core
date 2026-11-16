@@ -203,7 +203,8 @@ CONSTRUCTOR_SLOTS = {
     "LOVE20Token": ["TOKEN_NAME", "TOKEN_SYMBOL", "LAUNCH_AMOUNT", "MAX_SUPPLY",
                     "AIRDROP_DISTRIBUTOR_ADDRESS", "MINT_ADDRESS", "WETH_ADDRESS"],
     "AirdropDistributor": ["LAUNCH_ADDRESS", "PHASE_ADDRESS", "LOVE20_TOKEN_ADDRESS",
-                           "GENESIS_AIRDROP_MERKLE_ROOT", "GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS"],
+                           "GENESIS_AIRDROP_MERKLE_ROOT", "GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS",
+                           "GENESIS_AIRDROP_SNAPSHOT_URI"],
     "Launch": ["MINT_ADDRESS", "MEMBER_NFT_ADDRESS", "WETH_ADDRESS", "FACTORY_ADDRESS",
                "AIRDROP_DISTRIBUTOR_ADDRESS", "LAUNCH_COUNT_THRESHOLD_RATIO", "MAX_LAUNCH_COUNT",
                "TOKEN_SYMBOL_LENGTH", "LAUNCH_AMOUNT", "MAX_SUPPLY", "TOKEN_NAME", "TOKEN_SYMBOL"],
@@ -388,6 +389,7 @@ def main():
                     "LAUNCH_AMOUNT": "1000000000000000000000000000", "MAX_SUPPLY": "10000000000000000000000000000",
                     "GENESIS_AIRDROP_MERKLE_ROOT": "0x" + "3c" * 32,
                     "GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS": "1",
+                    "GENESIS_AIRDROP_SNAPSHOT_URI": "https://love20bsc.github.io/core/script/network/test/airdrop.json",
                     "MEMBER_BASE_DIVISOR": "100000000", "MEMBER_BYTES_THRESHOLD": "7",
                     "MEMBER_MULTIPLIER": "10", "MEMBER_MAX_NAME_LENGTH": "32", "PHASE_ORIGIN_BLOCKS": "1",
                     "PHASE_ORIGIN_PHASE_BLOCKS": "100", "PHASE_TARGET_SECONDS": "300",
@@ -428,7 +430,7 @@ def main():
                                    "1000000000000000000",
                                    "0",
                                    env["LAUNCH_AMOUNT"],
-                                   ""]}
+                                   env["GENESIS_AIRDROP_SNAPSHOT_URI"]]}
         calls[env["AIRDROP_DISTRIBUTOR_ADDRESS"].lower()
               + "/airdropInfo(address)((address,bytes32,uint256,uint256,uint256,uint256,uint256,string))"] = "0x00"
         getters("LAUNCH", {key + "()(uint256)": key for key in ("LAUNCH_COUNT_THRESHOLD_RATIO", "MAX_LAUNCH_COUNT", "TOKEN_SYMBOL_LENGTH", "MAX_SUPPLY")})
@@ -468,11 +470,13 @@ def main():
         tmp_dir.mkdir()
         data_path.write_text(json.dumps({"env": env, "contracts": contracts, "calls": calls,
                                            "airdrop_info": airdrop_info}))
-        network.joinpath("network.params").write_text("\n".join(key + "=" + shlex.quote(value) for key, value in env.items()) + "\n")
+        network.joinpath("network.params").write_text("\n".join(key + "=" + shlex.quote(value) for key, value in env.items() if key != "ETHERSCAN_API_KEY") + "\n")
         network.parent.joinpath("verifier.params").write_text(
             "ETHERSCAN_VERIFIER_URL=https://api.etherscan.io/v2/api\nVERIFY_SKIP_CHAIN_IDS=31337\n")
         for name in ("addresses.uniswapv2.params", "core.params"):
             network.joinpath(name).write_text("")
+        network.joinpath("core.params").write_text("\n".join(
+            key + "=" + value for key, value in env.items() if key.startswith("GENESIS_AIRDROP_")) + "\n")
         saved = network / "addresses.core.params"
         # 步骤自行载入地址文件：先写入一份与 env 一致的已部署地址，供独立运行的 21_check / 31_verify 读取。
         saved.write_text("\n".join(name + "_ADDRESS=" + env[name + "_ADDRESS"] for name in names) + "\n")
@@ -484,10 +488,11 @@ def main():
                 "NETWORK_DIR": str(network), "network": "test", **env}
         checks = 0
 
-        def write_account(password_line=""):
+        def write_account(password_line="", api_key="test-key"):
             # 正确用法：keystore 名称 + 账户地址 + 可选密码。
             network.joinpath(".account").write_text(
-                "KEYSTORE_ACCOUNT=test-keystore\nACCOUNT_ADDRESS=0x" + "f5" * 20 + "\n" + password_line)
+                "KEYSTORE_ACCOUNT=test-keystore\nACCOUNT_ADDRESS=0x" + "f5" * 20 + "\n"
+                + "ETHERSCAN_API_KEY=" + api_key + "\n" + password_line)
 
         def run(script, success=True, args=(), **extra):
             nonlocal checks
@@ -506,9 +511,20 @@ def main():
             return result, log
 
         def forge_script_call(log):
-            return next(call for call in log if call[:2] == ["forge", "script"])
+            return next(call for call in log if call[:3] == ["forge", "script", "script/deploy/DeployCore.s.sol:DeployCore"])
 
         write_account()
+
+        core_params = network / "core.params"
+        core_params_text = core_params.read_text()
+        for key in ("GENESIS_AIRDROP_MERKLE_ROOT", "GENESIS_AIRDROP_SNAPSHOT_URI"):
+            for replacement in ("", key + "=\n"):
+                core_params.write_text(re.sub(r"^" + key + r"=.*\n", replacement, core_params_text, flags=re.MULTILINE))
+                for step in ("11_deploy.sh", "21_check.sh", "31_verify.sh"):
+                    result, log = run(step, False, ("test",))
+                    assert key in result.stdout + result.stderr
+                    assert not log, log
+        core_params.write_text(core_params_text)
 
         run("21_check.sh", args=("test",))
         # 地址文件键集合不符（漏改键名）必须显式失败。
@@ -574,7 +590,7 @@ def main():
             "FACTORY_ADDRESS=" + env["FACTORY_ADDRESS"] + "\nROUTER_ADDRESS=" + env["ROUTER_ADDRESS"] + "\n")
         network_params = network / "network.params"
         network_params_text = network_params.read_text()
-        network_params.write_text("CHAIN_ID=97\nRPC_URL=http://invalid.local\nETHERSCAN_API_KEY=test-key\n")
+        network_params.write_text("CHAIN_ID=97\nRPC_URL=http://invalid.local\n")
         _, log = run("one_click_deploy.sh", args=("test",), TOKEN_NAME="InjectedName")
         deployed_env = next(entry[1] for entry in log if entry[0] == "ENV")
         assert deployed_env["TOKEN_NAME"] == env["TOKEN_NAME"], deployed_env["TOKEN_NAME"]
@@ -664,8 +680,7 @@ def main():
             result, log = run("31_verify.sh", False, ("test",), ABI_ENCODE_FAIL=signature)
             assert f"Failed to encode {contract}" in result.stdout, result.stdout
             assert not any(call[0] == "forge" for call in log)
-        with network.joinpath("network.params").open("a") as config:
-            config.write("ETHERSCAN_API_KEY=\n")
+        write_account(api_key="")
         _, log = run("31_verify.sh", False, ("test",))
         assert not any(call[0] == "forge" for call in log)
         assert not list(tmp_dir.iterdir()), list(tmp_dir.iterdir())

@@ -65,6 +65,7 @@ abstract contract LaunchDeployFixture {
     AirdropVm internal constant vm = AirdropVm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     uint256 internal constant TOTAL_SHARE = 1e18;
+    string internal constant GENESIS_SNAPSHOT_URI = "https://love20bsc.github.io/core/script/network/test/airdrop.json";
     uint256 internal constant LAUNCH_AMOUNT = 100 ether;
     uint256 internal constant MAX_SUPPLY = 200 ether;
     uint256 internal constant TOKEN_SYMBOL_LENGTH = 3;
@@ -131,7 +132,8 @@ abstract contract LaunchDeployFixture {
             address(phase),
             predictedFirstToken,
             genesisMerkleRoot,
-            genesisClaimDelayRounds
+            genesisClaimDelayRounds,
+            GENESIS_SNAPSHOT_URI
         );
 
         launch = new Launch(

@@ -36,7 +36,7 @@ contract AirdropDistributor is IAirdropDistributor {
     mapping(address => mapping(address => bool)) internal _isClaimedByTokenAddressByClaimer;
     // tokenAddress => claimer => amount actually paid out by the successful claim
     mapping(address => mapping(address => uint256)) internal _claimedAmountByTokenAddressByClaimer;
-    // tokenAddress => discovery hint URL of the Merkle snapshot JSON (empty by default)
+    // tokenAddress => discovery hint URL of the Merkle snapshot JSON
     mapping(address => string) internal _snapshotUriByTokenAddress;
     // tokenAddress => launcher memberId (0 = genesis, permanently non-updatable)
     mapping(address => uint256) internal _launcherMemberIdByTokenAddress;
@@ -63,12 +63,14 @@ contract AirdropDistributor is IAirdropDistributor {
         address phaseAddress,
         address genesisTokenAddress,
         bytes32 genesisMerkleRoot,
-        uint256 genesisClaimDelayRounds
+        uint256 genesisClaimDelayRounds,
+        string memory genesisSnapshotUri
     ) {
         LAUNCH_ADDRESS = launchAddress;
         PHASE_ADDRESS = phaseAddress;
 
         _configure(genesisTokenAddress, genesisMerkleRoot, genesisClaimDelayRounds, 0);
+        _setSnapshotUri(genesisTokenAddress, genesisSnapshotUri);
     }
 
     function onTokenLaunched(
@@ -132,6 +134,10 @@ contract AirdropDistributor is IAirdropDistributor {
         external
         onlySnapshotUriUpdater(tokenAddress)
     {
+        _setSnapshotUri(tokenAddress, snapshotUri);
+    }
+
+    function _setSnapshotUri(address tokenAddress, string memory snapshotUri) private {
         uint256 length = bytes(snapshotUri).length;
         if (length == 0) revert SnapshotUriEmpty();
         if (length > MAX_SNAPSHOT_URI_BYTES) revert SnapshotUriTooLong(length, MAX_SNAPSHOT_URI_BYTES);

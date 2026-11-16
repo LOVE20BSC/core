@@ -15,6 +15,10 @@ contract DeployCoreHarness is DeployCore {
         _validateConfig(config);
     }
 
+    function snapshotPathForTest(string memory directory, string memory uri) external pure returns (string memory) {
+        return _snapshotPath(directory, uri);
+    }
+
     function deployForTest(CoreConfig memory config, address rootParent)
         external
         returns (DeploymentAddresses memory addrs)
@@ -45,7 +49,8 @@ contract DeployCoreTest is Test {
         vm.etch(rootParent, hex"00");
     }
 
-    function testPreflightAcceptsValidConfig() public view {
+    function testPreflightAcceptsValidConfigWithoutNetworkDirectory() public {
+        vm.setEnv("NETWORK_DIR", "");
         deployer.validateConfigForTest(_validConfig());
     }
 
@@ -153,6 +158,44 @@ contract DeployCoreTest is Test {
         config.genesisClaimDelayRounds = 1001;
         vm.expectRevert("Genesis claim delay rounds exceed MAX_CLAIM_DELAY_ROUNDS");
         deployer.validateConfigForTest(config);
+    }
+
+    function testRejectsInvalidGenesisSnapshotUriLength() public {
+        DeployCore.CoreConfig memory config = _validConfig();
+        config.genesisSnapshotUri = "";
+        vm.expectRevert("Genesis snapshot URI must be 1..256 bytes");
+        deployer.validateConfigForTest(config);
+        config.genesisSnapshotUri = string(new bytes(257));
+        vm.expectRevert("Genesis snapshot URI must be 1..256 bytes");
+        deployer.validateConfigForTest(config);
+    }
+
+    function testRejectsSnapshotFromAnotherNetwork() public {
+        vm.expectRevert("Genesis snapshot URI must point to this network's HTTPS snapshot");
+        deployer.snapshotPathForTest(
+            "script/network/anvil31337_dev", "https://love20bsc.github.io/core/script/network/other/airdrop.json"
+        );
+    }
+
+    function testRejectsInsecureSnapshotUri() public {
+        vm.expectRevert("Genesis snapshot URI must point to this network's HTTPS snapshot");
+        deployer.snapshotPathForTest(
+            "script/network/anvil31337_dev",
+            "http://love20bsc.github.io/core/script/network/anvil31337_dev/airdrop.json"
+        );
+    }
+
+    function testRejectsUnrelatedSnapshotFile() public {
+        vm.expectRevert("Genesis snapshot filename must be airdrop*.json");
+        deployer.snapshotPathForTest(
+            "script/network/anvil31337_dev",
+            "https://love20bsc.github.io/core/script/network/anvil31337_dev/network.json"
+        );
+    }
+
+    function testRejectsSnapshotRootMismatch() public {
+        vm.expectRevert("Snapshot root mismatch");
+        deployer.run("script/network/anvil31337_dev/airdrop.json", keccak256("wrong root"));
     }
 
     function testRejectsEmptyTokenName() public {
@@ -409,6 +452,7 @@ contract DeployCoreTest is Test {
             chainId: block.chainid,
             genesisMerkleRoot: keccak256("genesis airdrop"),
             genesisClaimDelayRounds: 1,
+            genesisSnapshotUri: "https://love20bsc.github.io/core/script/network/anvil31337_dev/airdrop.json",
             tokenName: "Test LOVE20",
             tokenSymbol: "TestLOVE20",
             memberBaseDivisor: 100000000,

@@ -13,10 +13,11 @@ script/
 └── network/
     ├── verifier.params        # 开源验证端点与跳过链（所有网络共用一份）
     └── anvil31337_dev/        # 本地测试网配置（后续网络按 <链名><链id>_<类型> 新建）
-        ├── .account           # 账户信息（敏感，已 gitignore）
+        ├── .account           # 账户与私密配置（已 gitignore）
         ├── network.params     # 网络参数
         ├── addresses.uniswapv2.params # dex UniswapV2 模块地址（Factory / Router），必需
         ├── core.params        # 合约部署参数
+        ├── airdrop.json        # 本网络首币快照
         └── addresses.core.params  # 本协议已部署地址，部署成功后自动写入
 ```
 
@@ -28,7 +29,6 @@ script/
 ```bash
 CHAIN_ID=97
 RPC_URL=https://data-seed-prebsc-1-s1.binance.org:8545
-ETHERSCAN_API_KEY=                        # 开源验证凭据；空=验证步骤直接失败（跳过与否只看 VERIFY_SKIP_CHAIN_IDS）
 ```
 
 编辑 `script/network/verifier.params`（所有网络共用一份，不随网络目录新建）：
@@ -46,6 +46,7 @@ VERIFY_SKIP_CHAIN_IDS=31337               # 逗号分隔；默认验证，只有
 KEYSTORE_ACCOUNT=keystore-file-name
 ACCOUNT_ADDRESS=0xYourAccountAddress
 KEYSTORE_PASSWORD=                        # 可选，留空走弹窗（仅 macOS）
+ETHERSCAN_API_KEY=  # 实际开源验证时必填，本地跳过无需填写
 ```
 
 `.account` 是必需文件：本地链与公共网络统一走 keystore 签名，不提供 `--unlocked` 回退。不要把明文私钥放进配置或命令参数。
@@ -79,6 +80,7 @@ MAX_SUPPLY=1e28                              # 每个代币的供应上限，100
 # 首币空投（distributor 为首币首批供应的接收方，由部署顺序决定，不再配置地址）
 GENESIS_AIRDROP_MERKLE_ROOT=0x...            # 首币份额 Merkle Root；零值在广播前失败
 GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS=1         # 首币可领取轮 = max(currentPhase,1) + 该值；须 <= 1000
+GENESIS_AIRDROP_SNAPSHOT_URI=https://love20bsc.github.io/core/script/network/<network>/airdrop.json
 
 # MemberNFT
 MEMBER_BASE_DIVISOR=1e8
@@ -122,14 +124,14 @@ FEE_SETTLEMENT_RATIO=25e14   # 0.25%，即上界 MAX_FEE_SETTLEMENT_RATIO（源�
 
 值可写成 `<整数>e<指数>`（`1e17` 即 10%）或带下划线的分组写法（`1_000_000`），由 `script/deploy/params.sh` 在载入时展开为十进制再导出。展开是纯词法的：没有键表，新增或删除参数都不需要改载入器；只对整体形如 `<整数>e<整数>` 的值生效，其余原样保留，写错的写法会留给 `vm.envUint` 在广播前报错。尾数必须是不带小数点的整数，`2.5e15` 不会被展开（写成 `25e14`）。行尾 `#` 注释在展开前丢弃。该机制只作用于 `*.params`，`.account` 仍直接 `source`（密码可能含 `#`）。
 
-本仓没有必填键断言：core 的部署参数没有「缺键即静默改变行为」的成员，缺键一律由 `vm.envUint` 在广播前失败；因此三个步骤只做 `params_unset_all`，不调用 `params_require_keys` / `params_require_values`。
+三个步骤在载入前用 `params_require_values` 按文件断言创世 Merkle Root 与 URI 非空，避免缺键时继承调用方环境变量；其余参数由 `DeployCore` 在广播前校验。
 
 `core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；全部部署期静态参数由 `DeployCore` 在广播前校验，部署后再由 `_validateDeployment` 逐项核对完整绑定图（含 `Launch.MAX_TOKEN_SYMBOL_LENGTH` 与广播前副本相等），`21_check.sh` 独立复核（含首币 `totalSupply`、首币在 `AIRDROP_DISTRIBUTOR_ADDRESS` 的余额、首币的 Merkle Root 与可领取轮，以及 `TOKEN_SYMBOL_LENGTH + TEST_PREFIX_BYTES <= MAX_TOKEN_SYMBOL_LENGTH` 的 Test 前缀余量，金额与轮次从链上读取）：MemberNFT 四项非零、Phase 五项非零且 `ADJUST_THRESHOLD <= 1e18`、`0 < LAUNCH_COUNT_THRESHOLD_RATIO <= 1e18`、`MAX_LAUNCH_COUNT/TOKEN_SYMBOL_LENGTH` 非零、`1e18 <= LAUNCH_AMOUNT <= MAX_SUPPLY`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、两项激励比例之和 `<= 1e18`、`BOOST_STAKE_SUPPLY_FACTOR > 0`（建议 1–10，非校验条件）、`BOOST_STAKE_MULTIPLIER > 0`（建议 1–20，非校验条件）、`0 < SUBMIT_MIN_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN > 0` 且 `<= MAX`、`0 < FEE_SETTLEMENT_RATIO <= 0.25%`（`MAX_FEE_SETTLEMENT_RATIO`）、`GENESIS_AIRDROP_MERKLE_ROOT != 0` 且 `GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS <= 1000`（`AirdropDistributor.MAX_CLAIM_DELAY_ROUNDS`）。合约构造函数只保存配置，不做静态零值校验；依赖代码与派生值由部署脚本核对。
 
 `LAUNCH_AMOUNT >= 1e18`（= `AirdropDistributor.TOTAL_SHARE`）是**承重**约束：它是「`claim` 不检查 `amount == 0`」的前提——份额 `share >= 1`、剩余份额 `remainingShare <= 1e18` 时，`amount = floor(balance × share ÷ remainingShare) >= 1`。链下生成器必须把份额精确归一到 `1e18`。
 
 **重要参数说明：**
-- `GENESIS_AIRDROP_MERKLE_ROOT` / `GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS`: 首币空投配置，构造 `AirdropDistributor` 时一次写入；`merkleRoot` 填错等于该批首币永久锁死（链上无法验证叶子之和），部署前必须在链下复核
+- `GENESIS_AIRDROP_MERKLE_ROOT` / `GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS` / `GENESIS_AIRDROP_SNAPSHOT_URI`: 首币空投配置，构造 `AirdropDistributor` 时一次写入；首币 URI 此后不可修改。URI 必须指向本网络的快照，长度不超过 256 字节。`DeployCore` 在广播前复用 `CheckSnapshot` 校验本网络快照的 root、名单数量、重复地址、每条证明和份额总和；链上无法校验整个文件，不能省略该检查
 - `DISTRIBUTOR_ADDRESS` 已删除：首币首批供应的接收方是 `AirdropDistributor`，其地址由部署顺序固定（预测 `nonce+1`）并在部署后 `require` 核对，不再由配置注入。历史 `core.params` 里残留该键不会报错（`params.sh` 无键表），但已无任何读取方
 - 首币的 minter 自动绑定本次部署的 Mint 地址，部署参数中没有 minter 项。
 - 根父币（WETH）无需配置：`DeployCore` 从 `Router.WETH()` 读取，BSC 主网/测试网即官方 WBNB，Anvil 本地即 dex 部署的 WETH9。
@@ -148,7 +150,7 @@ cd core
 
 1. `11_deploy.sh` —— 自载入部署输入并按固定顺序部署全部合约（构造函数一次注入依赖），写入合约地址
 2. `21_check.sh` —— 自载入校验文件，校验部署结果
-3. `31_verify.sh` —— 自载入地址文件做合约开源验证；默认执行（需 `network.params` 的 `ETHERSCAN_API_KEY`），只有 `verifier.params` 的 `VERIFY_SKIP_CHAIN_IDS` 列出的链才跳过
+3. `31_verify.sh` —— 自载入地址文件做合约开源验证；默认执行（需 `.account` 的 `ETHERSCAN_API_KEY`），只有 `verifier.params` 的 `VERIFY_SKIP_CHAIN_IDS` 列出的链才跳过
 
 链 ID、全部部署期静态参数、构造绑定及常量、DEX 地址关系任一不一致，部署入口返回失败，并回滚到上一次已保存的地址（校验失败不覆盖旧地址）。广播阶段或其后的校验失败时，`11_deploy.sh` 保留部署日志并打印日志与 broadcast 产物路径；广播前失败只清理本次临时文件。网络名必填，缺参直接报错。`FACTORY_ADDRESS`、`ROUTER_ADDRESS` 有代码、`Router.factory()` 与配置一致、`Router.WETH()` 读出的根父币有代码，均在广播前校验，配错不会产生任何交易。
 
@@ -162,11 +164,13 @@ DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2，Factory 的 `feeTo
 
 | 步骤 | 自行载入的输入 |
 | --- | --- |
-| `11_deploy.sh` | `network.params`、`addresses.uniswapv2.params`、`core.params`、`.account`；写入 `addresses.core.params` |
-| `21_check.sh` | `network.params`、`addresses.uniswapv2.params`、`core.params`、`addresses.core.params` |
-| `31_verify.sh` | `network.params`、`verifier.params`、`addresses.uniswapv2.params`、`core.params`、`addresses.core.params` |
+| `11_deploy.sh` | `network.params`、`addresses.uniswapv2.params`、`core.params`、`.account`、`airdrop.json`（或 URI 指定的快照）；写入 `addresses.core.params` |
+| `21_check.sh` | `network.params`、`addresses.uniswapv2.params`、`core.params`、`addresses.core.params`；存在时读取 `.account` 以支持私有 RPC |
+| `31_verify.sh` | `.account`、`network.params`、`verifier.params`、`addresses.uniswapv2.params`、`core.params`、`addresses.core.params` |
 
-各步骤自行载入自己的输入（见上表），dex 的地址文件与 `core.params` 之间无引用关系，载入顺序不再敏感。`21_check.sh` 另断言 `addresses.core.params` 的键集合等于 9 个期望合约键。
+三个步骤均按文件断言创世 Merkle Root 与 URI 非空；`11_deploy.sh` 将所选目录通过 `NETWORK_DIR` 传给 Solidity 校验器。发布与 CI 的 `check_network.py` 也调用同一份 `params.sh` 载入公开参数。各步骤自行载入自己的输入（见上表），dex 的地址文件与 `core.params` 之间无引用关系，载入顺序不再敏感。`21_check.sh` 另断言 `addresses.core.params` 的键集合等于 9 个期望合约键。
+
+若直接运行 `forge script script/deploy/DeployCore.s.sol:DeployCore`，除载入上述参数外，还须自行导出 `NETWORK_DIR`，指向本仓的 `script/network/<network>` 目录；通过 `11_deploy.sh` 运行时由脚本自动设置。
 
 ```bash
 # 部署
@@ -179,14 +183,14 @@ DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2，Factory 的 `feeTo
 ./script/deploy/31_verify.sh anvil31337_dev
 ```
 
-`11_deploy.sh` 只负责自包含加载、链/账户/密码、调用 forge 与地址文件原子写入，不重复 Solidity 脚本的参数/依赖/绑定校验；验收由 `one_click_deploy.sh` 编排，或按上例单独运行。
+`11_deploy.sh` 负责自包含加载、链/账户/密码、调用 forge 与地址文件原子写入，不重复 Solidity 脚本的参数/快照/依赖/绑定校验；验收由 `one_click_deploy.sh` 编排，或按上例单独运行。
 
 ## 合约开源验证
 
 部署完成后，在 BSCScan 上验证合约：
 
 ```bash
-# 把 Etherscan API Key 填进 script/network/<network>/network.params 的 ETHERSCAN_API_KEY
+# 把 Etherscan API Key 填进 script/network/<network>/.account 的 ETHERSCAN_API_KEY
 
 # 执行验证（端点与跳过名单见 verifier.params）
 ./script/deploy/31_verify.sh anvil31337_dev
@@ -194,7 +198,7 @@ DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2，Factory 的 `feeTo
 
 使用 Etherscan V2 API Key。缺少 Key、构造参数错误或任何一份合约验证失败均返回非零；链列在 `verifier.params` 的 `VERIFY_SKIP_CHAIN_IDS` 时跳过并返回 0；只有 9 份全部成功才显示完成（`AirdropDistributor` 源码路径为 `src/distributor/AirdropDistributor.sol`）。API 入口依据 [Etherscan 官方文档](https://docs.etherscan.io/make-your-first-call)。
 
-`ETHERSCAN_API_KEY` 是 `network.params` 的一个键，和 `CHAIN_ID`、`RPC_URL` 一样只从文件取值：步骤脚本载入该文件时文件值（包括空值）覆盖调用方的同名环境变量，因此 `ETHERSCAN_API_KEY=xxx ./31_verify.sh` 不生效。该键是凭据，仓库里只放空值，本地或 CI 运行前再填。
+`ETHERSCAN_API_KEY` 是 `.account` 的一个键，只从该私密文件取值：步骤脚本载入该文件时文件值（包括空值）覆盖调用方的同名环境变量，因此 `ETHERSCAN_API_KEY=xxx ./31_verify.sh` 不生效。该键是凭据，只在本地或 CI 的 `.account` 中填写。
 
 ## 部署输出
 
@@ -211,6 +215,21 @@ STAKE_ADDRESS=0x...
 SUBMIT_ADDRESS=0x...
 VOTE_ADDRESS=0x...
 ```
+
+## 公开网络文件与前端同步
+
+每个网络在 `script/network/<network>/` 保存自己的参数、地址和 `airdrop.json`，以 URI 指定的文件为准。文件中的 root 必须与部署参数一致，无需写入文件名。以后更换 root 时新增 `airdrop-v2.json` 并调整新部署的 URI，保留旧文件，确保旧合约中的链接仍可用。快照采用现有格式：`merkleRoot`、字符串形式的 `totalShare` / `accountCount`，以及带 `account`、字符串 `share`、`proof` 的 `entries`。发布门禁也检查归档文件：按各自的 root 验证证明，`accountCount` 必须等于条目数，地址不得重复，正份额之和必须为 `1e18`；条目顺序不影响校验。`sourceChainId` 等字段描述快照来源，不是领取所在链。
+
+```bash
+# 只校验，不签名、不广播
+python3 script/check_network.py anvil31337_dev
+# 在允许修改的开发前端目录执行
+pnpm sync:network ../core/script/network/anvil31337_dev
+```
+
+不再生成发布副本。Pages 使用 `git archive HEAD` 打包已提交的仓库文件，保留 `script/network/<network>/` 路径，不包含本地 `.account`、构建输出或 Git 历史；发现被误提交的 `.account` 时直接阻止发布。其他模块的地址可放入同目录的 `addresses.*.params`；前端需要的 WETH、外围合约等也应提供对应地址。前端同步命令只读取公开参数与地址文件，转换为自身的 `network.json`，并校验、复制快照。
+
+仓库 Pages 选择 GitHub Actions 作为发布来源后，`.github/workflows/pages.yml` 在 `main` 更新时发布 `_site`，快照地址即配置中的 URI。前端将网络文件打包到 `src/config/network/<network>/`，优先加载本地快照；root 与链上一致就不请求远程 URI，缺失或不一致才回退，并继续通过链上 `claimableAmount` 验证当前钱包的证明。已有合约不会因源码更新自动获得 URI，需使用新构造参数重新部署。
 
 ## 常见问题
 
@@ -232,7 +251,7 @@ VOTE_ADDRESS=0x...
 
 ## 安全注意事项
 
-1. **敏感文件**: `.account` 已被 `.gitignore`，仅配置 Keystore 名称及账户地址，绝不提交到仓库
+1. **敏感文件**: `.account` 已被 `.gitignore`，保存账户与私密配置，绝不提交到仓库
 2. **私钥管理**: 生产环境建议使用硬件钱包或 Keystore
 3. **参数检查**: 部署前仔细检查所有参数，特别是供应量和地址
 4. **测试先行**: 生产部署前先在测试网完整测试流程
@@ -244,7 +263,10 @@ VOTE_ADDRESS=0x...
 forge build
 forge test
 python3 test/deploy_scripts_test.py
+python3 test/check_network_test.py
 forge test --match-contract ProposalDoSTest -vv
 ```
 
 压力测试使用真实 Core 合约及模拟 DEX，实际创建、推举、投票、申请解锁并调用 Mint。输出用于本地回归，不代表目标 BSC 链的交易或区块 gas 上限。
+
+公开参数和地址会随仓库发布到 GitHub Pages。`network.params` 的 `RPC_URL` 只填公开节点；验证 API Key、密码和带凭据的私有 RPC 统一写入已忽略的 `.account`，其中 `RPC_URL` 可覆盖公开节点。部署步骤必需 `.account`；只读校验在它存在时读取；验证步骤仅在实际提交验证时要求其中的 `ETHERSCAN_API_KEY`，不接受环境变量补位。

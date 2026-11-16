@@ -35,10 +35,16 @@ done
 
 # Parameters come from files only: clear every key the files define, so a value exported by the
 # caller cannot override a file value.
+params_require_values "$NETWORK_DIR/core.params" GENESIS_AIRDROP_MERKLE_ROOT GENESIS_AIRDROP_SNAPSHOT_URI || exit 1
 params_unset_all "$NETWORK_DIR/network.params" "$NETWORK_DIR/addresses.uniswapv2.params" \
     "$NETWORK_DIR/core.params" "$NETWORK_DIR/addresses.core.params"
 
 params_load "$NETWORK_DIR/network.params"
+if [ -f "$NETWORK_DIR/.account" ]; then
+    set -a
+    source "$NETWORK_DIR/.account"
+    set +a
+fi
 params_load "$NETWORK_DIR/addresses.uniswapv2.params"
 params_load "$NETWORK_DIR/core.params"
 params_load "$NETWORK_DIR/addresses.core.params"
@@ -431,8 +437,10 @@ ACTUAL_CLAIMED_SHARE=$(airdrop_field 3)
 ACTUAL_REMAINING_SHARE=$(airdrop_field 4)
 ACTUAL_CLAIMED_AMOUNT=$(airdrop_field 5)
 ACTUAL_REMAINING_AMOUNT=$(airdrop_field 6)
+ACTUAL_SNAPSHOT_URI=$(airdrop_field 7)
 
 verify_value "genesis merkle root" "$GENESIS_AIRDROP_MERKLE_ROOT" "$ACTUAL_GENESIS_ROOT" || ((FAILED+=1))
+verify_value "genesis snapshot URI" "$GENESIS_AIRDROP_SNAPSHOT_URI" "$ACTUAL_SNAPSHOT_URI" || ((FAILED+=1))
 
 # claimedShare is 0 only while nobody has claimed the genesis token: this step is an idempotent
 # read-only check of the deployment, not a timeless invariant.

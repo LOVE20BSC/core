@@ -10,7 +10,7 @@ network="${1:?usage: script/deploy/11_deploy.sh <network>}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-NETWORK_DIR="$PROJECT_ROOT/script/network/$network"
+export NETWORK_DIR="$PROJECT_ROOT/script/network/$network"
 
 # Parameter file loader: 1e17 / 1_000_000 style literals are expanded to decimal on load (params.sh).
 source "$SCRIPT_DIR/params.sh"
@@ -35,6 +35,8 @@ for config in network.params addresses.uniswapv2.params core.params .account; do
         exit 1
     fi
 done
+
+params_require_values "$NETWORK_DIR/core.params" GENESIS_AIRDROP_MERKLE_ROOT GENESIS_AIRDROP_SNAPSHOT_URI || exit 1
 
 # Parameters come from files only: clear every key the files define, so a value exported by the
 # caller cannot override a file value.
@@ -78,7 +80,6 @@ APPLESCRIPT
 fi
 
 echo "=== Deploying Core Contracts to $network ==="
-echo "  RPC_URL: $RPC_URL"
 echo "  CHAIN_ID: $CHAIN_ID"
 
 # The nine core addresses are extracted from the deployment log and validated one by one; any

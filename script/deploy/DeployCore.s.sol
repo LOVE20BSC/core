@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.8.37;
 
-import {Script} from "@forge-std/Script.sol";
+import {CheckSnapshot} from "./CheckSnapshot.s.sol";
 import {console2} from "@forge-std/console2.sol";
 import {AirdropDistributor} from "../../src/distributor/AirdropDistributor.sol";
 import {IAirdropDistributor} from "../../src/interfaces/distributor/IAirdropDistributor.sol";
@@ -29,7 +29,7 @@ interface IUniswapV2RouterWeth {
     function factory() external view returns (address);
 }
 
-contract DeployCore is Script {
+contract DeployCore is CheckSnapshot {
     // The settlement ratio must not exceed the pool fee, so a single settlement's execution price is
     // at most one fee worse (the spot price moves about twice that) and a round trip cannot beat two.
     // Bound at 0.25%, below the pool fee. Precision is 1e18.
@@ -60,6 +60,7 @@ contract DeployCore is Script {
         uint256 chainId;
         bytes32 genesisMerkleRoot;
         uint256 genesisClaimDelayRounds;
+        string genesisSnapshotUri;
         string tokenName;
         string tokenSymbol;
         uint256 memberBaseDivisor;
@@ -91,6 +92,7 @@ contract DeployCore is Script {
     function run() external returns (DeploymentAddresses memory addrs) {
         CoreConfig memory config = _loadConfig();
         _validateConfig(config);
+        _checkSnapshot(_snapshotPath(vm.envString("NETWORK_DIR"), config.genesisSnapshotUri), config.genesisMerkleRoot);
         address rootParent = IUniswapV2RouterWeth(config.dexConfig.router).WETH();
 
         vm.startBroadcast();
@@ -105,6 +107,7 @@ contract DeployCore is Script {
         config.chainId = vm.envUint("CHAIN_ID");
         config.genesisMerkleRoot = vm.envBytes32("GENESIS_AIRDROP_MERKLE_ROOT");
         config.genesisClaimDelayRounds = vm.envUint("GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS");
+        config.genesisSnapshotUri = vm.envString("GENESIS_AIRDROP_SNAPSHOT_URI");
         config.tokenName = vm.envString("TOKEN_NAME");
         config.tokenSymbol = vm.envString("TOKEN_SYMBOL");
         config.memberBaseDivisor = vm.envUint("MEMBER_BASE_DIVISOR");
@@ -159,6 +162,10 @@ contract DeployCore is Script {
         require(
             config.genesisClaimDelayRounds <= MAX_CLAIM_DELAY_ROUNDS,
             "Genesis claim delay rounds exceed MAX_CLAIM_DELAY_ROUNDS"
+        );
+        require(
+            bytes(config.genesisSnapshotUri).length > 0 && bytes(config.genesisSnapshotUri).length <= 256,
+            "Genesis snapshot URI must be 1..256 bytes"
         );
         require(bytes(config.tokenName).length != 0, "Token name must be nonempty");
         require(bytes(config.tokenSymbol).length != 0, "Token symbol must be nonempty");
@@ -359,7 +366,8 @@ contract DeployCore is Script {
                 phaseAddress,
                 predicted.genesisToken,
                 config.genesisMerkleRoot,
-                config.genesisClaimDelayRounds
+                config.genesisClaimDelayRounds,
+                config.genesisSnapshotUri
             )
         );
         require(
@@ -587,6 +595,11 @@ contract DeployCore is Script {
         require(
             airdropDistributor.airdropInfo(addrs.token).merkleRoot == config.genesisMerkleRoot,
             "AirdropDistributor genesis merkle root mismatch"
+        );
+        require(
+            keccak256(bytes(airdropDistributor.airdropInfo(addrs.token).snapshotUri))
+                == keccak256(bytes(config.genesisSnapshotUri)),
+            "AirdropDistributor genesis snapshot URI mismatch"
         );
 
         // The genesis claim round was frozen at deployment and the current round may have moved

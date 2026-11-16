@@ -404,15 +404,15 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         require(distributor.MAX_SNAPSHOT_URI_BYTES() == 256, "MAX_SNAPSHOT_URI_BYTES == 256");
     }
 
-    function testGenesisTokenHasZeroLauncherMemberIdAndEmptySnapshotUri() external view {
+    function testGenesisSnapshotUriIsConfiguredInConstructor() external view {
         // launcherMemberId has no getter: it is not part of AirdropInfo. Genesis is permanently
         // non-updatable because memberId 0 is never minted; this is proven behaviourally by
         // testGenesisSnapshotUriIsPermanentlyNonUpdatableForAnyCaller.
         require(
-            keccak256(bytes(distributor.airdropInfo(address(firstToken)).snapshotUri)) == keccak256(bytes("")),
-            "genesis snapshot uri empty"
+            keccak256(bytes(distributor.airdropInfo(address(firstToken)).snapshotUri)) == keccak256(bytes(GENESIS_SNAPSHOT_URI)),
+            "genesis snapshot uri configured"
         );
-        require(keccak256(bytes(_readSnapshotUriFromInfos(address(firstToken)))) == keccak256(bytes("")), "genesis infos uri empty");
+        require(keccak256(bytes(_readSnapshotUriFromInfos(address(firstToken)))) == keccak256(bytes(GENESIS_SNAPSHOT_URI)), "genesis infos uri configured");
     }
 
     function testGenesisSnapshotUriIsPermanentlyNonUpdatableForAnyCaller() external {
@@ -469,8 +469,8 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         );
         require(keccak256(bytes(_readSnapshotUriFromInfos(subToken))) == keccak256(bytes(uri)), "airdropInfos syncs uri");
         require(
-            keccak256(bytes(distributor.airdropInfo(address(firstToken)).snapshotUri)) == keccak256(bytes("")),
-            "genesis stays empty"
+            keccak256(bytes(distributor.airdropInfo(address(firstToken)).snapshotUri)) == keccak256(bytes(GENESIS_SNAPSHOT_URI)),
+            "genesis stays unchanged"
         );
     }
 
@@ -758,7 +758,7 @@ contract AirdropDistributorTest is LaunchDeployFixture {
         // creates that token afterwards, so for a window the configured tokenAddress has no code.
         // Build exactly that window: point the distributor at an address that is still empty.
         AirdropDistributor fresh = new AirdropDistributor(
-            address(this), address(phase), address(0xF00D), GENESIS_ROOT, 0
+            address(this), address(phase), address(0xF00D), GENESIS_ROOT, 0, GENESIS_SNAPSHOT_URI
         );
         require(address(0xF00D).code.length == 0, "target really has no code");
 
