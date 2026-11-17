@@ -79,7 +79,7 @@ MAX_SUPPLY=1e28                              # 每个代币的最大铸币上限
 
 # 首币空投（distributor 为首币首批供应的接收方，由部署顺序决定，不再配置地址）
 GENESIS_AIRDROP_MERKLE_ROOT=0x...            # 首币份额 Merkle Root；零值在广播前失败
-GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS=1         # 首币可领取轮 = max(currentPhase,1) + 该值；须 <= 1000
+GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS=1         # 首币可铸造轮次 = max(currentPhase,1) + 该值；须 <= 1000
 GENESIS_AIRDROP_SNAPSHOT_URI=https://love20bsc.github.io/core/script/network/<network>/airdrop.json
 
 # MemberNFT
@@ -88,7 +88,7 @@ MEMBER_BYTES_THRESHOLD=7
 MEMBER_MULTIPLIER=10
 MEMBER_MAX_NAME_LENGTH=32
 
-# Phase
+# 阶段
 PHASE_ORIGIN_BLOCKS=1
 PHASE_ORIGIN_PHASE_BLOCKS=28800              # 示例值；按目标链实测出块间隔设置
 PHASE_TARGET_SECONDS=86400                   # 1天
@@ -101,9 +101,9 @@ MAX_LAUNCH_COUNT=1000
 TOKEN_SYMBOL_LENGTH=6                        # 子币符号 UTF-8 字节长度（首币不受此限；两个汉字或六个字母数字）
 
 # Mint 部署参数（比例以 1e18 表示 100%）
-PROPOSAL_REWARD_MIN_VOTE_RATIO=3e16              # 提案奖励门槛（3%，须 <= 1e18）
-ROUND_REWARD_GOV_RATIO=5e14                      # 治理奖池占可用供应的比例（0.05%）
-ROUND_REWARD_PROPOSAL_RATIO=5e14                 # 提案奖池占可用供应的比例（0.05%）
+PROPOSAL_REWARD_MIN_VOTE_RATIO=3e16              # 提案激励门槛（3%，须 <= 1e18）
+ROUND_REWARD_GOV_RATIO=5e14                      # 治理激励池占可用供应的比例（0.05%）
+ROUND_REWARD_PROPOSAL_RATIO=5e14                 # 提案激励池占可用供应的比例（0.05%）
 
 # Submit 部署参数（比例以 1e18 表示 100%）
 SUBMIT_MIN_RATIO=3e15                            # 推举门槛（0.3%）
@@ -111,7 +111,7 @@ SUBMIT_MIN_RATIO=3e15                            # 推举门槛（0.3%）
 # Stake 部署参数
 PROMISED_WAITING_PHASES_MIN=1
 PROMISED_WAITING_PHASES_MAX=100
-# 加速激励质押单人上限：上限基数 = 流动性质押社区代币本金 × 2 × (已铸造量 / 最大供应量) × 该因子
+# 加速激励质押单人上限：上限基数 = 流动性质押社区代币本金 × 2 × (已铸造量 / 最大铸币上限) × 该因子
 BOOST_STAKE_SUPPLY_FACTOR=2                      # 建议 1–10（仅建议，部署只校验大于 0）
 # 单人上限 = 上限基数 × (该治理者有效治理票 / 总有效治理票) × 该倍数（社区层面无聚合上限）
 BOOST_STAKE_MULTIPLIER=5                         # 建议 1–20（仅建议，部署只校验大于 0）
@@ -120,13 +120,13 @@ BOOST_STAKE_MULTIPLIER=5                         # 建议 1–20（仅建议，�
 FEE_SETTLEMENT_RATIO=25e14   # 0.25%，即上界 MAX_FEE_SETTLEMENT_RATIO（源码常量写作 2.5e15）；每次处理 floor(pairTotalSupply * 该值 / 1e18) 个手续费 LP 最小单位；手续费 LP 不足一个单位时不销毁
 ```
 
-上例取正式网络的部署值（同白皮书附录 A）。`script/network/anvil31337_dev/core.params` 是本地测试 profile，为了让 Phase 与发行节奏在几分钟内跑完，取值刻意不同（如 Phase 目标 300 秒、每社区次数上限 10000），不要拿它当正式配置。
+上例取正式网络的部署值（同白皮书附录 A）。`script/network/anvil31337_dev/core.params` 是本地测试 profile，为了让阶段与发行节奏在几分钟内跑完，取值刻意不同（如阶段目标 300 秒、每社区次数上限 10000），不要拿它当正式配置。
 
 值可写成 `<整数>e<指数>`（`1e17` 即 10%）或带下划线的分组写法（`1_000_000`），由 `script/deploy/params.sh` 在载入时展开为十进制再导出。展开是纯词法的：没有键表，新增或删除参数都不需要改载入器；只对整体形如 `<整数>e<整数>` 的值生效，其余原样保留，写错的写法会留给 `vm.envUint` 在广播前报错。尾数必须是不带小数点的整数，`2.5e15` 不会被展开（写成 `25e14`）。行尾 `#` 注释在展开前丢弃。该机制只作用于 `*.params`，`.account` 仍直接 `source`（密码可能含 `#`）。
 
 三个步骤在载入前用 `params_require_values` 按文件断言创世 Merkle Root 与 URI 非空，避免缺键时继承调用方环境变量；其余参数由 `DeployCore` 在广播前校验。
 
-`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；全部部署期静态参数由 `DeployCore` 在广播前校验，部署后再由 `_validateDeployment` 逐项核对完整绑定图（含 `Launch.MAX_TOKEN_SYMBOL_LENGTH` 与广播前副本相等），`21_check.sh` 独立复核（含首币 `totalSupply`、首币在 `AIRDROP_DISTRIBUTOR_ADDRESS` 的余额、首币的 Merkle Root 与可领取轮，以及 `TOKEN_SYMBOL_LENGTH + TEST_PREFIX_BYTES <= MAX_TOKEN_SYMBOL_LENGTH` 的 Test 前缀余量，金额与轮次从链上读取）：MemberNFT 四项非零、Phase 五项非零且 `ADJUST_THRESHOLD <= 1e18`、`0 < LAUNCH_COUNT_THRESHOLD_RATIO <= 1e18`、`MAX_LAUNCH_COUNT/TOKEN_SYMBOL_LENGTH` 非零、`1e18 <= LAUNCH_AMOUNT <= MAX_SUPPLY`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、两项激励比例之和 `<= 1e18`、`BOOST_STAKE_SUPPLY_FACTOR > 0`（建议 1–10，非校验条件）、`BOOST_STAKE_MULTIPLIER > 0`（建议 1–20，非校验条件）、`0 < SUBMIT_MIN_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN > 0` 且 `<= MAX`、`0 < FEE_SETTLEMENT_RATIO <= 0.25%`（`MAX_FEE_SETTLEMENT_RATIO`）、`GENESIS_AIRDROP_MERKLE_ROOT != 0` 且 `GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS <= 1000`（`AirdropDistributor.MAX_CLAIM_DELAY_ROUNDS`）。合约构造函数只保存配置，不做静态零值校验；依赖代码与派生值由部署脚本核对。
+`core.params` 缺任一键，部署会在模拟阶段因读不到环境变量而失败；全部部署期静态参数由 `DeployCore` 在广播前校验，部署后再由 `_validateDeployment` 逐项核对完整绑定图（含 `Launch.MAX_TOKEN_SYMBOL_LENGTH` 与广播前副本相等），`21_check.sh` 独立复核（含首币 `totalSupply`、首币在 `AIRDROP_DISTRIBUTOR_ADDRESS` 的余额、首币的 Merkle Root 与可铸造轮次，以及 `TOKEN_SYMBOL_LENGTH + TEST_PREFIX_BYTES <= MAX_TOKEN_SYMBOL_LENGTH` 的 Test 前缀余量，金额与轮次从链上读取）：MemberNFT 四项非零、Phase 五项非零且 `ADJUST_THRESHOLD <= 1e18`、`0 < LAUNCH_COUNT_THRESHOLD_RATIO <= 1e18`、`MAX_LAUNCH_COUNT/TOKEN_SYMBOL_LENGTH` 非零、`1e18 <= LAUNCH_AMOUNT <= MAX_SUPPLY`、`PROPOSAL_REWARD_MIN_VOTE_RATIO <= 1e18`、两项激励比例之和 `<= 1e18`、`BOOST_STAKE_SUPPLY_FACTOR > 0`（建议 1–10，非校验条件）、`BOOST_STAKE_MULTIPLIER > 0`（建议 1–20，非校验条件）、`0 < SUBMIT_MIN_RATIO <= 1e18`、`PROMISED_WAITING_PHASES_MIN > 0` 且 `<= MAX`、`0 < FEE_SETTLEMENT_RATIO <= 0.25%`（`MAX_FEE_SETTLEMENT_RATIO`）、`GENESIS_AIRDROP_MERKLE_ROOT != 0` 且 `GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS <= 1000`（`AirdropDistributor.MAX_CLAIM_DELAY_ROUNDS`）。合约构造函数只保存配置，不做静态零值校验；依赖代码与派生值由部署脚本核对。
 
 `LAUNCH_AMOUNT >= 1e18`（= `AirdropDistributor.TOTAL_SHARE`）是**承重**约束：它是「`claim` 不检查 `amount == 0`」的前提——份额 `share >= 1`、剩余份额 `remainingShare <= 1e18` 时，`amount = floor(balance × share ÷ remainingShare) >= 1`。链下生成器必须把份额精确归一到 `1e18`。
 
@@ -156,7 +156,7 @@ cd core
 
 DEX 使用相邻 `dex/` 仓库自部署的官方 Uniswap V2，Factory 的 `feeTo` 与 `feeToSetter` 均为零。地址应来自该仓库同网络的部署及验收结果，不使用旧 PancakeSwap 配置。
 
-`FEE_SETTLEMENT_RATIO` 是单笔手续费结算占 Pair 的 LP 总供应的比例，同时决定触发阈值和单次处理量，不是交易费率。它以 `1e18` 表示 100%；`21_check.sh` 中的 `ACTUAL_FEE_RATIO` 只是链上读取结果，用于与这个配置值比对。上界是编译期常量 `MAX_FEE_SETTLEMENT_RATIO = 2.5e15`（0.25%，低于池费率），配置值取 `25e14`（0.25%，与白皮书附录 A 一致）。单笔销毁占 Pair LP 总供应的比例恰为该值；卖出量占父币储备的比例相同，成交价相对结算前偏离恰为该值，现货价移动约为其两倍；夹子往返成本为两倍池费，因此只要该值不大于目标池费率，成交价偏离低于一个池费、现货价移动不超过两倍池费，往返无利可图。该值必须不大于目标池费率，否则单笔结算的现货价移动会盖过往返成本、放大夹子敞口。每社区每 Phase 至多实际结算一次，且单次处理量须足够让 Pair 两侧产出非零数量。手续费 LP 恒不超过社区记账 LP，因此社区质押 LP 占全池比例低于该值时，手续费 LP 通常达不到一个单位，`settleFees` 不实际销毁；这部分手续费仍作为池中 LP 留在合约里，直到社区质押增长。取整边界是例外：`feeLp == floor(pairTotalSupply × 该值 / 1e18)` 时，即使份额低于该比例仍会结算。
+`FEE_SETTLEMENT_RATIO` 是单笔手续费结算占 Pair 的 LP 总供应的比例，同时决定触发阈值和单次处理量，不是交易费率。它以 `1e18` 表示 100%；`21_check.sh` 中的 `ACTUAL_FEE_RATIO` 只是链上读取结果，用于与这个配置值比对。上界是编译期常量 `MAX_FEE_SETTLEMENT_RATIO = 2.5e15`（0.25%，低于池费率），配置值取 `25e14`（0.25%，与白皮书附录 A 一致）。单笔销毁占 Pair LP 总供应的比例恰为该值；卖出量占父币储备的比例相同，成交价相对结算前偏离恰为该值，现货价移动约为其两倍；夹子往返成本为两倍池费，因此只要该值不大于目标池费率，成交价偏离低于一个池费、现货价移动不超过两倍池费，往返无利可图。该值必须不大于目标池费率，否则单笔结算的现货价移动会盖过往返成本、放大夹子敞口。每社区每阶段至多实际结算一次，且单次处理量须足够让 Pair 两侧产出非零数量。手续费 LP 恒不超过社区记账 LP，因此社区质押 LP 占全池比例低于该值时，手续费 LP 通常达不到一个单位，`settleFees` 不实际销毁；这部分手续费仍作为池中 LP 留在合约里，直到社区质押增长。取整边界是例外：`feeLp == floor(pairTotalSupply × 该值 / 1e18)` 时，即使份额低于该比例仍会结算。
 
 ### 分步部署
 
@@ -218,7 +218,7 @@ VOTE_ADDRESS=0x...
 
 ## 公开网络文件与前端同步
 
-每个网络在 `script/network/<network>/` 保存自己的参数、地址和 `airdrop.json`，以 URI 指定的文件为准。文件中的 root 必须与部署参数一致，无需写入文件名。以后更换 root 时新增 `airdrop-v2.json` 并调整新部署的 URI，保留旧文件，确保旧合约中的链接仍可用。快照采用现有格式：`merkleRoot`、字符串形式的 `totalShare` / `accountCount`，以及带 `account`、字符串 `share`、`proof` 的 `entries`。发布门禁也检查归档文件：按各自的 root 验证证明，`accountCount` 必须等于条目数，地址不得重复，正份额之和必须为 `1e18`；条目顺序不影响校验。`sourceChainId` 等字段描述快照来源，不是领取所在链。
+每个网络在 `script/network/<network>/` 保存自己的参数、地址和 `airdrop.json`，以 URI 指定的文件为准。文件中的 root 必须与部署参数一致，无需写入文件名。以后更换 root 时新增 `airdrop-v2.json` 并调整新部署的 URI，保留旧文件，确保旧合约中的链接仍可用。快照采用现有格式：`merkleRoot`、字符串形式的 `totalShare` / `accountCount`，以及带 `account`、字符串 `share`、`proof` 的 `entries`。发布门禁也检查归档文件：按各自的 root 验证证明，`accountCount` 必须等于条目数，地址不得重复，正份额之和必须为 `1e18`；条目顺序不影响校验。`sourceChainId` 等字段描述快照来源，不是空投铸造所在链。
 
 ```bash
 # 只校验，不签名、不广播

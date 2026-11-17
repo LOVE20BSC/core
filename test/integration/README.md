@@ -17,12 +17,12 @@
 ### Mock vs Real 的界限
 
 **真实合约** (内部依赖):
-- Phase - 轮次管理
+- Phase - 阶段管理
 - Vote - 投票记录
 - Submit - 提案管理
 - Stake - 质押和 boost
 - Launch - Token 创建
-- Mint - 奖励系统 (被测合约)
+- Mint - 激励系统 (被测合约)
 - MemberNFT - 成员身份
 
 **Mock 合约** (系统边界):
@@ -40,7 +40,7 @@
 **testRealIntegration_FullGovernanceFlow** (3.18M gas)
 - 使用 nonce 预测 + 构造函数注入部署所有真实合约
 - 解决 Vote ↔ Stake 前向引用
-- 测试完整流程：质押 → 提案 → 投票 → 推进轮次 → 准备奖励 → 领取奖励
+- 测试完整流程：质押 → 提案 → 投票 → 推进轮次 → 准备激励 → 铸造激励
 - 验证所有跨合约集成点
 
 **关键集成点**:
@@ -121,5 +121,5 @@ Suite result: ok. 1 passed; 0 failed; 0 skipped
 Mock 集成测试 (`test/MintIntegration.t.sol`) 补充真实合约测试：
 - 10 个边界条件和极端场景测试
 - 使用增强型 mock 进行精确状态控制
-- 测试恰好阈值、零投票、跨轮领取等场景
+- 测试恰好阈值、零投票、跨轮铸造等场景
 - 两种策略互为补充，提供全面覆盖

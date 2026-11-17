@@ -1,13 +1,13 @@
 # Mint 合约测试用例数学模型
 
-本文档独立于代码实现，纯粹基于业务逻辑描述奖励计算的数学模型。测试用例将基于此模型计算期望值，并与合约实际运行结果对比验证。
+本文档独立于代码实现，纯粹基于业务逻辑描述激励计算的数学模型。测试用例将基于此模型计算期望值，并与合约实际运行结果对比验证。
 
 ## 1. 核心参数定义
 
 ### 1.1 配置参数
 ```
-ROUND_REWARD_GOV_RATIO = 1e17                 // 治理奖励池比例: 10%
-ROUND_REWARD_PROPOSAL_RATIO = 1e17            // 提案奖励池比例: 10%
+ROUND_REWARD_GOV_RATIO = 1e17                 // 治理激励池比例: 10%
+ROUND_REWARD_PROPOSAL_RATIO = 1e17            // 提案激励池比例: 10%
 PROPOSAL_REWARD_MIN_VOTE_RATIO = 5e16        // 提案资格阈值: 5%
 ```
 
@@ -15,34 +15,34 @@ PROPOSAL_REWARD_MIN_VOTE_RATIO = 5e16        // 提案资格阈值: 5%
 ```
 MAX_SUPPLY = token.MAX_SUPPLY()
 currentSupply = token.totalSupply()
-totalRewardReserved = 已预留的奖励总额
-totalRewardMinted = 已铸造的奖励总额
-totalRewardBurned = 已销毁的奖励总额
+totalRewardReserved = 已预留的激励总额
+totalRewardMinted = 已铸造的激励总额
+totalRewardBurned = 已销毁的激励总额
 ```
 
-## 2. 可用奖励计算
+## 2. 可用激励计算
 
 ### 2.1 预留可用额
 ```
 reservedAvailable = totalRewardReserved - totalRewardMinted - totalRewardBurned
 ```
 
-### 2.2 总可用奖励
+### 2.2 总可用激励
 ```
 rewardAvailable = (MAX_SUPPLY - currentSupply) - reservedAvailable
 ```
 
-## 3. 轮次奖励池准备
+## 3. 轮次激励池准备
 
-每轮准备时从可用奖励中分配：
+每轮准备时从可用激励中分配：
 
-### 3.1 治理奖励池
+### 3.1 治理激励池
 ```
 govRewardAmount = rewardAvailable × (ROUND_REWARD_GOV_RATIO / 1e18)
                 = rewardAvailable × 0.1
 ```
 
-### 3.2 提案奖励池
+### 3.2 提案激励池
 ```
 proposalRewardAmount = rewardAvailable × (ROUND_REWARD_PROPOSAL_RATIO / 1e18)
                      = rewardAvailable × 0.1
@@ -53,23 +53,23 @@ proposalRewardAmount = rewardAvailable × (ROUND_REWARD_PROPOSAL_RATIO / 1e18)
 totalRewardReserved += govRewardAmount + proposalRewardAmount
 ```
 
-## 4. 治理奖励计算（成员奖励）
+## 4. 治理激励计算（成员激励）
 
-治理奖励池分为两个子池：
+治理激励池分为两个子池：
 
-### 4.1 投票奖励池（Vote Pool）
+### 4.1 投票激励池（Vote Pool）
 ```
 votePoolAmount = govRewardAmount / 2
 ```
 
 **注意**: 使用整数除法，奇数时向下取整，余数归入 boost 池
 
-### 4.2 Boost 奖励池（Boost Pool）
+### 4.2 Boost 激励池（Boost Pool）
 ```
 boostPoolAmount = govRewardAmount - votePoolAmount
 ```
 
-### 4.3 成员投票奖励
+### 4.3 成员投票激励
 ```
 memberVotes = 成员在该轮的总投票数
 totalVotes = 该轮所有成员的总投票数
@@ -79,9 +79,9 @@ voteReward = (votePoolAmount × memberVotes) / totalVotes
 
 **注意**: 整数除法向下取整
 
-### 4.4 成员 Boost 奖励
+### 4.4 成员 Boost 激励
 
-#### 4.4.1 理论 Boost 奖励
+#### 4.4.1 理论 Boost 激励
 ```
 memberBoost = 成员在该轮的质押 boost 值
 totalBoost = 该轮所有成员的总质押 boost 值
@@ -89,7 +89,7 @@ totalBoost = 该轮所有成员的总质押 boost 值
 theoreticalBoost = (boostPoolAmount × memberBoost) / totalBoost
 ```
 
-#### 4.4.2 实际 Boost 奖励
+#### 4.4.2 实际 Boost 激励
 ```
 boostReward = theoreticalBoost
 ```
@@ -102,12 +102,12 @@ Mint 侧不设输出倍数上限，也不产生 `burnReward`：加速池按理�
   totalRewardBurned += boostPoolAmount
   ```
 
-### 4.5 成员总奖励
+### 4.5 成员总激励
 ```
 totalReward = voteReward + boostReward
 ```
 
-## 5. 提案奖励计算
+## 5. 提案激励计算
 
 ### 5.1 提案资格判定
 
@@ -127,7 +127,7 @@ isEligible = (proposalVotes >= minVotes) AND (proposalVotes > 0)
 eligibleProposalVoteAmount = sum(proposalVotes for all eligible proposals)
 ```
 
-### 5.3 单个提案奖励（比例分配）
+### 5.3 单个提案激励（比例分配）
 ```
 proposalReward = (proposalRewardAmount × proposalVotes) / eligibleProposalVoteAmount
 ```
@@ -189,7 +189,7 @@ totalVotes = 160
 totalBoost = 8000
 ```
 
-**成员 1 奖励**:
+**成员 1 激励**:
 ```
 voteReward1 = (47,500 × 100) / 160 = 29,687 (整数除法)
 theoreticalBoost1 = (47,500 × 5000) / 8000 = 29,687
@@ -197,7 +197,7 @@ boostReward1 = theoreticalBoost1 = 29,687
 totalReward1 = 29,687 + 29,687 = 59,374
 ```
 
-**成员 2 奖励**:
+**成员 2 激励**:
 ```
 voteReward2 = (47,500 × 60) / 160 = 17,812 (整数除法)
 theoreticalBoost2 = (47,500 × 3000) / 8000 = 17,812
@@ -208,7 +208,7 @@ totalReward2 = 17,812 + 17,812 = 35,624
 **验证比例**:
 ```
 投票比例 = 100:60 = 5:3
-奖励比例 = 59,374:35,624 ≈ 5:3 ✓
+激励比例 = 59,374:35,624 ≈ 5:3 ✓
 ```
 
 ### 场景 2: 5% 阈值边界
@@ -238,7 +238,7 @@ proposal3: 470 >= 24 → 合格 ✓
 eligibleProposalVoteAmount = 24 + 470 = 494
 ```
 
-**奖励分配** (假设 proposalRewardAmount = 95,000):
+**激励分配** (假设 proposalRewardAmount = 95,000):
 ```
 proposal1Reward = (95,000 × 24) / 494 = 4,615 (整数除法)
 proposal2Reward = 0 (不合格)
@@ -332,29 +332,29 @@ govVotes2 = liquidityShares2 × 1
 member1 votes: 60 (更少，因为质押少了)
 ```
 
-**奖励对比**:
+**激励对比**:
 ```
 由于 liquidityShares2 < liquidityShares1
 且 govVotes2 < govVotes1
 因此 round2Reward < round1Reward
 ```
 
-### 场景 6: 重复领取保护
+### 场景 6: 重复铸造保护
 
-**第一次领取**:
+**第一次铸造**:
 ```
 _govMinted[tokenAddress][round][memberId] = false
-mintGovReward(...) → 成功，获得奖励
+mintGovReward(...) → 成功，铸造激励
 _govMinted[tokenAddress][round][memberId] = true
 ```
 
-**第二次领取**:
+**第二次铸造**:
 ```
 _govMinted[tokenAddress][round][memberId] = true
 mintGovReward(...) → revert MemberRewardAlreadyMinted(tokenAddress, round, memberId)
 ```
 
-同理适用于提案奖励：
+同理适用于提案激励：
 ```
 _proposalMinted[tokenAddress][round][proposalId] = true
 ```
@@ -365,14 +365,14 @@ _proposalMinted[tokenAddress][round][proposalId] = true
 - 提案最低票数阈值: `minVotes = ceil(totalVotes × 0.05)`
 
 ### 8.2 向下取整（Floor，整数除法）
-- 所有奖励分配计算使用整数除法
-- 投票奖励池: `votePoolAmount = govRewardAmount / 2`
-- 成员投票奖励: `voteReward = (votePoolAmount × memberVotes) / totalVotes`
-- 提案奖励: `proposalReward = (proposalRewardAmount × proposalVotes) / eligibleProposalVoteAmount`
+- 所有激励分配计算使用整数除法
+- 投票激励池: `votePoolAmount = govRewardAmount / 2`
+- 成员投票激励: `voteReward = (votePoolAmount × memberVotes) / totalVotes`
+- 提案激励: `proposalReward = (proposalRewardAmount × proposalVotes) / eligibleProposalVoteAmount`
 - Boost 理论值: `theoreticalBoost = (boostPoolAmount × memberBoost) / totalBoost`
 
 ### 8.3 精度损失（Dust）
-由于整数除法向下取整，部分奖励无法完全分配，形成 "dust" 留在池中：
+由于整数除法向下取整，部分激励无法完全分配，形成 "dust" 留在池中：
 ```
 实际分配总和 < 池总额
 差额 = dust（留在池中，不会销毁也不会铸造）
@@ -394,7 +394,7 @@ assertEq(voteReward1 * 3, voteReward2 * 5, "Vote rewards should match 5:3 ratio"
 ```
 
 ### 9.3 等式验证
-对于 Boost 奖励的满额发放：
+对于 Boost 激励的满额发放：
 ```solidity
 assertEq(boostReward, theoreticalBoost, "Boost should be paid in full");
 ```
