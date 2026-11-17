@@ -14,6 +14,8 @@ lcov.info
 /test/audit/
 
 # 临时审计报告不入库，归档在工作区 `.scratch/`
+.scratch/
+/test/audit_*/
 *AUDIT*.md
 *Audit*.md
 *audit*.md
