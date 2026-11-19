@@ -36,13 +36,12 @@ contract MintEventsTest {
     uint256 issuedCount;
     uint256 currentPhaseValue = 1;
 
-    event RewardPrepared(
+    event RoundRewardReserved(
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 govReward,
         uint256 proposalReward,
-        uint256 totalRewardReserved,
-        uint256 totalRewardBurned
+        uint256 totalRewardReserved
     );
 
     event GovRewardMinted(
@@ -188,23 +187,22 @@ contract MintEventsTest {
         return 1e16;
     }
 
-    /// @notice Verify RewardPrepared event with exact field values
-    function testEvent_RewardPreparedEmitsCorrectFields() public {
-        uint256 round = 1;
-        uint256 govRewardExpected = (1000000 - 10000) * 100 / 1000;
-        uint256 proposalRewardExpected = (1000000 - 10000) * 100 / 1000;
+    /// @notice Verify the second reservation emits both pool amounts and the cumulative reserve.
+    function testEvent_RoundRewardReservedEmitsCorrectFields() public {
+        currentPhaseValue = 2;
+        uint256 roundOneReserved = 198000;
+        uint256 pool = (1000000 - 10000 - roundOneReserved) / 10;
 
-        vm.expectEmit(true, true, false, true);
-        emit RewardPrepared({
+        vm.expectEmit(true, true, false, true, address(mint));
+        emit RoundRewardReserved({
             tokenAddress: address(token),
-            round: round,
-            govReward: govRewardExpected,
-            proposalReward: proposalRewardExpected,
-            totalRewardReserved: govRewardExpected + proposalRewardExpected,
-            totalRewardBurned: 0
+            round: 2,
+            govReward: pool,
+            proposalReward: pool,
+            totalRewardReserved: roundOneReserved + pool * 2
         });
 
-        mint.mintGovReward(address(token), round, 1, address(this));
+        mint.reserveRoundReward(address(token), 2);
     }
 
     /// @notice Verify GovRewardMinted event with exact amounts
@@ -321,7 +319,7 @@ contract MintEventsTest {
 
     function testEvent_ProposalRewardBurnedEmitsExactShareAndCumulativeTotal() public {
         zeroBoost = true;
-        mint.prepareRewardIfNeeded(address(token), 1);
+        mint.burnUnusedBoostReward(address(token), 1);
         uint256 amount = 99000 * 40 / 1000;
 
         vm.expectEmit(true, true, true, true, address(mint));
@@ -337,44 +335,58 @@ contract MintEventsTest {
         assertEq(mint.totalRewardBurned(address(token)), 49500 + amount, "shared burn ledger");
     }
 
-    /// @notice 取消池燃烧必须先于奖池准备（依赖序），累计 `totalRewardBurned` 必须等于折叠值
-    function testEvent_RewardBurnedPrecedesRewardPrepared() public {
+    function testEvent_RewardBurnedPrecedesGovRewardMinted() public {
         zeroBoost = true;
-
-        vm.recordLogs();
+        vm.expectEmit(true, true, false, true, address(mint));
+        emit RewardBurned({
+            tokenAddress: address(token),
+            round: 1,
+            amount: 49500,
+            totalRewardBurned: 49500,
+            reason: BurnReason.BoostPoolCancelled
+        });
+        vm.expectEmit(true, true, true, true, address(mint));
+        emit GovRewardMinted({
+            tokenAddress: address(token),
+            round: 1,
+            memberId: 1,
+            voteReward: 9900,
+            boostReward: 0,
+            totalRewardMinted: 9900
+        });
         mint.mintGovReward(address(token), 1, 1, address(this));
-
-        (uint256 burnedIndex, uint256 preparedIndex, uint256 burnedTotal, uint256 cumulative, uint256 burnedCumulative)
-        = _scanRewardLogs(vm.getRecordedLogs());
-
-        require(burnedIndex != type(uint256).max, "missing RewardBurned");
-        require(preparedIndex != type(uint256).max, "missing RewardPrepared");
-        require(burnedIndex < preparedIndex, "burn must precede prepare");
-        require(burnedTotal > 0, "burn amount");
-        assertEq(cumulative, burnedTotal, "totalRewardBurned equals folded burns");
-        assertEq(burnedCumulative, cumulative, "the burn event carries the post-state total");
     }
 
-    /// @notice 跨轮累计：每轮 `RewardPrepared.totalRewardBurned` 等于此前全部 `RewardBurned` 之和
-    function testEvent_RewardPreparedCumulativeMatchesFoldedBurns() public {
+    /// @notice Each burn event carries the total folded from both event types across rounds.
+    function testEvent_BurnEventsShareTheCumulativeTotal() public {
         zeroBoost = true;
-        uint256 foldedBurned;
-
+        vm.recordLogs();
         for (uint256 round = 1; round <= 2; ++round) {
             currentPhaseValue = round;
             mint.reserveRoundReward(address(token), round);
             currentPhaseValue = round + 1;
-            vm.recordLogs();
-            mint.mintGovReward(address(token), round, 1, address(this));
-
-            (, uint256 preparedIndex, uint256 burnedThisRound, uint256 cumulative, uint256 burnedCumulative) =
-                _scanRewardLogs(vm.getRecordedLogs());
-            require(preparedIndex != type(uint256).max, "missing RewardPrepared");
-
-            foldedBurned += burnedThisRound;
-            assertEq(cumulative, foldedBurned, "cumulative totalRewardBurned");
-            assertEq(burnedCumulative, foldedBurned, "the burn event carries the same cumulative");
+            mint.burnProposalReward(address(token), round, 3);
+            mint.burnUnusedBoostReward(address(token), round);
+            mint.burnProposalReward(address(token), round, 3);
         }
+
+        MintVm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 boostTopic = keccak256("RewardBurned(address,uint256,uint256,uint256,uint8)");
+        bytes32 proposalTopic = keccak256("ProposalRewardBurned(address,uint256,uint256,uint256,uint256)");
+        uint256 foldedBurned;
+        uint256 count;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(mint)) continue;
+            bytes32 topic = logs[i].topics[0];
+            if (topic != boostTopic && topic != proposalTopic) continue;
+            require(topic == (count % 2 == 0 ? boostTopic : proposalTopic), "boost burn precedes proposal burn");
+            (uint256 amount, uint256 cumulative) = abi.decode(logs[i].data, (uint256, uint256));
+            foldedBurned += amount;
+            assertEq(cumulative, foldedBurned, "every event carries the post-state total");
+            ++count;
+        }
+        assertEq(count, 4, "one boost burn and one proposal burn per round");
+        assertEq(foldedBurned, mint.totalRewardBurned(address(token)), "the folded total matches the ledger");
     }
 
     /// @notice 两个 `Minted` 事件共享 `totalRewardMinted`：逐条日志的后置值等于跨事件折叠
@@ -411,22 +423,29 @@ contract MintEventsTest {
         assertEq(folded, mint.totalRewardMinted(address(token)), "the folded total matches the ledger");
     }
 
-    /// @notice 跨轮累计：每轮 `RewardPrepared.totalRewardReserved` 等于此前全部 (govReward + proposalReward) 之和
-    function testEvent_RewardPreparedReservedMatchesFold() public {
-        uint256 foldedReserved;
-
-        for (uint256 round = 1; round <= 2; ++round) {
+    /// @notice Each reservation event carries the sum of both pools from every reservation so far.
+    function testEvent_RoundRewardReservedMatchesFold() public {
+        uint256 foldedReserved = 198000; // The first round is reserved by setUp.
+        vm.recordLogs();
+        for (uint256 round = 2; round <= 3; ++round) {
             currentPhaseValue = round;
             mint.reserveRoundReward(address(token), round);
-            currentPhaseValue = round + 1;
-            vm.recordLogs();
-            mint.mintGovReward(address(token), round, 1, address(this));
+            mint.reserveRoundReward(address(token), round);
+        }
 
+        MintVm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 2, "unique reservation event per round");
+        for (uint256 i; i < logs.length; ++i) {
+            require(logs[i].emitter == address(mint), "Mint emitted the reservation");
+            require(logs[i].topics[0] == keccak256("RoundRewardReserved(address,uint256,uint256,uint256,uint256)"),
+                    "reservation topic");
+            assertEq(uint256(logs[i].topics[2]), i + 2, "reservation round");
             (uint256 govReward, uint256 proposalReward, uint256 reserved) =
-                _scanPreparedReserved(vm.getRecordedLogs());
+                abi.decode(logs[i].data, (uint256, uint256, uint256));
             foldedReserved += govReward + proposalReward;
             assertEq(reserved, foldedReserved, "cumulative totalRewardReserved");
         }
+        assertEq(foldedReserved, mint.totalRewardReserved(address(token)), "the folded total matches the ledger");
     }
 
     /// 依赖序：`TokenMinted` 与 `LaunchCountAdded` 都先于依赖它们的 `GovRewardMinted`。
@@ -455,54 +474,6 @@ contract MintEventsTest {
         require(launchIndex < govIndex, "launch count precedes gov reward");
     }
 
-    /// @dev Folds `RewardPrepared` pool amounts and cumulative reservation.
-    function _scanPreparedReserved(MintVm.Log[] memory logs)
-        private
-        view
-        returns (uint256 govReward, uint256 proposalReward, uint256 reserved)
-    {
-        bytes32 preparedTopic =
-            keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256)");
-        bool found;
-        for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].emitter != address(mint) || logs[i].topics.length == 0) continue;
-            if (logs[i].topics[0] != preparedTopic) continue;
-            (govReward, proposalReward, reserved,) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
-            found = true;
-        }
-        require(found, "missing RewardPrepared");
-    }
-
-    function _scanRewardLogs(MintVm.Log[] memory logs)
-        private
-        view
-        returns (
-            uint256 burnedIndex,
-            uint256 preparedIndex,
-            uint256 burnedTotal,
-            uint256 cumulative,
-            uint256 burnedCumulative
-        )
-    {
-        bytes32 burnedTopic = keccak256("RewardBurned(address,uint256,uint256,uint256,uint8)");
-        bytes32 preparedTopic =
-            keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256)");
-        burnedIndex = type(uint256).max;
-        preparedIndex = type(uint256).max;
-
-        for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].emitter != address(mint) || logs[i].topics.length == 0) continue;
-            if (logs[i].topics[0] == burnedTopic) {
-                (uint256 amount, uint256 burnedPost,) = abi.decode(logs[i].data, (uint256, uint256, uint8));
-                burnedTotal += amount;
-                burnedCumulative = burnedPost;
-                if (burnedIndex == type(uint256).max) burnedIndex = i;
-            } else if (logs[i].topics[0] == preparedTopic) {
-                (,,, cumulative) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
-                preparedIndex = i;
-            }
-        }
-    }
 }
 
 /// @notice Mock Vote with no eligible proposals

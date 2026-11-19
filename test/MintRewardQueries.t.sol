@@ -3,17 +3,11 @@ pragma solidity =0.8.37;
 
 import {Mint} from "../src/Mint.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
-import {IMintErrors} from "../src/interfaces/IMint.sol";
+import {ProposalRewardStatus} from "../src/interfaces/IMint.sol";
 import {ISubmitErrors, TargetMode} from "../src/interfaces/ISubmit.sol";
 import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
-interface MintVm {
-    function expectRevert(bytes calldata data) external;
-    function prank(address sender) external;
-}
-
-contract MintUnpreparedTest {
-    MintVm constant vm = MintVm(address(uint160(uint256(keccak256("hevm cheat code")))));
+contract MintRewardQueriesTest {
     Mint mint;
     LOVE20Token token;
     uint256 totalVoteAmountValue = 100;
@@ -101,49 +95,48 @@ contract MintUnpreparedTest {
         issuedLaunchCount[community] += count;
     }
 
-    function testUnpreparedProposalRewardCalculatesRealtime() public {
+    function testProposalRewardQuotesTheReservedPool() public {
         setupMint(1000, 10000, 0, 1e17);
-        (uint256 amount, bool minted) = mint.proposalRewardByProposalId(address(token), 1, 1);
-        require(amount == 180 && !minted, "proposal gets 20/100 of the pool");
-        require(!mint.isRewardPrepared(address(token), 1), "should not be prepared");
+        (uint256 amount, ProposalRewardStatus status) = mint.proposalRewardSettlement(address(token), 1, 1);
+        require(amount == 180 && status == ProposalRewardStatus.Unsettled, "proposal gets 20/100 of the pool");
     }
 
-    function testUnpreparedGovRewardCalculatesRealtime() public {
+    function testGovRewardQuotesTheReservedPool() public {
         setupMint(1000, 10000, 1e17, 0);
         (uint256 voteReward, uint256 boostReward, bool minted) =
             mint.govRewardByMemberId(address(token), 1, 1);
-        require(voteReward == 45 && boostReward == 45 && !minted, "unprepared 10/100 * 900");
-        require(!mint.isRewardPrepared(address(token), 1), "should not be prepared");
+        require(voteReward == 45 && boostReward == 45 && !minted, "10 percent of each half of 900");
     }
 
-    function testUnpreparedIsProposalIdWithRewardReturnsTrue() public {
+    function testEligibleProposalReturnsTrueBeforeSettlement() public {
         setupMint(1000, 10000, 0, 1e17);
         require(mint.isProposalIdWithReward(address(token), 1, 1), "20/100 >= 5% threshold");
-        require(!mint.isRewardPrepared(address(token), 1), "should not be prepared");
     }
 
-    function testUnpreparedBelowThresholdReturnsFalse() public {
+    function testBelowThresholdReturnsFalseBeforeSettlement() public {
         proposalVoteAmount = 4;
         setupMint(1000, 10000, 0, 1e17);
         require(!mint.isProposalIdWithReward(address(token), 1, 1), "4/100 < 5% threshold");
-        (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
+        (uint256 amount,) = mint.proposalRewardSettlement(address(token), 1, 1);
         require(amount == 0, "ineligible returns zero");
     }
 
-    function testPreparedAndUnpreparedQueryConsistency() public {
+    function testQuotesStayFixedWhenAvailableSupplyChanges() public {
         setupMint(1000, 10000, 1e17, 1e17);
-        (uint256 unprepGov,,) = mint.govRewardByMemberId(address(token), 1, 1);
-        (uint256 unprepProp,) = mint.proposalRewardByProposalId(address(token), 1, 1);
+        (uint256 voteBefore, uint256 boostBefore,) = mint.govRewardByMemberId(address(token), 1, 1);
+        (uint256 proposalBefore,) = mint.proposalRewardSettlement(address(token), 1, 1);
+        uint256 availableBefore = mint.rewardAvailable(address(token));
 
+        token.burn(100);
+        require(mint.rewardAvailable(address(token)) == availableBefore + 100, "available supply changed");
+        (uint256 voteAfter, uint256 boostAfter,) = mint.govRewardByMemberId(address(token), 1, 1);
+        (uint256 proposalAfter,) = mint.proposalRewardSettlement(address(token), 1, 1);
 
-        (uint256 prepGov,,) = mint.govRewardByMemberId(address(token), 1, 1);
-        (uint256 prepProp,) = mint.proposalRewardByProposalId(address(token), 1, 1);
-
-        require(unprepGov == prepGov, "gov reward must match");
-        require(unprepProp == prepProp, "proposal reward must match");
+        require(voteAfter == voteBefore && boostAfter == boostBefore, "gov quote uses frozen pool");
+        require(proposalAfter == proposalBefore, "proposal quote uses frozen pool");
     }
 
-    function testUnpreparedWithZeroVoteAmountReturnsZero() public {
+    function testZeroVoteRoundReturnsZero() public {
         totalVoteAmountValue = 0;
         memberVoteAmount = 0;
         proposalVoteAmount = 0;
@@ -153,7 +146,7 @@ contract MintUnpreparedTest {
             mint.govRewardByMemberId(address(token), 1, 1);
         require(voteReward == 0 && boostReward == 0 && !minted, "zero votes");
 
-        (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
+        (uint256 amount,) = mint.proposalRewardSettlement(address(token), 1, 1);
         require(amount == 0, "zero proposal votes");
     }
 }

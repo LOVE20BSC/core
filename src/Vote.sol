@@ -7,7 +7,6 @@ import {IStake} from "./interfaces/IStake.sol";
 import {ISubmit, TargetMode} from "./interfaces/ISubmit.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
 import {IMint} from "./interfaces/IMint.sol";
-import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
 import {IProposalTarget} from "./interfaces/IProposalTarget.sol";
 import {Pagination} from "@libs/Pagination.sol";
 
@@ -18,6 +17,7 @@ contract Vote is IVote {
     address public SUBMIT_ADDRESS;
     address public PHASE_ADDRESS;
     address public MEMBER_NFT_ADDRESS;
+    address public immutable MINT_ADDRESS;
 
     // tokenAddress => round => totalVoteAmount
     mapping(address => mapping(uint256 => uint256)) internal _totalVoteAmountByRound;
@@ -48,12 +48,14 @@ contract Vote is IVote {
         address phaseAddress,
         address stakeAddress,
         address submitAddress,
-        address memberNFTAddress
+        address memberNFTAddress,
+        address mintAddress
     ) {
         STAKE_ADDRESS = stakeAddress;
         SUBMIT_ADDRESS = submitAddress;
         PHASE_ADDRESS = phaseAddress;
         MEMBER_NFT_ADDRESS = memberNFTAddress;
+        MINT_ADDRESS = mintAddress;
     }
 
     modifier onlyMemberOwner(uint256 memberId) {
@@ -264,7 +266,7 @@ contract Vote is IVote {
 
         if (_totalVoteAmountByRound[tokenAddress][round] == voteAmount) {
             // forge-lint: disable-next-item(calls-loop)
-            IMint(ILOVE20Token(tokenAddress).MINTER()).reserveRoundReward(tokenAddress, round);
+            IMint(MINT_ADDRESS).reserveRoundReward(tokenAddress, round);
         }
 
         _emitVoteCast(tokenAddress, round, memberId, proposalId, voteAmount);

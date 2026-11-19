@@ -317,7 +317,7 @@ contract DeployCore is CheckSnapshot {
         addrs.submit = address(new Submit(addrs.phase, addrs.stake, addrs.memberNFT, config.submitMinRatio));
         console2.log("Submit deployed at:", addrs.submit);
 
-        addrs.vote = address(new Vote(addrs.phase, addrs.stake, addrs.submit, addrs.memberNFT));
+        addrs.vote = address(new Vote(addrs.phase, addrs.stake, addrs.submit, addrs.memberNFT, predicted.mint));
         require(addrs.vote == predicted.vote, "Vote address differs from the prediction");
         require(IStake(addrs.stake).VOTE_ADDRESS() == addrs.vote, "Stake vote address differs from the prediction");
         console2.log("Vote deployed at:", addrs.vote);
@@ -576,6 +576,7 @@ contract DeployCore is CheckSnapshot {
         require(vote.STAKE_ADDRESS() == addrs.stake, "Vote stake mismatch");
         require(vote.SUBMIT_ADDRESS() == addrs.submit, "Vote submit mismatch");
         require(vote.MEMBER_NFT_ADDRESS() == addrs.memberNFT, "Vote member NFT mismatch");
+        require(vote.MINT_ADDRESS() == addrs.mint, "Vote mint mismatch");
     }
 
     /// @dev Separate from `_validateDeployment` because that function already carries the whole

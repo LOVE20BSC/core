@@ -54,6 +54,7 @@ interface IVote is IVoteErrors, IVoteEvents {
     function STAKE_ADDRESS() external view returns (address);
     function SUBMIT_ADDRESS() external view returns (address);
     function MEMBER_NFT_ADDRESS() external view returns (address);
+    function MINT_ADDRESS() external view returns (address);
 
     function vote(
         address tokenAddress,

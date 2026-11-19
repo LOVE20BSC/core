@@ -80,12 +80,13 @@ launch = new Launch(...);                                          // 1. 创建�
 memberNFT = new MemberNFT(..., launch.FIRST_TOKEN_ADDRESS());       // 2. 真实首币地址
 stake = new Stake(..., predictedVote, ...);                        // 3. Vote 尚未部署
 submit = new Submit(address(phase), address(stake), address(memberNFT), 5e16);
-vote = new Vote(address(phase), address(stake), address(submit), address(memberNFT));
+vote = new Vote(address(phase), address(stake), address(submit), address(memberNFT), predictedMint);
 mint = new Mint(address(phase), address(vote), address(submit), address(launch), address(memberNFT), 5e16, 1e17, 1e17);
 
 require(address(memberNFT) == predictedMember);
 require(address(vote) == predictedVote);
 require(address(mint) == predictedMint);
+require(vote.MINT_ADDRESS() == address(mint));
 ```
 
 ## 运行测试

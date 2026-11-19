@@ -232,7 +232,7 @@ contract MintFuzzTest {
         assertEq(mint.isProposalIdWithReward(address(token), 1, 1), shouldQualify);
 
         if (shouldQualify) {
-            (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
+            (uint256 amount,) = mint.proposalRewardSettlement(address(token), 1, 1);
             uint256 proposalPool = mint.proposalReward(address(token), 1);
             uint256 expectedAmount = (proposalPool * proposalVoteAmount_) / totalVoteAmount_;
             assertEq(amount, expectedAmount);

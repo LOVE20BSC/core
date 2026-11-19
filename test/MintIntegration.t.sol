@@ -3,7 +3,7 @@ pragma solidity =0.8.37;
 
 import {Mint} from "../src/Mint.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
-import {IMintErrors, BurnReason} from "../src/interfaces/IMint.sol";
+import {IMintErrors} from "../src/interfaces/IMint.sol";
 import {ISubmitErrors, TargetMode} from "../src/interfaces/ISubmit.sol";
 import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
@@ -89,11 +89,10 @@ contract MintIntegrationTest {
         submit.setProposalTarget(proposalId, target, TargetMode.NoCallback);
         phase.setCurrentPhase(2);
 
-        // Claim rewards (auto-prepare)
+        uint256 member1BalanceBefore = token.balanceOf(member1);
         vm.prank(member1);
-        mint.mintGovReward(address(token), 1, 1, member1);
-
-        assertTrue(mint.isRewardPrepared(address(token), 1), "Reward should be prepared");
+        (uint256 voteReward1, uint256 boostReward1) = mint.mintGovReward(address(token), 1, 1, member1);
+        assertEq(token.balanceOf(member1) - member1BalanceBefore, voteReward1 + boostReward1, "Member1 rewards match");
 
         // Member 1 already claimed above, verify member 2's turn
         // Member 2 claims (40% votes)
@@ -107,7 +106,7 @@ contract MintIntegrationTest {
         assertEq(balanceAfter2 - balanceBefore2, voteReward2 + boostReward2, "Member2 rewards match");
 
         // Proposal target claims
-        (uint256 proposalAmount,) = mint.proposalRewardByProposalId(address(token), 1, proposalId);
+        (uint256 proposalAmount,) = mint.proposalRewardSettlement(address(token), 1, proposalId);
         assertTrue(proposalAmount > 0, "Proposal should have reward");
 
         uint256 targetBefore = token.balanceOf(target);
@@ -188,8 +187,6 @@ contract MintIntegrationTest {
         submit.setProposalTarget(1, target, TargetMode.NoCallback);
         submit.setProposalTarget(2, target, TargetMode.NoCallback);
         phase.setCurrentPhase(2);
-
-        // Prepare both
 
         // Claim token1
         vm.prank(member1);
@@ -274,7 +271,7 @@ contract MintIntegrationTest {
         assertTrue(countAfter > countBefore, "Launch count should increase");
     }
 
-    /// @notice Test 5: Interleaved prepare/mint across multiple tokens
+    /// @notice Test 5: Interleaved reservation and settlement across multiple tokens
     function testIntegration_InterleavedMultiTokenOperations() public {
         // Create second token
         LOVE20Token token2 = new LOVE20Token(
@@ -306,22 +303,17 @@ contract MintIntegrationTest {
         vote.setProposalVotes(address(token2), 1, 2, 150);
         submit.setProposalTarget(2, target, TargetMode.NoCallback);
 
-        // Interleaved operations: mint token1 (auto-prepare), mint token2 (auto-prepare)
         uint256 balance1Before = token.balanceOf(member1);
         vm.prank(member1);
         mint.mintGovReward(address(token), 1, 1, member1);
         uint256 balance1After = token.balanceOf(member1);
         assertTrue(balance1After > balance1Before, "Token1 minted to member1");
 
-        assertTrue(mint.isRewardPrepared(address(token), 1), "Token1 should be prepared");
-
         uint256 balance2Before = token2.balanceOf(member1);
         vm.prank(member1);
         mint.mintGovReward(address(token2), 1, 1, member1);
         uint256 balance2After = token2.balanceOf(member1);
         assertTrue(balance2After > balance2Before, "Token2 minted to member1");
-
-        assertTrue(mint.isRewardPrepared(address(token2), 1), "Token2 should be prepared");
 
         // Verify independent accounting
         assertTrue(mint.totalRewardMinted(address(token)) != mint.totalRewardMinted(address(token2)),
@@ -395,7 +387,6 @@ contract MintIntegrationTest {
 
         phase.setCurrentPhase(2);
 
-        // Trigger auto-prepare by minting
         vm.prank(member1);
         mint.mintGovReward(address(token), 1, 1, member1);
 
@@ -407,8 +398,8 @@ contract MintIntegrationTest {
         assertTrue(vote1 < vote2, "Member1 vote reward < Member2 vote reward");
 
         // Verify proposal rewards proportional to votes
-        (uint256 amount1,) = mint.proposalRewardByProposalId(address(token), 1, 1);
-        (uint256 amount2,) = mint.proposalRewardByProposalId(address(token), 1, 2);
+        (uint256 amount1,) = mint.proposalRewardSettlement(address(token), 1, 1);
+        (uint256 amount2,) = mint.proposalRewardSettlement(address(token), 1, 2);
 
         uint256 proposalPool = mint.proposalReward(address(token), 1);
         assertEq(amount1, proposalPool * 300 / 1000, "proposal 1 share");
@@ -442,7 +433,7 @@ contract MintIntegrationTest {
         // Verify proposal is eligible
         assertTrue(mint.isProposalIdWithReward(address(token), 1, 1), "Proposal at 5% should qualify");
 
-        (uint256 amount1,) = mint.proposalRewardByProposalId(address(token), 1, 1);
+        (uint256 amount1,) = mint.proposalRewardSettlement(address(token), 1, 1);
         assertTrue(amount1 > 0, "Proposal should have reward");
 
         // Setup round 2: proposal just below 5% threshold (49/1000)
@@ -487,7 +478,7 @@ contract MintIntegrationTest {
         vote.setProposalVotes(address(token), 1, 1, 100);
         submit.setProposalTarget(1, target, TargetMode.NoCallback);
 
-        // Round not ended - prepare must revert
+        // Settlement is blocked while the round is still in progress.
         phase.setCurrentPhase(1);
         vm.prank(member1);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 1));
@@ -496,18 +487,14 @@ contract MintIntegrationTest {
         // Now mark round as ended
         phase.setCurrentPhase(2);
 
-        // Mint should succeed (auto-prepare)
         vm.prank(member1);
         mint.mintGovReward(address(token), 1, 1, member1);
 
-        assertTrue(mint.isRewardPrepared(address(token), 1), "Round should be prepared after transition");
-
-        // Minting should also succeed
         assertTrue(token.balanceOf(member1) > 0, "Should mint after round ended");
     }
 
-    /// @notice Test 10: Multiple prepare calls are idempotent
-    function testIntegration_IdempotentPrepare() public {
+    /// @notice Test 10: Settlement leaves the original round pools intact.
+    function testIntegration_SettlementKeepsReservedPools() public {
         vote.setMemberVotes(address(token), 1, 1, 100);
         vote.setTotalVotes(address(token), 1, 100);
         vote.setMemberBoost(address(token), 1, 1, 500);
@@ -517,31 +504,21 @@ contract MintIntegrationTest {
         submit.setProposalTarget(1, target, TargetMode.NoCallback);
         phase.setCurrentPhase(2);
 
-        // First mint (triggers prepare)
+        uint256 reserved = mint.totalRewardReserved(address(token));
+        uint256 govPool = mint.govReward(address(token), 1);
+        uint256 proposalPool = mint.proposalReward(address(token), 1);
+
+        mint.burnUnusedBoostReward(address(token), 1);
         vm.prank(member1);
         mint.mintGovReward(address(token), 1, 1, member1);
+        vm.prank(target);
+        mint.mintProposalReward(address(token), 1, 1, target);
 
-        uint256 reserved1 = mint.totalRewardReserved(address(token));
-        uint256 govReward1 = mint.govReward(address(token), 1);
-        uint256 proposalReward1 = mint.proposalReward(address(token), 1);
-
-        // Query again (prepare should be idempotent)
-        uint256 reserved2 = mint.totalRewardReserved(address(token));
-        uint256 govReward2 = mint.govReward(address(token), 1);
-        uint256 proposalReward2 = mint.proposalReward(address(token), 1);
-
-        // Query a third time (still idempotent)
-        uint256 reserved3 = mint.totalRewardReserved(address(token));
-        uint256 govReward3 = mint.govReward(address(token), 1);
-        uint256 proposalReward3 = mint.proposalReward(address(token), 1);
-
-        // All values should remain unchanged
-        assertEq(reserved1, reserved2, "Reserved should not change");
-        assertEq(reserved2, reserved3, "Reserved should not change");
-        assertEq(govReward1, govReward2, "Gov reward should not change");
-        assertEq(govReward2, govReward3, "Gov reward should not change");
-        assertEq(proposalReward1, proposalReward2, "Proposal reward should not change");
-        assertEq(proposalReward2, proposalReward3, "Proposal reward should not change");
+        assertEq(mint.totalRewardBurned(address(token)), 0, "voters had boost shares");
+        assertEq(mint.totalRewardMinted(address(token)), govPool + proposalPool, "both pools minted");
+        assertEq(mint.totalRewardReserved(address(token)), reserved, "original total reserved");
+        assertEq(mint.govReward(address(token), 1), govPool, "original gov pool");
+        assertEq(mint.proposalReward(address(token), 1), proposalPool, "original proposal pool");
     }
 
     // Helper functions

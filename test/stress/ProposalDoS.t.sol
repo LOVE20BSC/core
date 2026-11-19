@@ -77,7 +77,7 @@ contract ProposalDoSTest is Test {
                 5
             );
         submit = new Submit(address(phase), address(stake), address(memberNFT), 1);
-        vote = new Vote(address(phase), address(stake), address(submit), address(memberNFT));
+        vote = new Vote(address(phase), address(stake), address(submit), address(memberNFT), predictedMint);
         mint = new Mint(address(phase), address(vote), address(submit), address(launch), address(memberNFT), 5e16, 1e17, 1e17);
         vm.startPrank(actor);
         token.approve(address(memberNFT), type(uint256).max);
@@ -86,11 +86,11 @@ contract ProposalDoSTest is Test {
         vm.stopPrank();
     }
 
-    function testPrepare10Proposals() public { _measurePreparation(10); }
-    function testPrepare300Proposals() public { _measurePreparation(300); }
-    function testPrepare1000Proposals() public { _measurePreparation(1000); }
+    function testBurnUnusedBoostWith10Proposals() public { _measureBoostBurn(10); }
+    function testBurnUnusedBoostWith300Proposals() public { _measureBoostBurn(300); }
+    function testBurnUnusedBoostWith1000Proposals() public { _measureBoostBurn(1000); }
 
-    function _measurePreparation(uint256 count) private {
+    function _measureBoostBurn(uint256 count) private {
         uint256[] memory ids = new uint256[](1);
         uint256[] memory amounts = new uint256[](1);
         // Build the history of many transactions without consuming the single test-call gas budget.
@@ -135,12 +135,12 @@ contract ProposalDoSTest is Test {
         vm.cool(address(phase));
         vm.cool(launchAddress);
         uint256 beforeGas = gasleft();
-        mint.prepareRewardIfNeeded{gas: 160_000}(address(token), 1);
-        uint256 preparationGas = beforeGas - gasleft();
+        mint.burnUnusedBoostReward{gas: 160_000}(address(token), 1);
+        uint256 burnGas = beforeGas - gasleft();
         emit log_named_uint("proposals", count);
-        emit log_named_uint("preparation gas", preparationGas);
-        assertLt(preparationGas, 160_000, "local preparation gas budget exceeded");
-        assertTrue(mint.isRewardPrepared(address(token), 1));
+        emit log_named_uint("unused boost burn gas", burnGas);
+        assertLt(burnGas, 160_000, "local unused boost burn gas budget exceeded");
+        assertEq(mint.totalRewardBurned(address(token)), expectedPool - expectedPool / 2);
         assertEq(mint.govReward(address(token), 1), expectedPool);
 
         uint256 reserved = mint.totalRewardReserved(address(token));
@@ -151,6 +151,6 @@ contract ProposalDoSTest is Test {
         uint256 reward = mint.mintProposalReward(address(token), 1, 1, actor);
         vm.stopPrank();
         assertEq(reward, expectedPool * count / (2 * count - 1));
-        assertEq(mint.totalRewardReserved(address(token)), reserved, "prepared twice");
+        assertEq(mint.totalRewardReserved(address(token)), reserved, "settlement changed total reserved");
     }
 }

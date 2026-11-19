@@ -9,7 +9,6 @@ LaunchCountMerged core.registry
 LaunchCountConsumed core.registry
 MemberMinted core.member
 RoundRewardReserved core.round
-RewardPrepared core.round
 GovRewardMinted core.round
 ProposalRewardMinted core.round
 ProposalRewardBurned core.round

@@ -127,26 +127,11 @@ contract MintCoverageTest {
         mint.mintProposalReward(address(token), 0, 1, TARGET);
     }
 
-    // This test is no longer valid after auto-prepare feature
-    // Auto-prepare automatically prepares rewards when minting, so "not prepared" state doesn't cause revert
-    // Keeping it as a comment for historical reference
-    /*
-    function testProposalMintRoundNotPrepared() public {
+    function testProposalMintUsesTheReservedPool() public {
         setupMint(1000, 10000, 0, 1e17);
         vm.prank(TARGET);
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector));
-        mint.mintProposalReward(address(token), 1, 1, TARGET);
-    }
-    */
-
-    function testProposalMintAutoPrepare() public {
-        setupMint(1000, 10000, 0, 1e17);
-        vm.prank(TARGET);
-        // Before auto-prepare, this would fail with RoundNotEnded
-        // Now it should succeed and automatically prepare rewards
         uint256 amount = mint.mintProposalReward(address(token), 1, 1, TARGET);
-        // Verify reward was calculated and minted
-        require(amount > 0, "proposal reward should be non-zero");
+        require(amount == mint.proposalReward(address(token), 1) && amount > 0, "sole proposal receives its pool");
     }
 
     function testProposalMintRejectsZeroRecipient() public {
@@ -174,7 +159,7 @@ contract MintCoverageTest {
         );
     }
 
-    function testPrepareCancelsOnlyTheBoostPoolWhenNoProposalQualifies() public {
+    function testGovSettlementBurnsOnlyTheBoostPoolWhenNoProposalQualifies() public {
         totalVoteAmountValue = 100;
         firstVotes = 1;
         proposalCount = 1;
@@ -193,16 +178,18 @@ contract MintCoverageTest {
         }
         require(burnedCount == 1, "only the boost pool was burned");
         require(mint.totalRewardBurned(address(token)) == burnedBefore + 450, "boost half released");
+        mint.burnUnusedBoostReward(address(token), 1);
+        require(mint.totalRewardBurned(address(token)) == burnedBefore + 450, "explicit retry cannot burn again");
     }
 
-    function testPrepareSkipsZeroAmountBurnEvents() public {
+    function testUnusedBoostBurnSkipsZeroAmountEvents() public {
         totalVoteAmountValue = 100;
         firstVotes = 100;
         proposalCount = 1;
         setupMint(999, 1000, 1e15, 1e15);
         uint256 burnedBefore = mint.totalRewardBurned(address(token));
         vm.recordLogs();
-        mint.prepareRewardIfNeeded(address(token), 1);
+        mint.burnUnusedBoostReward(address(token), 1);
         MintVm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,uint256,uint8)");
         uint256 burnedCount;
@@ -236,7 +223,7 @@ contract MintCoverageTest {
         require(mint.totalRewardBurned(address(token)) == burnedBefore, "burned unchanged");
     }
 
-    function testPrepareRoundNotReady() public {
+    function testGovMintRoundNotReady() public {
         setupMint(1000, 10000, 1e17, 1e17);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 0));
         mint.mintGovReward(address(token), 0, 1, address(this));

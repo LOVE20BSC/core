@@ -56,10 +56,11 @@ constructor(
     address phaseAddress,
     address stakeAddress,
     address submitAddress,
-    address memberNFTAddress
+    address memberNFTAddress,
+    address mintAddress
 )
 ```
-**依赖**: Phase, Stake, Submit, MemberNFT
+**依赖**: Phase, Stake, Submit, MemberNFT, Mint（构造时固化预测地址）
 
 ### Submit
 ```solidity
@@ -125,7 +126,7 @@ UniswapV2Router（外部合约）
 前向引用（部署前按 nonce 预测地址）:
   - MemberNFT
   - Vote（Stake 构造时尚未部署）
-  - Mint
+  - Mint（Launch 和 Vote 构造时尚未部署）
 
 特殊依赖:
   Launch 构造函数 → 创建 firstToken → MemberNFT 构造函数读取 Launch.FIRST_TOKEN_ADDRESS()
@@ -184,8 +185,8 @@ Stake stake = new Stake(
 // 5. Submit
 Submit submit = new Submit(address(phase), address(stake), address(memberNFT), 5e16);
 
-// 6. Vote
-Vote vote = new Vote(address(phase), address(stake), address(submit), address(memberNFT));
+// 6. Vote：Mint 尚未部署，使用预测地址
+Vote vote = new Vote(address(phase), address(stake), address(submit), address(memberNFT), predictedMint);
 require(address(vote) == predictedVote);
 
 // 7. Mint
@@ -194,11 +195,12 @@ Mint mint = new Mint(
     5e16, 1e17, 1e17
 );
 require(address(mint) == predictedMint);
+require(vote.MINT_ADDRESS() == address(mint));
 ```
 
 ## 前向引用的解决
 
-`Stake` 构造时需要 `Vote` 地址，而 `Vote` 在其后部署。解决方式是部署前预测：
+`Stake` 构造时需要 `Vote` 地址，`Launch` 和 `Vote` 构造时需要 `Mint` 地址。这些地址在部署前预测：
 
 1. 起始 nonce 的 `+2` 是 `MemberNFT`，`+5` 是 `Vote`，`+6` 是 `Mint`（`Launch` 构造函数内创建首币使用的是 `Launch` 自身 nonce，不消耗部署者 nonce）
 2. 预测值与真实部署地址必须一致，不一致说明中间插入了其他 CREATE，部署脚本立即失败

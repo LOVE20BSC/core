@@ -209,7 +209,7 @@ CONSTRUCTOR_SLOTS = {
                "AIRDROP_DISTRIBUTOR_ADDRESS", "LAUNCH_COUNT_THRESHOLD_RATIO", "MAX_LAUNCH_COUNT",
                "TOKEN_SYMBOL_LENGTH", "LAUNCH_AMOUNT", "MAX_SUPPLY", "TOKEN_NAME", "TOKEN_SYMBOL"],
     "Submit": ["PHASE_ADDRESS", "STAKE_ADDRESS", "MEMBER_NFT_ADDRESS", "SUBMIT_MIN_RATIO"],
-    "Vote": ["PHASE_ADDRESS", "STAKE_ADDRESS", "SUBMIT_ADDRESS", "MEMBER_NFT_ADDRESS"],
+    "Vote": ["PHASE_ADDRESS", "STAKE_ADDRESS", "SUBMIT_ADDRESS", "MEMBER_NFT_ADDRESS", "MINT_ADDRESS"],
     # The fifth slot is a `DexConfig` tuple (router, pairFactory, lpRatio, protocolRatio); the ABI
     # reports it as one `tuple`, so the map lists one key for it.
     "Stake": ["PHASE_ADDRESS", "MEMBER_NFT_ADDRESS", "VOTE_ADDRESS", "LAUNCH_ADDRESS",
@@ -457,7 +457,7 @@ def main():
         for name, dependencies in {"MEMBER_NFT": [], "LAUNCH": ["mint", "memberNFT"], "AIRDROP_DISTRIBUTOR": ["launch", "phase"],
                 "MINT": ["vote", "submit", "launch", "memberNFT"],
                 "STAKE": ["phase", "memberNFT", "vote", "launch"], "SUBMIT": ["phase", "stake", "memberNFT"],
-                "VOTE": ["phase", "stake", "submit", "memberNFT"]}.items():
+                "VOTE": ["phase", "stake", "submit", "memberNFT", "mint"]}.items():
             getters(name, {dep_keys.get(dep, dep.upper()) + "_ADDRESS()(address)": dep_keys.get(dep, dep.upper()) + "_ADDRESS" for dep in dependencies})
         getters("ROUTER", {"factory()(address)": "FACTORY_ADDRESS", "WETH()(address)": "WETH_ADDRESS"})
         # cast 对 uint 返回值会带科学计数法标注，且供应量超过 64 位；21_check 必须先归一再按十进制串比较。
@@ -537,6 +537,7 @@ def main():
                 ("LAUNCH", "TOKEN_SYMBOL_LENGTH()(uint256)"), ("LAUNCH", "LAUNCH_AMOUNT()(uint256)"), ("LAUNCH", "MAX_SUPPLY()(uint256)"),
                 ("MEMBER_NFT", "MAX_NAME_LENGTH()(uint256)"), ("PHASE", "ORIGIN_BLOCKS()(uint256)"),
                 ("PHASE", "ORIGIN_PHASE_BLOCKS()(uint256)"), ("PHASE", "SYNC_OBSERVATION_LIMIT()(uint256)"), ("ROUTER", "WETH()(address)"),
+                ("VOTE", "MINT_ADDRESS()(address)"),
                 ("AIRDROP_DISTRIBUTOR", "LAUNCH_ADDRESS()(address)"), ("AIRDROP_DISTRIBUTOR", "PHASE_ADDRESS()(address)"),
                 ("AIRDROP_DISTRIBUTOR", "TOTAL_SHARE()(uint256)"),
                 ("AIRDROP_DISTRIBUTOR", "MAX_CLAIM_DELAY_ROUNDS()(uint256)"),

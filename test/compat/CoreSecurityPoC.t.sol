@@ -169,7 +169,7 @@ contract CoreSecurityPoC {
                 5
             );
         submit = new Submit(address(phase), address(stake), address(nft), SUBMIT_MIN_RATIO);
-        vote = new Vote(address(phase), address(stake), address(submit), address(nft));
+        vote = new Vote(address(phase), address(stake), address(submit), address(nft), predictedMint);
         mint = new Mint(
             address(phase), address(vote), address(submit), address(launch), address(nft),
             PROPOSAL_MIN_VOTE_RATIO, GOV_RATIO, PROPOSAL_RATIO

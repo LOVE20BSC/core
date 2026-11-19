@@ -8,7 +8,7 @@ import {ILaunch} from "./interfaces/ILaunch.sol";
 import {IPhase} from "./interfaces/IPhase.sol";
 import {IMemberNFT} from "./interfaces/IMemberNFT.sol";
 import {ILOVE20Token} from "./interfaces/ILOVE20Token.sol";
-import {IMint, BurnReason} from "./interfaces/IMint.sol";
+import {IMint, BurnReason, ProposalRewardStatus} from "./interfaces/IMint.sol";
 
 contract Mint is IMint {
     uint256 private constant PRECISION = 1e18;
@@ -30,15 +30,13 @@ contract Mint is IMint {
     mapping(address => mapping(uint256 => uint256)) internal _govReward;
     // tokenAddress => round => proposal reward pool
     mapping(address => mapping(uint256 => uint256)) internal _proposalReward;
-    // tokenAddress => round => whether reward preparation is complete
-    mapping(address => mapping(uint256 => bool)) internal _isRewardPrepared;
+    // tokenAddress => round => whether the unused boost pool has been burned
+    mapping(address => mapping(uint256 => bool)) internal _unusedBoostRewardBurned;
     // tokenAddress => round => whether the reward pools have been reserved
     mapping(address => mapping(uint256 => bool)) internal _isRewardReserved;
 
-    // tokenAddress => round => proposalId => whether the proposal reward is settled
-    mapping(address => mapping(uint256 => mapping(uint256 => bool))) internal _proposalMinted;
-    // tokenAddress => round => proposalId => whether its below-threshold share was processed
-    mapping(address => mapping(uint256 => mapping(uint256 => bool))) internal _proposalRewardBurned;
+    // tokenAddress => round => proposalId => reward settlement status
+    mapping(address => mapping(uint256 => mapping(uint256 => ProposalRewardStatus))) internal _proposalRewardStatus;
     // tokenAddress => round => votes and floored shares processed by proposal burns
     mapping(address => mapping(uint256 => ProposalBurnState)) internal _proposalBurnProgress;
     // tokenAddress => round => memberId => whether the governance reward is settled
@@ -76,10 +74,6 @@ contract Mint is IMint {
         return _proposalReward[tokenAddress][round];
     }
 
-    function isRewardPrepared(address tokenAddress, uint256 round) external view returns (bool) {
-        return _isRewardPrepared[tokenAddress][round];
-    }
-
     function launchCredit(address tokenAddress, uint256 memberId) external view returns (uint256) {
         return _launchCredit[tokenAddress][memberId];
     }
@@ -105,11 +99,6 @@ contract Mint is IMint {
         ROUND_REWARD_PROPOSAL_RATIO = roundRewardProposalRatio;
     }
 
-    function _isRoundEnded(uint256 round) private view returns (bool) {
-        // forge-lint: disable-next-item(calls-loop)
-        return round != 0 && IPhase(PHASE_ADDRESS).currentPhase() > round;
-    }
-
     modifier onlyVote() {
         if (msg.sender != VOTE_ADDRESS) revert NotVoteContract(msg.sender);
         _;
@@ -119,11 +108,8 @@ contract Mint is IMint {
         uint256 current = IPhase(PHASE_ADDRESS).currentPhase();
         if (round == 0 || round != current) revert RoundNotCurrent(round, current);
         if (!ILaunch(LAUNCH_ADDRESS).isLOVE20Token(tokenAddress)) revert TokenNotRegistered(tokenAddress);
-        _reserveRewardIfNeeded(tokenAddress, round);
-    }
-
-    function _reserveRewardIfNeeded(address tokenAddress, uint256 round) private {
         if (_isRewardReserved[tokenAddress][round]) return;
+
         uint256 available = rewardAvailable(tokenAddress);
         uint256 gov = Math.mulDiv(available, ROUND_REWARD_GOV_RATIO, PRECISION);
         uint256 proposal = Math.mulDiv(available, ROUND_REWARD_PROPOSAL_RATIO, PRECISION);
@@ -136,46 +122,35 @@ contract Mint is IMint {
             tokenAddress: tokenAddress,
             round: round,
             govReward: gov,
-            proposalReward: proposal
+            proposalReward: proposal,
+            totalRewardReserved: _totalRewardReserved[tokenAddress]
         });
     }
 
-    function prepareRewardIfNeeded(address tokenAddress, uint256 round) external {
-        _prepareRewardIfNeeded(tokenAddress, round);
+    function burnUnusedBoostReward(address tokenAddress, uint256 round) external {
+        _checkSettlementRound(tokenAddress, round);
+        _burnUnusedBoostReward(tokenAddress, round);
     }
 
-    function _prepareRewardIfNeeded(address tokenAddress, uint256 round) internal {
-        if (_isRewardPrepared[tokenAddress][round]) {
-            return;
-        }
+    function _checkSettlementRound(address tokenAddress, uint256 round) private view {
         // forge-lint: disable-next-item(calls-loop, require-revert-in-loop)
         if (!ILaunch(LAUNCH_ADDRESS).isLOVE20Token(tokenAddress)) revert TokenNotRegistered(tokenAddress);
 
-        if (!_isRoundEnded(round)) {
-            // forge-lint: disable-next-line(require-revert-in-loop)
+        // forge-lint: disable-next-item(calls-loop, require-revert-in-loop)
+        if (round == 0 || IPhase(PHASE_ADDRESS).currentPhase() <= round) {
             revert RoundNotEnded(round);
         }
+    }
 
+    function _burnUnusedBoostReward(address tokenAddress, uint256 round) private {
         uint256 govRewardAmount = _govReward[tokenAddress][round];
+        if (govRewardAmount == 0 || _unusedBoostRewardBurned[tokenAddress][round]) return;
         // forge-lint: disable-next-item(calls-loop)
-        if (govRewardAmount != 0 && IVote(VOTE_ADDRESS).totalVoterBoost(tokenAddress, round) == 0) {
-            uint256 boostPoolAmount = govRewardAmount - (govRewardAmount / VOTE_POOL_DIVISOR);
-            _burnCancelledPool(tokenAddress, round, boostPoolAmount, BurnReason.BoostPoolCancelled);
-        }
+        if (IVote(VOTE_ADDRESS).totalVoterBoost(tokenAddress, round) != 0) return;
 
-        // forge-lint: disable-next-line(missing-events-access-control)
-        _isRewardPrepared[tokenAddress][round] = true;
-
-        // slither-disable-next-line reentrancy-events
-        // forge-lint: disable-next-item(reentrancy-events)
-        emit RewardPrepared({
-            tokenAddress: tokenAddress,
-            round: round,
-            govReward: govRewardAmount,
-            proposalReward: _proposalReward[tokenAddress][round],
-            totalRewardReserved: _totalRewardReserved[tokenAddress],
-            totalRewardBurned: _totalRewardBurned[tokenAddress]
-        });
+        _unusedBoostRewardBurned[tokenAddress][round] = true;
+        uint256 boostPoolAmount = govRewardAmount - (govRewardAmount / VOTE_POOL_DIVISOR);
+        _burnCancelledPool(tokenAddress, round, boostPoolAmount, BurnReason.BoostPoolCancelled);
     }
 
     function burnProposalReward(
@@ -183,16 +158,23 @@ contract Mint is IMint {
         uint256 round,
         uint256 proposalId
     ) external {
-        _prepareRewardIfNeeded(tokenAddress, round);
-        if (_proposalRewardBurned[tokenAddress][round][proposalId]) return;
+        _checkSettlementRound(tokenAddress, round);
+        {
+            ProposalRewardStatus status = _proposalRewardStatus[tokenAddress][round][proposalId];
+            if (status == ProposalRewardStatus.Minted) {
+                revert ProposalRewardAlreadyMinted(tokenAddress, round, proposalId);
+            }
+            if (status == ProposalRewardStatus.Burned) return;
+        }
 
+        _burnUnusedBoostReward(tokenAddress, round);
         (uint256 voteAmount, uint256 totalVoteAmount, uint256 minVoteAmount) =
             _proposalVoteTally(tokenAddress, round, proposalId);
         if (voteAmount == 0 || voteAmount >= minVoteAmount) return;
 
         uint256 pool = _proposalReward[tokenAddress][round];
-        uint256 amount = Math.mulDiv(pool, voteAmount, totalVoteAmount);
-        _proposalRewardBurned[tokenAddress][round][proposalId] = true;
+        uint256 amount = _proposalRewardShare(pool, voteAmount, totalVoteAmount);
+        _proposalRewardStatus[tokenAddress][round][proposalId] = ProposalRewardStatus.Burned;
 
         ProposalBurnState storage progress = _proposalBurnProgress[tokenAddress][round];
         progress.voteAmount += voteAmount;
@@ -249,26 +231,35 @@ contract Mint is IMint {
             revert ZeroRecipientAddress();
         }
 
-        _prepareRewardIfNeeded(tokenAddress, round);
-
-        if (_proposalMinted[tokenAddress][round][proposalId]) {
-            revert ProposalRewardAlreadyMinted(tokenAddress, round, proposalId);
+        _checkSettlementRound(tokenAddress, round);
+        {
+            ProposalRewardStatus status = _proposalRewardStatus[tokenAddress][round][proposalId];
+            if (status == ProposalRewardStatus.Minted) {
+                revert ProposalRewardAlreadyMinted(tokenAddress, round, proposalId);
+            }
+            if (status == ProposalRewardStatus.Burned) {
+                revert ProposalRewardAlreadyBurned(tokenAddress, round, proposalId);
+            }
         }
 
-        (amount, ) = _proposalRewardCalculation(tokenAddress, round, proposalId);
-        if (amount == 0) {
-            (uint256 voteAmount, , uint256 minVoteAmount) =
+        _burnUnusedBoostReward(tokenAddress, round);
+        {
+            uint256 pool = _proposalReward[tokenAddress][round];
+            (uint256 voteAmount, uint256 totalVoteAmount, uint256 minVoteAmount) =
                 _proposalVoteTally(tokenAddress, round, proposalId);
             if (voteAmount < minVoteAmount) {
                 revert ProposalBelowThreshold(tokenAddress, round, proposalId, voteAmount, minVoteAmount);
             }
-            if (_proposalReward[tokenAddress][round] == 0) {
+            if (pool == 0) {
                 revert ProposalPoolEmpty(tokenAddress, round);
             }
-            revert ProposalRewardRoundedToZero(tokenAddress, round, proposalId);
+            amount = _proposalRewardShare(pool, voteAmount, totalVoteAmount);
+            if (amount == 0) {
+                revert ProposalRewardRoundedToZero(tokenAddress, round, proposalId);
+            }
         }
 
-        _proposalMinted[tokenAddress][round][proposalId] = true;
+        _proposalRewardStatus[tokenAddress][round][proposalId] = ProposalRewardStatus.Minted;
         _totalRewardMinted[tokenAddress] += amount;
 
         ILOVE20Token(tokenAddress).mint(recipient, amount);
@@ -323,41 +314,29 @@ contract Mint is IMint {
         return (voteRewards, boostRewards);
     }
 
-    function _proposalRewardCalculation(
-        address tokenAddress,
-        uint256 round,
-        uint256 proposalId
-    ) internal view returns (uint256 amount, bool minted) {
-        minted = _proposalMinted[tokenAddress][round][proposalId];
-
-        (uint256 proposalVoteAmount, uint256 totalVoteAmount, uint256 minVoteAmount) =
-            _proposalVoteTally(tokenAddress, round, proposalId);
-
-        if (totalVoteAmount == 0 || proposalVoteAmount == 0) {
-            return (0, minted);
-        }
-
-        if (proposalVoteAmount < minVoteAmount) {
-            return (0, minted);
-        }
-
-        uint256 proposalRewardAmount = _isRewardReserved[tokenAddress][round]
-            ? _proposalReward[tokenAddress][round]
-            : Math.mulDiv(rewardAvailable(tokenAddress), ROUND_REWARD_PROPOSAL_RATIO, PRECISION);
-        amount = Math.mulDiv(proposalRewardAmount, proposalVoteAmount, totalVoteAmount);
-
-        return (amount, minted);
+    function _proposalRewardShare(
+        uint256 pool,
+        uint256 voteAmount,
+        uint256 totalVoteAmount
+    ) private pure returns (uint256) {
+        if (totalVoteAmount == 0) return 0;
+        return Math.mulDiv(pool, voteAmount, totalVoteAmount);
     }
 
-    function proposalRewardByProposalId(
+    function proposalRewardSettlement(
         address tokenAddress,
         uint256 round,
         // forge-lint: disable-next-item(unused-return)
         uint256 proposalId
-    ) external view returns (uint256 amount, bool minted) {
+    ) external view returns (uint256 amount, ProposalRewardStatus status) {
         ISubmit(SUBMIT_ADDRESS).proposalTarget(tokenAddress, proposalId);
 
-        return _proposalRewardCalculation(tokenAddress, round, proposalId);
+        status = _proposalRewardStatus[tokenAddress][round][proposalId];
+        (uint256 voteAmount, uint256 totalVoteAmount, uint256 minVoteAmount) =
+            _proposalVoteTally(tokenAddress, round, proposalId);
+        if (status == ProposalRewardStatus.Burned || voteAmount >= minVoteAmount) {
+            amount = _proposalRewardShare(_proposalReward[tokenAddress][round], voteAmount, totalVoteAmount);
+        }
     }
 
     // forge-lint: disable-next-item(calls-loop)
@@ -382,14 +361,7 @@ contract Mint is IMint {
             return (0, 0, minted);
         }
 
-        uint256 govRewardAmount;
-        if (_isRewardReserved[tokenAddress][round]) {
-            govRewardAmount = _govReward[tokenAddress][round];
-        } else {
-            uint256 available = rewardAvailable(tokenAddress);
-            govRewardAmount = Math.mulDiv(available, ROUND_REWARD_GOV_RATIO, PRECISION);
-        }
-
+        uint256 govRewardAmount = _govReward[tokenAddress][round];
         uint256 votePoolAmount = govRewardAmount / VOTE_POOL_DIVISOR;
         uint256 boostPoolAmount = govRewardAmount - votePoolAmount;
 
@@ -509,12 +481,13 @@ contract Mint is IMint {
             revert ZeroRecipientAddress();
         }
 
-        _prepareRewardIfNeeded(tokenAddress, round);
+        _checkSettlementRound(tokenAddress, round);
 
         if (_govMinted[tokenAddress][round][memberId]) {
             revert MemberRewardAlreadyMinted(tokenAddress, round, memberId);
         }
 
+        _burnUnusedBoostReward(tokenAddress, round);
         (voteReward, boostReward, ) = _govRewardCalculation(tokenAddress, round, memberId);
 
         if (voteReward + boostReward == 0) {

@@ -7,6 +7,7 @@ import {Submit} from "../src/Submit.sol";
 import {Vote} from "../src/Vote.sol";
 import {Phase} from "../src/Phase.sol";
 import {MemberNFT} from "../src/MemberNFT.sol";
+import {Mint} from "../src/Mint.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {RealV2Factory, RealV2Pair, RealV2Router} from "./compat/RealV2.sol";
 
@@ -79,6 +80,7 @@ contract StakeInvariantTest {
 
         uint256 nonce = vm.getNonce(address(this));
         address predictedVote = vm.computeCreateAddress(address(this), nonce + 2);
+        address predictedMint = vm.computeCreateAddress(address(this), nonce + 3);
 
         stake = new Stake(
                 address(phase),
@@ -93,8 +95,12 @@ contract StakeInvariantTest {
                 5
             );
         submit = new Submit(address(phase), address(stake), address(nft), 1e16);
-        vote = new Vote(address(phase), address(stake), address(submit), address(nft));
+        vote = new Vote(address(phase), address(stake), address(submit), address(nft), predictedMint);
         require(address(vote) == predictedVote, "predicted vote address");
+        Mint mint = new Mint(
+            address(phase), address(vote), address(submit), address(registry), address(nft), 5e16, 1e17, 1e17
+        );
+        require(address(mint) == predictedMint, "predicted mint address");
 
         factory.createPair(address(token), address(root));
         pair = RealV2Pair(factory.getPair(address(token), address(root)));

@@ -3,7 +3,7 @@ pragma solidity =0.8.37;
 
 import {Mint} from "../src/Mint.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
-import {IMintErrors} from "../src/interfaces/IMint.sol";
+import {IMintErrors, ProposalRewardStatus} from "../src/interfaces/IMint.sol";
 import {ISubmitErrors, TargetMode} from "../src/interfaces/ISubmit.sol";
 import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
@@ -70,12 +70,27 @@ contract MintTest {
         mint.reserveRoundReward(address(token), 2);
         uint256 second = mint.govReward(address(token), 2);
         require(second < first, "next round sees prior reservation");
-        totalBoost = 10;
         currentPhaseValue = 3;
-        mint.prepareRewardIfNeeded(address(token), 2);
-        mint.prepareRewardIfNeeded(address(token), 1);
+        require(mint.mintProposalReward(address(token), 2, 1, address(this)) == second, "later proposal settles first");
+        (uint256 voteReward,) = mint.mintGovReward(address(token), 1, 1, address(this));
+        require(voteReward == first / 2, "earlier governance share is stable");
         require(mint.govReward(address(token), 1) == first, "first budget fixed");
         require(mint.govReward(address(token), 2) == second, "second budget fixed");
+    }
+
+    function testZeroPoolsStayReservedAfterSupplyFalls() external {
+        setupMint(999, 1000, 1e17, 1e17);
+        require(mint.totalRewardReserved(address(token)) == 0, "first reservation rounds both pools to zero");
+
+        token.burn(100);
+        currentPhaseValue = 1;
+        vm.recordLogs();
+        mint.reserveRoundReward(address(token), 1);
+        require(vm.getRecordedLogs().length == 0, "no second reservation event");
+        require(mint.totalRewardReserved(address(token)) == 0, "round one stays at zero");
+
+        reserveRound(2);
+        require(mint.totalRewardReserved(address(token)) == 20, "round two uses the released supply");
     }
 
     function testReservationCannotBeCalledByAnyoneOrMintBeforeRoundEnd() external {
@@ -173,8 +188,11 @@ contract MintTest {
         mint.mintGovRewards(address(token), rounds, 1, address(this));
         (,, bool minted) = mint.govRewardByMemberId(address(token), 1, 1);
         require(!minted && mint.totalRewardMinted(address(token)) == 0, "reward rollback");
+        require(mint.totalRewardBurned(address(token)) == 0, "boost burn rollback");
         require(token.totalSupply() == 1000, "token rollback");
         require(issuedLaunchCount[address(token)] == 0 && mint.launchCredit(address(token), 1) == 0, "launch rollback");
+        (uint256 voteReward,) = mint.mintGovReward(address(token), 1, 1, address(this));
+        require(voteReward == 450 && mint.totalRewardBurned(address(token)) == 450, "retry settles once");
     }
 
     function testEmptyBatchHasNoSideEffects() public {
@@ -238,18 +256,17 @@ contract MintTest {
         secondVotes = 20;
         proposalCount = 2;
         setupMint(1000, 10000, 0, 1e17);
-        // Trigger auto-prepare by minting
         require(mint.mintProposalReward(address(token), 1, 2, address(this)) == 857, "reward uses 20/21");
         require(!mint.isProposalIdWithReward(address(token), 1, 1), "1/21 is less than 5 percent");
-        (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
+        (uint256 amount,) = mint.proposalRewardSettlement(address(token), 1, 1);
         require(amount == 0, "ineligible query");
         vm.expectRevert(
             abi.encodeWithSelector(IMintErrors.ProposalBelowThreshold.selector, address(token), 1, 1, 1, 2)
         );
         mint.mintProposalReward(address(token), 1, 1, address(this));
-        bool minted;
-        (amount, minted) = mint.proposalRewardByProposalId(address(token), 1, 2);
-        require(amount == 857 && minted, "minted query");
+        ProposalRewardStatus status;
+        (amount, status) = mint.proposalRewardSettlement(address(token), 1, 2);
+        require(amount == 857 && status == ProposalRewardStatus.Minted, "minted query");
     }
 
     function testProposalExactlyAtThresholdQualifies() public {
@@ -268,8 +285,11 @@ contract MintTest {
             abi.encodeWithSelector(IMintErrors.ProposalPoolEmpty.selector, address(token), 1)
         );
         mint.mintProposalReward(address(token), 1, 1, address(this));
-        (, bool minted) = mint.proposalRewardByProposalId(address(token), 1, 1);
-        require(!minted && mint.totalRewardMinted(address(token)) == 0, "zero reward consumed state");
+        (, ProposalRewardStatus status) = mint.proposalRewardSettlement(address(token), 1, 1);
+        require(
+            status == ProposalRewardStatus.Unsettled && mint.totalRewardMinted(address(token)) == 0,
+            "zero reward consumed state"
+        );
     }
 
     function testBelowThresholdOutranksAnEmptyPool() public {
@@ -314,46 +334,7 @@ contract MintTest {
         require(!minted && mint.totalRewardMinted(address(token)) == 0, "zero gov reward consumed state");
     }
 
-    function testZeroVotePreparationMustEmitEvent() public {
-        totalVoteAmountValue = 0;
-        firstVotes = 0;
-        memberVoteAmount = 0;
-        setupMint(1000, 10000, 1e17, 0);
-        vm.recordLogs();
-        // Trigger auto-prepare by attempting to mint
-        vm.expectRevert(
-            abi.encodeWithSelector(IMintErrors.MemberHasNoVote.selector, address(token), 2, 1)
-        );
-        mint.mintGovReward(address(token), 2, 1, address(this));
-        MintVm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 sig = keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256)");
-        uint256 count;
-        for (uint256 i; i < logs.length; i++) {
-            if (logs[i].emitter == address(mint) && logs[i].topics[0] == sig) {
-                count++;
-                require(uint256(logs[i].topics[2]) == 2, "event round");
-                require(keccak256(logs[i].data) == keccak256(abi.encode(0, 0, 0, 0)), "event ledger");
-            }
-        }
-        require(count == 1, "RewardPrepared missing for zero-vote round");
-        // Note: Since the transaction reverted, the _isRewardPrepared flag was rolled back
-        // A second call will emit the event again because the flag is still false
-        vm.recordLogs();
-        vm.expectRevert(
-            abi.encodeWithSelector(IMintErrors.MemberHasNoVote.selector, address(token), 2, 1)
-        );
-        mint.mintGovReward(address(token), 2, 1, address(this));
-        logs = vm.getRecordedLogs();
-        uint256 count2;
-        for (uint256 i; i < logs.length; i++) {
-            if (logs[i].emitter == address(mint) && logs[i].topics[0] == sig) {
-                count2++;
-            }
-        }
-        require(count2 == 1, "duplicate preparation event");
-    }
-
-    function testZeroVoteRoundSettlementMustReject() public {
+    function testZeroVoteRoundCannotMintOrBurnReward() public {
         totalVoteAmountValue = 0;
         memberVoteAmount = 0;
         firstVotes = 0;
@@ -366,7 +347,13 @@ contract MintTest {
             abi.encodeWithSelector(IMintErrors.ProposalPoolEmpty.selector, address(token), 2)
         );
         mint.mintProposalReward(address(token), 2, 1, address(this));
+        vm.recordLogs();
+        mint.burnUnusedBoostReward(address(token), 2);
+        mint.burnProposalReward(address(token), 2, 1);
+        require(vm.getRecordedLogs().length == 0, "zero-vote burns emit no events");
         require(mint.totalRewardMinted(address(token)) == 0, "zero-vote settlement mutated state");
+        require(mint.totalRewardReserved(address(token)) == 0, "zero-vote round used reserve");
+        require(mint.totalRewardBurned(address(token)) == 0, "zero-vote round burned reserve");
     }
 
     function testNonexistentRewardQueriesMustRevert() public {
@@ -375,24 +362,10 @@ contract MintTest {
             vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 999));
             mint.govRewardByMemberId(address(token), round, 999);
             vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, address(token), 999));
-            mint.proposalRewardByProposalId(address(token), round, 999);
+            mint.proposalRewardSettlement(address(token), round, 999);
         }
-        (uint256 amount, bool minted) = mint.proposalRewardByProposalId(address(token), 2, 1);
-        require(amount == 0 && !minted, "valid unprepared proposal");
-    }
-
-    function testQueryUnpreparedRoundCalculatesRealtime() public {
-        setupMint(1000, 10000, 1e17, 0);
-        // Query before any mint - should calculate real-time
-        (uint256 voteReward, uint256 boostReward, bool minted) =
-            mint.govRewardByMemberId(address(token), 1, 1);
-        require(voteReward == 450 && boostReward == 0 && !minted, "unprepared calculates real-time");
-        // Trigger prepare for round 1 by minting (memberVoteAmount = 1 for this round)
-        mint.mintGovReward(address(token), 1, 1, address(this));
-        // Now set memberVoteAmount to 0 and query round 1 - should return cached zero for nonvoter
-        memberVoteAmount = 0;
-        (voteReward, boostReward, minted) = mint.govRewardByMemberId(address(token), 1, 1);
-        require(voteReward + boostReward == 0 && minted, "nonvoter member reward");
+        (uint256 amount, ProposalRewardStatus status) = mint.proposalRewardSettlement(address(token), 2, 1);
+        require(amount == 0 && status == ProposalRewardStatus.Unsettled, "valid proposal with no reserved pool");
     }
 
     function testGovernanceQueryMatchesMintAndBoost() public {
@@ -414,15 +387,15 @@ contract MintTest {
         require(voteReward == 50 && boostReward == 250 && minted, "settled query");
     }
 
-    function testPreviewPrepareAndMintNeverReadTheProposalList() public {
+    function testPreviewAndMintNeverReadTheProposalList() public {
         totalVoteAmountValue = memberVoteAmount = proposalCount = 300;
         secondVotes = 1;
         minVoteRatio = 0;
         setupMint(1000, 10000, 0, 1e17);
         rejectProposalScan = true;
-        (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
+        (uint256 amount,) = mint.proposalRewardSettlement(address(token), 1, 1);
         require(amount == 3, "preview uses full round votes");
-        require(mint.mintProposalReward(address(token), 1, 1, address(this)) == 3, "first mint auto-prepares");
+        require(mint.mintProposalReward(address(token), 1, 1, address(this)) == 3, "first mint uses the reserved pool");
         require(mint.mintProposalReward(address(token), 1, 300, address(this)) == 3, "subsequent mint");
     }
 
@@ -439,9 +412,13 @@ contract MintTest {
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 1));
         mint.burnProposalReward(address(token), 1, 1);
         currentPhaseValue = 2;
+        (uint256 amount, ProposalRewardStatus status) = mint.proposalRewardSettlement(address(token), 1, 1);
+        require(amount == 0 && status == ProposalRewardStatus.Unsettled, "ineligible reward awaits settlement");
 
         vm.prank(address(0xCAFE));
         mint.burnProposalReward(address(token), 1, 1);
+        (amount, status) = mint.proposalRewardSettlement(address(token), 1, 1);
+        require(amount == 42 && status == ProposalRewardStatus.Burned, "burned amount remains queryable");
         require(token.totalSupply() == 1000, "burn only releases the reserve");
         require(mint.totalRewardBurned(address(token)) == 42, "floor(900 / 21)");
         require(mint.rewardAvailable(address(token)) == availableBefore + 42, "share becomes available");
@@ -453,6 +430,10 @@ contract MintTest {
         mint.burnProposalReward(address(token), 1, 3);
         require(vm.getRecordedLogs().length == 0, "skipped proposals emit no events");
         require(mint.totalRewardBurned(address(token)) == 42, "duplicate, qualifying and zero-vote calls are no-ops");
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.ProposalRewardAlreadyBurned.selector, address(token), 1, 1)
+        );
+        mint.mintProposalReward(address(token), 1, 1, address(this));
         require(mint.mintProposalReward(address(token), 1, 2, address(this)) == 857, "qualifying share is stable");
         require(mint.reservedAvailable(address(token)) == 1, "mixed-round dust remains reserved");
     }
@@ -464,14 +445,19 @@ contract MintTest {
         minVoteRatio = 5e17;
         setupMint(1000, 1002, 0, 1e18);
 
-        mint.prepareRewardIfNeeded(address(token), 1);
-        require(mint.reservedAvailable(address(token)) == 2, "preparation leaves the pool reserved");
+        require(mint.reservedAvailable(address(token)) == 2, "first vote reserves the pool");
         mint.burnProposalReward(address(token), 1, 3);
         mint.burnProposalReward(address(token), 1, 3);
         mint.burnProposalReward(address(token), 1, 1);
         require(mint.totalRewardBurned(address(token)) == 0, "individual shares round to zero");
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.ProposalRewardAlreadyBurned.selector, address(token), 1, 3)
+        );
+        mint.mintProposalReward(address(token), 1, 3, address(this));
         mint.burnProposalReward(address(token), 1, 2);
         require(mint.totalRewardBurned(address(token)) == 2, "final distinct proposal releases the dust");
+        (uint256 amount, ProposalRewardStatus status) = mint.proposalRewardSettlement(address(token), 1, 2);
+        require(amount == 0 && status == ProposalRewardStatus.Burned, "round dust is not part of the proposal share");
         require(mint.reservedAvailable(address(token)) == 0, "no locked share");
         require(mint.proposalReward(address(token), 1) == 2, "frozen pool is preserved");
     }
@@ -481,7 +467,7 @@ contract MintTest {
         secondVotes = 19;
         proposalCount = 2;
         setupMint(1000, 10000, 0, 1e17);
-        require(mint.mintProposalReward(address(token), 1, 2, address(this)) == 855, "prepare via prior mint");
+        require(mint.mintProposalReward(address(token), 1, 2, address(this)) == 855, "settle the other proposal first");
         uint256 reservedBefore = mint.reservedAvailable(address(token));
         uint256 availableBefore = mint.rewardAvailable(address(token));
         uint256 proposalPoolBefore = mint.proposalReward(address(token), 1);
@@ -502,8 +488,8 @@ contract MintTest {
         require(mint.rewardAvailable(address(token)) == availableBefore + amount, "share back in circulation");
         require(mint.reservedAvailable(address(token)) == reservedBefore - amount, "destroying re-reserves nothing");
 
-        (uint256 queryAmount, bool minted) = mint.proposalRewardByProposalId(address(token), 1, 1);
-        require(queryAmount == amount && minted, "settled query");
+        (uint256 queryAmount, ProposalRewardStatus status) = mint.proposalRewardSettlement(address(token), 1, 1);
+        require(queryAmount == amount && status == ProposalRewardStatus.Minted, "settled query");
     }
 
     function testProposalRewardRejectsRepeatSettlement() public {
@@ -511,11 +497,21 @@ contract MintTest {
         secondVotes = 19;
         proposalCount = 2;
         setupMint(1000, 10000, 0, 1e17);
+        (uint256 amount, ProposalRewardStatus status) = mint.proposalRewardSettlement(address(token), 1, 1);
+        require(amount == 45 && status == ProposalRewardStatus.Unsettled, "unsettled quote");
         require(mint.mintProposalReward(address(token), 1, 1, address(this)) == 45, "first settlement");
+        (amount, status) = mint.proposalRewardSettlement(address(token), 1, 1);
+        require(amount == 45 && status == ProposalRewardStatus.Minted, "minted amount and status");
         vm.expectRevert(
             abi.encodeWithSelector(IMintErrors.ProposalRewardAlreadyMinted.selector, address(token), 1, 1)
         );
         mint.mintProposalReward(address(token), 1, 1, address(this));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintErrors.ProposalRewardAlreadyMinted.selector, address(token), 1, 1)
+        );
+        mint.burnProposalReward(address(token), 1, 1);
+        require(mint.totalRewardMinted(address(token)) == 45, "minted share settled once");
+        require(mint.totalRewardBurned(address(token)) == 0, "minted share cannot burn");
         mint.mintProposalReward(address(token), 1, 2, address(this));
         vm.expectRevert(
             abi.encodeWithSelector(IMintErrors.ProposalRewardAlreadyMinted.selector, address(token), 1, 2)
@@ -529,7 +525,7 @@ contract MintTest {
         secondVotes = 20;
         proposalCount = 2;
         setupMint(1000, 10000, 0, 1e17);
-        (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
+        (uint256 amount,) = mint.proposalRewardSettlement(address(token), 1, 1);
         require(amount == 0, "ineligible projection");
         vm.expectRevert(
             abi.encodeWithSelector(IMintErrors.ProposalBelowThreshold.selector, address(token), 1, 1, 1, 2)
@@ -537,55 +533,39 @@ contract MintTest {
         mint.mintProposalReward(address(token), 1, 1, address(this));
     }
 
-    function testPrepareRewardIfNeededRejectsUnfinishedRound() public {
+    function testBurnUnusedBoostRewardRejectsUnfinishedRound() public {
         setupMint(1000, 10000, 1e17, 1e17);
-        currentPhaseValue = 5;
-        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 5));
-        mint.prepareRewardIfNeeded(address(token), 5);
-        require(!mint.isRewardPrepared(address(token), 5), "unfinished round marked prepared");
+        currentPhaseValue = 1;
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 1));
+        mint.burnUnusedBoostReward(address(token), 1);
+        require(mint.totalRewardBurned(address(token)) == 0, "unfinished round burned reserve");
     }
 
-    function testPrepareRewardIfNeededRejectsRoundZero() public {
+    function testBurnUnusedBoostRewardRejectsRoundZero() public {
         setupMint(1000, 10000, 1e17, 1e17);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 0));
-        mint.prepareRewardIfNeeded(address(token), 0);
-        require(!mint.isRewardPrepared(address(token), 0), "round zero marked prepared");
+        mint.burnUnusedBoostReward(address(token), 0);
     }
 
-    function testPrepareRewardIfNeededIsIdempotentWithoutEvent() public {
+    function testExplicitBoostBurnIsSharedAcrossSettlementAndRetry() public {
         setupMint(1000, 10000, 1e17, 1e17);
-        mint.prepareRewardIfNeeded(address(token), 1);
-
-        require(mint.isRewardPrepared(address(token), 1), "first call did not prepare");
         uint256 availableBefore = mint.rewardAvailable(address(token));
         uint256 reservedBefore = mint.totalRewardReserved(address(token));
-        uint256 burnedBefore = mint.totalRewardBurned(address(token));
-        uint256 govBefore = mint.govReward(address(token), 1);
-        uint256 proposalBefore = mint.proposalReward(address(token), 1);
-        require(govBefore > 0 && proposalBefore > 0 && reservedBefore > 0, "empty pool makes idempotence vacuous");
 
-        token.burn(100);
-        require(mint.rewardAvailable(address(token)) == availableBefore + 100, "burn must move the budget");
+        vm.prank(address(0xCAFE));
+        mint.burnUnusedBoostReward(address(token), 1);
+        require(mint.totalRewardBurned(address(token)) == 450, "only the boost half is burned");
+        require(token.totalSupply() == 1000, "burn releases a reservation");
 
         vm.recordLogs();
-        mint.prepareRewardIfNeeded(address(token), 1);
-        MintVm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 sig = keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256)");
-        uint256 preparedEvents;
-        for (uint256 i; i < logs.length; i++) {
-            if (logs[i].emitter == address(mint) && logs[i].topics[0] == sig) {
-                preparedEvents++;
-            }
-        }
-        require(preparedEvents == 0, "idempotent call emitted RewardPrepared");
-        require(mint.isRewardPrepared(address(token), 1), "prepared flag cleared");
-        require(mint.rewardAvailable(address(token)) == availableBefore + 100, "second call re-read the budget");
-        require(mint.totalRewardReserved(address(token)) == reservedBefore, "reservation changed");
-        require(mint.totalRewardBurned(address(token)) == burnedBefore, "burn ledger changed");
-        require(
-            mint.govReward(address(token), 1) == govBefore
-                && mint.proposalReward(address(token), 1) == proposalBefore,
-            "round pool changed"
-        );
+        mint.burnUnusedBoostReward(address(token), 1);
+        require(vm.getRecordedLogs().length == 0, "retry emits no events");
+
+        mint.mintGovReward(address(token), 1, 1, address(this));
+        mint.mintProposalReward(address(token), 1, 1, address(this));
+        require(mint.totalRewardMinted(address(token)) == 1350, "both payable shares minted");
+        require(mint.totalRewardBurned(address(token)) == 450, "automatic paths share the burn flag");
+        require(mint.rewardAvailable(address(token)) == availableBefore + 450, "capacity restored once");
+        require(mint.totalRewardReserved(address(token)) == reservedBefore, "original reserves unchanged");
     }
 }

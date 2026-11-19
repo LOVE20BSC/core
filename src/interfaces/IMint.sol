@@ -6,20 +6,19 @@ enum BurnReason {
     ProposalPoolCancelled
 }
 
+enum ProposalRewardStatus {
+    Unsettled,
+    Minted,
+    Burned
+}
+
 interface IMintEvents {
     event RoundRewardReserved(
         address indexed tokenAddress,
         uint256 indexed round,
         uint256 govReward,
-        uint256 proposalReward
-    );
-    event RewardPrepared(
-        address indexed tokenAddress,
-        uint256 indexed round,
-        uint256 govReward,
         uint256 proposalReward,
-        uint256 totalRewardReserved,
-        uint256 totalRewardBurned
+        uint256 totalRewardReserved
     );
     event GovRewardMinted(
         address indexed tokenAddress,
@@ -67,6 +66,11 @@ interface IMintErrors {
     error RoundNotEnded(uint256 round);
     error TokenNotRegistered(address tokenAddress);
     error ProposalRewardAlreadyMinted(
+        address tokenAddress,
+        uint256 round,
+        uint256 proposalId
+    );
+    error ProposalRewardAlreadyBurned(
         address tokenAddress,
         uint256 round,
         uint256 proposalId
@@ -120,7 +124,7 @@ interface IMint is IMintEvents, IMintErrors {
     function ROUND_REWARD_GOV_RATIO() external view returns (uint256);
     function ROUND_REWARD_PROPOSAL_RATIO() external view returns (uint256);
     function reserveRoundReward(address tokenAddress, uint256 round) external;
-    function prepareRewardIfNeeded(address tokenAddress, uint256 round) external;
+    function burnUnusedBoostReward(address tokenAddress, uint256 round) external;
     function burnProposalReward(
         address tokenAddress,
         uint256 round,
@@ -150,9 +154,8 @@ interface IMint is IMintEvents, IMintErrors {
     function totalRewardBurned(address tokenAddress) external view returns (uint256);
     function govReward(address tokenAddress, uint256 round) external view returns (uint256);
     function proposalReward(address tokenAddress, uint256 round) external view returns (uint256);
-    function isRewardPrepared(address tokenAddress, uint256 round) external view returns (bool);
-    function proposalRewardByProposalId(address tokenAddress, uint256 round, uint256 proposalId)
-        external view returns (uint256 amount, bool minted);
+    function proposalRewardSettlement(address tokenAddress, uint256 round, uint256 proposalId)
+        external view returns (uint256 amount, ProposalRewardStatus status);
     function govRewardByMemberId(address tokenAddress, uint256 round, uint256 memberId)
         external view returns (
             uint256 voteReward,

@@ -8,6 +8,7 @@ import {MemberNFT} from "../src/MemberNFT.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
 import {IPhase} from "../src/interfaces/IPhase.sol";
 import {IVote, IVoteErrors, IVoteEvents} from "../src/interfaces/IVote.sol";
+import {IMint} from "../src/interfaces/IMint.sol";
 import {IStakeErrors} from "../src/interfaces/IStake.sol";
 import {ISubmitErrors, ProposalBody, TargetMode} from "../src/interfaces/ISubmit.sol";
 import {IProposalTarget} from "../src/interfaces/IProposalTarget.sol";
@@ -21,9 +22,9 @@ interface VoteVm {
     }
 
     function roll(uint256 blockNumber) external;
-    function etch(address target, bytes calldata code) external;
     function warp(uint256 timestamp) external;
     function prank(address sender) external;
+    function expectCall(address callee, bytes calldata data, uint64 count) external;
     function expectRevert(bytes calldata revertData) external;
     function recordLogs() external;
     function getRecordedLogs() external returns (Log[] memory entries);
@@ -358,12 +359,11 @@ contract MockSubmit {
     }
 }
 
-/// @notice Vote against the real Phase, MemberNFT and Submit, with Stake and the Target stubbed.
 contract VoteRewardReserveStub {
-    function MINTER() external view returns (address) { return address(this); }
     function reserveRoundReward(address, uint256) external {}
 }
 
+/// @notice Vote against the real Phase, MemberNFT and Submit, with Stake, Mint and the Target stubbed.
 contract VoteTest {
     VoteVm private constant vm = VoteVm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -386,6 +386,7 @@ contract VoteTest {
     MockTarget private target;
     Submit private submit;
     Vote private vote;
+    VoteRewardReserveStub private mint;
     MemberNFT private memberNFT;
     LOVE20Token private feeToken;
 
@@ -396,8 +397,6 @@ contract VoteTest {
     uint256 private _cursor;
 
     function setUp() public {
-        vm.etch(TOKEN, address(new VoteRewardReserveStub()).code);
-        vm.etch(TOKEN2, TOKEN.code);
         vm.roll(ORIGIN_BLOCKS);
         vm.warp(1000);
 
@@ -411,7 +410,8 @@ contract VoteTest {
 
         submit = new Submit(address(phase), address(stake), address(memberNFT), 1e15);
 
-        vote = new Vote(address(phase), address(stake), address(submit), address(memberNFT));
+        mint = new VoteRewardReserveStub();
+        vote = new Vote(address(phase), address(stake), address(submit), address(memberNFT), address(mint));
 
         target = new MockTarget(address(vote));
 
@@ -617,6 +617,7 @@ contract VoteTest {
         require(vote.STAKE_ADDRESS() == address(stake), "stake address");
         require(vote.SUBMIT_ADDRESS() == address(submit), "submit address");
         require(vote.MEMBER_NFT_ADDRESS() == address(memberNFT), "memberNFT address");
+        require(vote.MINT_ADDRESS() == address(mint), "mint address");
 
         require(vote.currentRound() == phase.currentPhase(), "round must follow phase");
         require(vote.totalVoteAmount(TOKEN, vote.currentRound()) == 0, "no votes yet");
@@ -1155,6 +1156,8 @@ contract VoteTest {
     function testAllowanceAndTotalsAreScopedToTheRound() external {
         uint256 memberId = _memberIds[0];
         uint256[] memory ids = _proposeBatch(TOKEN, 1);
+        vm.expectCall(address(mint), abi.encodeCall(IMint.reserveRoundReward, (TOKEN, 1)), 1);
+        vm.expectCall(address(mint), abi.encodeCall(IMint.reserveRoundReward, (TOKEN, 2)), 1);
         _voteWithoutData(TOKEN, memberId, ids, _singleton(DEFAULT_CAP));
         require(vote.voteAmountByMemberId(TOKEN, 1, memberId) == DEFAULT_CAP, "cap spent in round 1");
 
@@ -1172,6 +1175,8 @@ contract VoteTest {
         uint256 other = _memberIds[1];
         uint256[] memory ids = _proposeBatch(TOKEN, 1);
 
+        vm.expectCall(address(mint), abi.encodeCall(IMint.reserveRoundReward, (TOKEN, 1)), 1);
+        vm.expectCall(address(mint), abi.encodeCall(IMint.reserveRoundReward, (TOKEN2, 1)), 1);
         _voteWithoutData(TOKEN, memberId, ids, _singleton(DEFAULT_CAP));
 
         // Another member keeps their own allowance against the same proposal.
@@ -2123,7 +2128,6 @@ contract VoteStubTest {
     uint256 private _memberId;
 
     function setUp() public {
-        vm.etch(TOKEN, address(new VoteRewardReserveStub()).code);
         vm.roll(ORIGIN_BLOCKS);
         vm.warp(1000);
 
@@ -2135,7 +2139,8 @@ contract VoteStubTest {
         memberNFT = new MemberNFT(1e8, 7, 10, 32, address(feeToken));
 
         submitStub = new MockSubmit();
-        vote = new Vote(address(phase), address(stake), address(submitStub), address(memberNFT));
+        VoteRewardReserveStub mint = new VoteRewardReserveStub();
+        vote = new Vote(address(phase), address(stake), address(submitStub), address(memberNFT), address(mint));
         target = new MockTarget(address(vote));
 
         vm.prank(OWNER);

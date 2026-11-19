@@ -395,6 +395,9 @@ verify_value "PHASE_ADDRESS" "$PHASE_ADDRESS" "$ACTUAL_VOTE_PHASE" || ((FAILED+=
 ACTUAL_VOTE_MEMBER=$(cast call "$VOTE_ADDRESS" "MEMBER_NFT_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
 verify_value "MEMBER_NFT_ADDRESS" "$MEMBER_NFT_ADDRESS" "$ACTUAL_VOTE_MEMBER" || ((FAILED+=1))
 
+ACTUAL_VOTE_MINT=$(cast call "$VOTE_ADDRESS" "MINT_ADDRESS()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "ERROR")
+verify_value "MINT_ADDRESS" "$MINT_ADDRESS" "$ACTUAL_VOTE_MINT" || ((FAILED+=1))
+
 # 9. AirdropDistributor.
 print_contract_header "9" "AirdropDistributor" "$AIRDROP_DISTRIBUTOR_ADDRESS"
 verify_deployed "AirdropDistributor" "$AIRDROP_DISTRIBUTOR_ADDRESS" || ((FAILED+=1))

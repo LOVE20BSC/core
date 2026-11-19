@@ -127,12 +127,12 @@ contract MintEdgeCasesTest {
         mint.reserveRoundReward(address(token), 6);
     }
 
-    function testPrepareRejectsUnregisteredToken() public {
+    function testSettlementRejectsUnregisteredToken() public {
         setupMint(1000, 10000);
         currentPhaseValue = 5;
         address unregistered = address(0xBEEF);
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.TokenNotRegistered.selector, unregistered));
-        mint.prepareRewardIfNeeded(unregistered, 1);
+        mint.burnUnusedBoostReward(unregistered, 1);
 
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.TokenNotRegistered.selector, unregistered));
         mint.mintGovReward(unregistered, 1, 1, address(this));
@@ -170,24 +170,28 @@ contract MintEdgeCasesTest {
         require(reserved > 0, "reserved at first vote");
         vm.prank(TARGET);
         mint.mintProposalReward(address(token), 1, 1, TARGET);
-        require(mint.totalRewardReserved(address(token)) == reserved, "prepare must not reserve again");
+        require(mint.totalRewardReserved(address(token)) == reserved, "settlement must not reserve again");
     }
 
     function testGovRewardGetter() public {
         setupMint(1000, 10000);
         require(mint.govReward(address(token), 1) == 0, "initial gov reward");
         reserveRound(1);
+        uint256 pool = mint.govReward(address(token), 1);
+        require(pool > 0, "gov reward reserved by the first vote");
         mint.mintGovReward(address(token), 1, 1, address(this));
-        require(mint.govReward(address(token), 1) > 0, "gov reward after prepare");
+        require(mint.govReward(address(token), 1) == pool, "original gov pool");
     }
 
     function testProposalRewardGetter() public {
         setupMint(1000, 10000);
         require(mint.proposalReward(address(token), 1) == 0, "initial proposal reward");
         reserveRound(1);
+        uint256 pool = mint.proposalReward(address(token), 1);
+        require(pool > 0, "proposal reward reserved by the first vote");
         vm.prank(TARGET);
         mint.mintProposalReward(address(token), 1, 1, TARGET);
-        require(mint.proposalReward(address(token), 1) > 0, "proposal reward after prepare");
+        require(mint.proposalReward(address(token), 1) == pool, "original proposal pool");
     }
 
     function testRewardAvailableGetter() public {

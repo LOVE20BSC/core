@@ -4,7 +4,7 @@ pragma solidity =0.8.37;
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Mint} from "../src/Mint.sol";
 import {LOVE20Token} from "../src/LOVE20Token.sol";
-import {IMintErrors} from "../src/interfaces/IMint.sol";
+import {IMintErrors, ProposalRewardStatus} from "../src/interfaces/IMint.sol";
 import {ISubmitErrors, TargetMode} from "../src/interfaces/ISubmit.sol";
 import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
@@ -38,6 +38,7 @@ contract MintInvariantTest {
     mapping(uint256 => mapping(uint256 => uint256)) private _memberVotes; // round => memberId => votes
     mapping(uint256 => mapping(uint256 => bool)) private _proposalVoted; // round => proposalId
     mapping(uint256 => mapping(uint256 => bool)) private _proposalBurned; // round => proposalId
+    mapping(uint256 => bool) private _boostBurned; // round
     mapping(uint256 => uint256[]) private _votedIds; // round => proposalIds
     mapping(uint256 => uint256) private _totalBoost; // round => boost shares
     mapping(uint256 => mapping(uint256 => uint256)) private _memberBoost; // round => memberId => boost shares
@@ -104,30 +105,37 @@ contract MintInvariantTest {
         currentRound += steps;
     }
 
-    function prepareRound(uint256 round) public {
+    function burnBoost(uint256 round) public {
         round = bound(round, 1, MAX_ROUNDS);
-        try mint.prepareRewardIfNeeded(address(token), round) {} catch {}
+        try mint.burnUnusedBoostReward(address(token), round) {
+            _recordBoostBurn(round);
+        } catch {}
     }
 
     function settleGov(uint256 round, uint256 memberId) public {
         round = bound(round, 1, MAX_ROUNDS);
         memberId = bound(memberId, 1, MAX_MEMBERS);
-        try mint.mintGovReward(address(token), round, memberId, address(this)) {} catch {}
+        try mint.mintGovReward(address(token), round, memberId, address(this)) {
+            _recordBoostBurn(round);
+        } catch {}
     }
 
     function settleProposal(uint256 round, uint256 proposalId) public {
         round = bound(round, 1, MAX_ROUNDS);
         proposalId = bound(proposalId, 1, MAX_PROPOSALS);
-        try mint.mintProposalReward(address(token), round, proposalId, address(this)) {} catch {}
+        try mint.mintProposalReward(address(token), round, proposalId, address(this)) {
+            _recordBoostBurn(round);
+        } catch {}
     }
 
     function burnProposal(uint256 round, uint256 proposalId) public {
         round = bound(round, 1, MAX_ROUNDS);
         proposalId = bound(proposalId, 1, MAX_PROPOSALS);
         try mint.burnProposalReward(address(token), round, proposalId) {
+            _recordBoostBurn(round);
             uint256 votes = _proposalVotes[round][proposalId];
             uint256 minVotes = Math.mulDiv(_totalVotes[round], PROPOSAL_MIN_VOTE_RATIO, PRECISION, Math.Rounding.Ceil);
-            if (votes > 0 && votes < minVotes) _proposalBurned[round][proposalId] = true;
+            if (round < currentRound && votes > 0 && votes < minVotes) _proposalBurned[round][proposalId] = true;
         } catch {}
     }
 
@@ -140,7 +148,15 @@ contract MintInvariantTest {
         for (uint256 i = 0; i < rounds.length; i++) {
             boundedRounds[i] = bound(rounds[i], 1, MAX_ROUNDS);
         }
-        try mint.mintGovRewards(address(token), boundedRounds, memberId, address(this)) {} catch {}
+        try mint.mintGovRewards(address(token), boundedRounds, memberId, address(this)) {
+            for (uint256 i = 0; i < boundedRounds.length; i++) {
+                _recordBoostBurn(boundedRounds[i]);
+            }
+        } catch {}
+    }
+
+    function _recordBoostBurn(uint256 round) private {
+        if (round < currentRound && _totalBoost[round] == 0) _boostBurned[round] = true;
     }
 
     // ============ Invariants: reservation and issuance ============
@@ -155,7 +171,7 @@ contract MintInvariantTest {
 
     /// @notice Untouched reservation never exceeds the unminted supply, i.e. `rewardAvailable`
     ///         (which subtracts it) can never underflow. This is the property that keeps every later
-    ///         prepare and settlement from reverting forever.
+    ///         reservation and settlement from reverting forever.
     function invariant_ReservedAvailableFitsInTheUnmintedSupply() public view {
         uint256 reservedAvailable = mint.reservedAvailable(address(token));
         assert(reservedAvailable + token.totalSupply() <= token.MAX_SUPPLY());
@@ -174,10 +190,10 @@ contract MintInvariantTest {
     function invariant_BurnedEqualsSumOfReleasedReserves() public view {
         uint256 expected;
         for (uint256 round = 1; round <= MAX_ROUNDS; round++) {
-            if (!mint.isRewardPrepared(address(token), round)) continue;
+            if (_totalVotes[round] == 0) continue;
             uint256 govReward = mint.govReward(address(token), round);
             uint256 proposalReward = mint.proposalReward(address(token), round);
-            if (_totalBoost[round] == 0) {
+            if (_boostBurned[round]) {
                 expected += govReward - (govReward / VOTE_POOL_DIVISOR);
             }
             uint256 burnedVotes;
@@ -198,8 +214,6 @@ contract MintInvariantTest {
     function invariant_MintedEqualsSumOfSettledRewards() public view {
         uint256 expected;
         for (uint256 round = 1; round <= MAX_ROUNDS; round++) {
-            if (!mint.isRewardPrepared(address(token), round)) continue;
-
             for (uint256 memberId = 1; memberId <= MAX_MEMBERS; memberId++) {
                 (uint256 voteReward, uint256 boostReward, bool minted) =
                     mint.govRewardByMemberId(address(token), round, memberId);
@@ -210,9 +224,9 @@ contract MintInvariantTest {
 
             uint256[] storage proposalIds = _votedIds[round];
             for (uint256 i = 0; i < proposalIds.length; i++) {
-                (uint256 amount, bool minted) =
-                    mint.proposalRewardByProposalId(address(token), round, proposalIds[i]);
-                if (minted) {
+                (uint256 amount, ProposalRewardStatus status) =
+                    mint.proposalRewardSettlement(address(token), round, proposalIds[i]);
+                if (status == ProposalRewardStatus.Minted) {
                     expected += amount;
                 }
             }
@@ -231,7 +245,6 @@ contract MintInvariantTest {
     ///         bound alone cannot catch an over-issue that is spread across members.
     function invariant_GovRewardsSumNeverExceedsPool() public view {
         for (uint256 round = 1; round <= MAX_ROUNDS; round++) {
-            if (!mint.isRewardPrepared(address(token), round)) continue;
             uint256 govReward = mint.govReward(address(token), round);
             uint256 sum;
             for (uint256 memberId = 1; memberId <= MAX_MEMBERS; memberId++) {
@@ -246,12 +259,11 @@ contract MintInvariantTest {
     /// @notice The sum over all proposals never exceeds the round's proposal pool.
     function invariant_ProposalRewardsSumNeverExceedsPool() public view {
         for (uint256 round = 1; round <= MAX_ROUNDS; round++) {
-            if (!mint.isRewardPrepared(address(token), round)) continue;
             uint256 proposalReward = mint.proposalReward(address(token), round);
             uint256 sum;
             uint256[] storage proposalIds = _votedIds[round];
             for (uint256 i = 0; i < proposalIds.length; i++) {
-                (uint256 amount,) = mint.proposalRewardByProposalId(address(token), round, proposalIds[i]);
+                (uint256 amount,) = mint.proposalRewardSettlement(address(token), round, proposalIds[i]);
                 sum += amount;
             }
             assert(sum <= proposalReward);
@@ -261,8 +273,7 @@ contract MintInvariantTest {
     /// @notice No boost reward may be paid for a round whose boost pool was cancelled.
     function invariant_CancelledBoostPoolPaysNothing() public view {
         for (uint256 round = 1; round <= MAX_ROUNDS; round++) {
-            if (!mint.isRewardPrepared(address(token), round)) continue;
-            if (_totalBoost[round] != 0) continue;
+            if (!_boostBurned[round]) continue;
             for (uint256 memberId = 1; memberId <= MAX_MEMBERS; memberId++) {
                 (, uint256 boostReward,) = mint.govRewardByMemberId(address(token), round, memberId);
                 assert(boostReward == 0);
@@ -270,10 +281,9 @@ contract MintInvariantTest {
         }
     }
 
-    /// @notice Every qualifying proposal's share uses the round's full vote weight.
+    /// @notice Every mintable or burned share uses the round's full vote weight.
     function invariant_ProposalRewardsMatchRoundVoteShares() public view {
         for (uint256 round = 1; round <= MAX_ROUNDS; round++) {
-            if (!mint.isRewardPrepared(address(token), round)) continue;
             uint256 minVoteAmount =
                 Math.mulDiv(_totalVotes[round], PROPOSAL_MIN_VOTE_RATIO, PRECISION, Math.Rounding.Ceil);
             uint256 pool = mint.proposalReward(address(token), round);
@@ -281,21 +291,29 @@ contract MintInvariantTest {
             for (uint256 i = 0; i < proposalIds.length; i++) {
                 uint256 proposalId = proposalIds[i];
                 uint256 votes = _proposalVotes[round][proposalId];
-                uint256 expected = votes >= minVoteAmount ? Math.mulDiv(pool, votes, _totalVotes[round]) : 0;
-                (uint256 amount,) = mint.proposalRewardByProposalId(address(token), round, proposalId);
+                bool burned = _proposalBurned[round][proposalId];
+                uint256 expected = votes >= minVoteAmount || burned ? Math.mulDiv(pool, votes, _totalVotes[round]) : 0;
+                (uint256 amount, ProposalRewardStatus status) =
+                    mint.proposalRewardSettlement(address(token), round, proposalId);
                 assert(amount == expected);
+                assert((status == ProposalRewardStatus.Burned) == burned);
             }
         }
     }
 
     // ============ Invariants: round boundary and launch ledger ============
 
-    /// @notice A round that has not ended can never be prepared, by any caller and any round,
-    ///         including round 0 and any round at or after the one in progress.
-    function invariant_UnendedRoundsAreNeverPrepared() public view {
-        assert(!mint.isRewardPrepared(address(token), 0));
+    /// @notice No proposal or member reward may be settled before its round ends.
+    function invariant_UnendedRoundsCannotSettle() public view {
         for (uint256 round = currentRound; round <= MAX_ROUNDS; round++) {
-            assert(!mint.isRewardPrepared(address(token), round));
+            for (uint256 memberId = 1; memberId <= MAX_MEMBERS; memberId++) {
+                (,, bool minted) = mint.govRewardByMemberId(address(token), round, memberId);
+                assert(!minted);
+            }
+            for (uint256 proposalId = 1; proposalId <= MAX_PROPOSALS; proposalId++) {
+                (, ProposalRewardStatus status) = mint.proposalRewardSettlement(address(token), round, proposalId);
+                assert(status == ProposalRewardStatus.Unsettled);
+            }
         }
     }
 
@@ -311,16 +329,15 @@ contract MintInvariantTest {
     // describe. These example-based witnesses pin one concrete path per branch, so the suite can
     // never silently degrade into "all invariants pass because nothing happened".
 
-    /// @notice Nobody who voted holds a boost snapshot: prepare cancels exactly the boost half.
+    /// @notice Without voter boost snapshots, the burn releases exactly the boost half.
     function test_boostPoolIsCancelledWhenNoVoterHasBoost() public {
         castVotesWithoutBoost(0x0000_0100_0000_0200_0000_0300_0000_0400);
         require(_totalVotes[currentRound] > 0, "votes must be present");
 
         advanceRound(1);
         uint256 round = currentRound - 1;
-        prepareRound(round);
+        burnBoost(round);
 
-        require(mint.isRewardPrepared(address(token), round), "round prepared");
         uint256 govReward = mint.govReward(address(token), round);
         require(govReward > 0, "gov pool frozen");
 
@@ -339,15 +356,14 @@ contract MintInvariantTest {
         require(_totalVotes[votedRound] == MAX_PROPOSALS, "thin spread seeded");
 
         advanceRound(1);
-        prepareRound(votedRound);
+        burnBoost(votedRound);
 
-        require(mint.isRewardPrepared(address(token), votedRound), "round prepared");
         uint256 govReward = mint.govReward(address(token), votedRound);
         uint256 proposalReward = mint.proposalReward(address(token), votedRound);
         require(govReward > 0 && proposalReward > 0, "both pools frozen");
         require(
             mint.totalRewardBurned(address(token)) == govReward - (govReward / VOTE_POOL_DIVISOR),
-            "only the boost pool is released at preparation"
+            "only the unused boost pool is released"
         );
 
         for (uint256 proposalId = 1; proposalId <= MAX_PROPOSALS; proposalId++) {
@@ -362,20 +378,19 @@ contract MintInvariantTest {
         invariant_ProposalRewardsMatchRoundVoteShares();
     }
 
-    /// @notice The round in progress is rejected by prepare, by every path (direct and internal).
-    function test_prepareRejectsTheRoundInProgress() public {
+    /// @notice The unused boost burn rejects the current round and round zero.
+    function test_boostBurnRejectsTheRoundInProgress() public {
         uint256 round = currentRound;
         (bool ok, bytes memory reason) =
-            address(mint).call(abi.encodeCall(mint.prepareRewardIfNeeded, (address(token), round)));
-        require(!ok, "prepare must reject the round in progress");
+            address(mint).call(abi.encodeCall(mint.burnUnusedBoostReward, (address(token), round)));
+        require(!ok, "boost burn must reject the round in progress");
         require(
             bytes4(reason) == IMintErrors.RoundNotEnded.selector, "expected RoundNotEnded"
         );
-        require(!mint.isRewardPrepared(address(token), round), "round must stay unprepared");
+        require(mint.totalRewardBurned(address(token)) == 0, "round is still open");
 
-        // Round 0 is rejected as well.
-        (ok, reason) = address(mint).call(abi.encodeCall(mint.prepareRewardIfNeeded, (address(token), 0)));
-        require(!ok, "prepare must reject round 0");
+        (ok, reason) = address(mint).call(abi.encodeCall(mint.burnUnusedBoostReward, (address(token), 0)));
+        require(!ok && bytes4(reason) == IMintErrors.RoundNotEnded.selector, "boost burn must reject round zero");
     }
 
     /// @notice A settled round cannot be settled twice, and its pool is not re-frozen.

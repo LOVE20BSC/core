@@ -14,7 +14,7 @@ import {LaunchInitParams, DistributorMode} from "../../src/interfaces/ILaunch.so
 import {TargetMode} from "../../src/interfaces/ISubmit.sol";
 import {ILOVE20Token} from "../../src/interfaces/ILOVE20Token.sol";
 import {ILaunch} from "../../src/interfaces/ILaunch.sol";
-import {IMintErrors} from "../../src/interfaces/IMint.sol";
+import {IMintErrors, ProposalRewardStatus} from "../../src/interfaces/IMint.sol";
 
 interface TestVm {
     function prank(address) external;
@@ -162,11 +162,11 @@ contract MintRealIntegrationTest {
             5e16  // submitMinRatio: 5%
         );
 
-        // 5. Vote takes the real Stake and Submit addresses
-        vote = new Vote(address(phase), address(stake), address(submit), address(memberNFT));
+        // 5. Vote binds the predicted Mint address
+        vote = new Vote(address(phase), address(stake), address(submit), address(memberNFT), predictedMint);
         require(address(vote) == predictedVote, "vote prediction");
 
-        // 6. Mint takes every real address plus the predicted Mint address itself
+        // 6. Mint takes the deployed dependency addresses
         mint = new Mint(
             address(phase),
             address(vote),
@@ -354,6 +354,7 @@ contract MintRealIntegrationTest {
         );
 
         // ========== Step 3: Members vote ==========
+        uint256 expectedGovPool = mint.rewardAvailable(address(token)) * ROUND_REWARD_GOV_RATIO / 1e18;
         _voteInRound(0, proposalId, VOTE_AMOUNT_MEMBER1, VOTE_AMOUNT_MEMBER2);
 
         // ========== Step 4: Advance to next round ==========
@@ -362,11 +363,11 @@ contract MintRealIntegrationTest {
         uint256 nextRound = phase.currentPhase();
         assertTrue(nextRound > currentRound, "Round should have advanced");
 
-        // ========== Step 5: Verify governance rewards (auto-prepare) ==========
-        // Note: prepareRewardIfNeeded is now called automatically inside mintGovReward
-        _verifyGovRewardsWithMathModel(currentRound);
+        // ========== Step 5: Verify governance rewards ==========
+        assertEq(mint.govReward(address(token), currentRound), expectedGovPool, "Governance pool frozen at first vote");
+        _verifyGovRewardsWithMathModel(currentRound, expectedGovPool);
 
-        // ========== Step 6: Verify proposal rewards (auto-prepare) ==========
+        // ========== Step 6: Verify proposal rewards ==========
         _verifyProposalRewards(currentRound, proposalId, proposalTarget);
     }
 
@@ -384,7 +385,7 @@ contract MintRealIntegrationTest {
         uint256 actualBoostReward2;
     }
 
-    function _verifyGovRewardsWithMathModel(uint256 currentRound) internal {
+    function _verifyGovRewardsWithMathModel(uint256 currentRound, uint256 expectedGovPool) internal {
         GovRewardData memory data;
 
         // Read actual contract state
@@ -404,7 +405,7 @@ contract MintRealIntegrationTest {
         if (data.totalBoost == 0) {
             _verifyRewardsWithoutBoost(data);
         } else {
-            _verifyRewardsWithBoost(currentRound, data);
+            _verifyRewardsWithBoost(expectedGovPool, data);
         }
 
         _claimAndVerifyTransfers(
@@ -431,11 +432,7 @@ contract MintRealIntegrationTest {
         assertTrue(diff <= 1, "Vote rewards must match 5:3 ratio within 1 wei rounding error");
     }
 
-    function _verifyRewardsWithBoost(uint256 /* currentRound */, GovRewardData memory data) internal view {
-        // Calculate expected rewards using mathematical model
-        uint256 available = mint.rewardAvailable(address(token));
-        uint256 govRewardAmount = (available * ROUND_REWARD_GOV_RATIO) / 1e18;
-
+    function _verifyRewardsWithBoost(uint256 govRewardAmount, GovRewardData memory data) internal pure {
         // Expected vote rewards
         uint256 expectedVoteReward1 = _calculateExpectedVoteReward(govRewardAmount, data.member1Votes, data.totalVoteAmount);
         uint256 expectedVoteReward2 = _calculateExpectedVoteReward(govRewardAmount, data.member2Votes, data.totalVoteAmount);
@@ -482,7 +479,7 @@ contract MintRealIntegrationTest {
 
     /// @notice Verify proposal rewards
     function _verifyProposalRewards(uint256 currentRound, uint256 proposalId, address proposalTarget) internal {
-        (uint256 proposalAmount,) = mint.proposalRewardByProposalId(address(token), currentRound, proposalId);
+        (uint256 proposalAmount,) = mint.proposalRewardSettlement(address(token), currentRound, proposalId);
         assertTrue(proposalAmount > 0, "Proposal should have rewards");
 
         uint256 targetBalanceBefore = token.balanceOf(proposalTarget);
@@ -534,7 +531,6 @@ contract MintRealIntegrationTest {
         vm.roll(block.number + BLOCKS_PER_ROUND);
         uint256 round2 = phase.currentPhase();
         assertEq(round2, 2, "Must advance to round 2");
-        // Auto-prepare when claiming rewards
 
         // Round 2
         address proposalTarget2 = address(0x2002);
@@ -554,7 +550,6 @@ contract MintRealIntegrationTest {
         vm.roll(block.number + BLOCKS_PER_ROUND);
         uint256 round3 = phase.currentPhase();
         assertEq(round3, 3, "Must advance to round 3");
-        // Auto-prepare when claiming rewards
 
         // Round 3
         address proposalTarget3 = address(0x2003);
@@ -574,7 +569,6 @@ contract MintRealIntegrationTest {
         vm.roll(block.number + BLOCKS_PER_ROUND);
         uint256 round4 = phase.currentPhase();
         assertEq(round4, 4, "Must advance to round 4");
-        // Auto-prepare when claiming rewards
 
         // Batch claim and verify with mathematical model
         _batchClaimAndVerify(round1, round2, round3);
@@ -764,7 +758,7 @@ contract MintRealIntegrationTest {
         vm.prank(member2);
         vote.vote(address(token), 2, proposalIdsRound2, amounts2Round2, new bytes[][](0));
 
-        // Advance to round 3 (auto-prepare when claiming rewards)
+        // Advance to round 3.
         vm.roll(block.number + BLOCKS_PER_ROUND);
     }
 
@@ -808,7 +802,6 @@ contract MintRealIntegrationTest {
     }
 
     function _verifyAndClaimRewards(ThresholdTestData memory data) internal {
-        // Trigger auto-prepare for round 1.
         vm.prank(data.proposalTarget1);
         uint256 claimed1 = mint.mintProposalReward(address(token), data.testRound, data.proposalId1, data.proposalTarget1);
 
@@ -816,8 +809,8 @@ contract MintRealIntegrationTest {
         uint256 totalVoteAmountR1 = vote.totalVoteAmount(address(token), data.testRound);
         assertEq(totalVoteAmountR1, 34, "Total votes round 1");
 
-        (uint256 reward1,) = mint.proposalRewardByProposalId(address(token), data.testRound, data.proposalId1);
-        (uint256 reward2,) = mint.proposalRewardByProposalId(address(token), data.testRound, data.proposalId2);
+        (uint256 reward1,) = mint.proposalRewardSettlement(address(token), data.testRound, data.proposalId1);
+        (uint256 reward2,) = mint.proposalRewardSettlement(address(token), data.testRound, data.proposalId2);
 
         // Verify rewards exist
         assertTrue(reward1 > 0, "Proposal 1 must have reward");
@@ -836,7 +829,7 @@ contract MintRealIntegrationTest {
         assertEq(claimed2, reward2, "Claimed amount must match stored reward");
 
         // Verify rewards with mathematical model for round 2
-        (uint256 reward3,) = mint.proposalRewardByProposalId(address(token), data.round2, data.proposalId3);
+        (uint256 reward3,) = mint.proposalRewardSettlement(address(token), data.round2, data.proposalId3);
         assertTrue(reward3 > 0, "Proposal 3 must have reward");
 
         uint256 bal3Before = token.balanceOf(data.proposalTarget3);
@@ -884,7 +877,7 @@ contract MintRealIntegrationTest {
         vm.prank(member1);
         vote.vote(address(token), 1, proposalIds, amounts, new bytes[][](0));
 
-        // Advance to next round (auto-prepare when minting)
+        // Advance to the next round.
         vm.roll(block.number + BLOCKS_PER_ROUND);
 
         // Error 1: Non-target cannot claim proposal reward
@@ -1109,7 +1102,7 @@ contract MintRealIntegrationTest {
 
         _stakeLiquidityForMembers(STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER2);
 
-        // Boost on top of the liquidity stake so the round's boost pool survives preparation
+        // Add a boost position so the unused-boost burn skips this round.
         vm.startPrank(member1);
         token.approve(address(stake), BOOST_AMOUNT);
         stake.stakeBoost(address(token), BOOST_AMOUNT, PROMISED_WAITING_PHASES, 1, type(uint256).max);
@@ -1177,14 +1170,13 @@ contract MintRealIntegrationTest {
         );
         mint.mintProposalReward(address(token), data.round1, data.proposalId1, data.proposalTarget1);
 
-        // The target settles to itself; the call auto-prepares the round
+        // The target settles its reserved share to itself.
         uint256 totalSupplyBefore = token.totalSupply();
         vm.prank(data.proposalTarget1);
         settled = mint.mintProposalReward(address(token), data.round1, data.proposalId1, data.proposalTarget1);
         assertTrue(settled > 0, "Settled amount must be positive");
         assertEq(token.totalSupply(), totalSupplyBefore + settled, "Settlement mints to the recipient");
         assertEq(mint.totalRewardMinted(address(token)), settled, "Minted ledger");
-        assertTrue(mint.isRewardPrepared(address(token), data.round1), "Round must be prepared");
         assertTrue(vote.totalVoterBoost(address(token), data.round1) > 0, "Boost snapshot recorded");
 
         // Settled amount matches the independent proposal-reward model
@@ -1206,10 +1198,10 @@ contract MintRealIntegrationTest {
         assertEq(mint.rewardAvailable(address(token)), availableAfterSettle + settled, "Share back in circulation");
 
         // Settled once: the frozen amount stays queryable and a repeat is rejected
-        (uint256 frozenAmount, bool minted) =
-            mint.proposalRewardByProposalId(address(token), data.round1, data.proposalId1);
+        (uint256 frozenAmount, ProposalRewardStatus status) =
+            mint.proposalRewardSettlement(address(token), data.round1, data.proposalId1);
         assertEq(frozenAmount, settled, "Frozen amount after settlement");
-        assertTrue(minted, "Proposal must be settled");
+        assertTrue(status == ProposalRewardStatus.Minted, "Proposal must be minted");
 
         vm.prank(data.proposalTarget1);
         vm.expectRevert(

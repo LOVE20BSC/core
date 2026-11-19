@@ -233,9 +233,9 @@ pnpm sync:network ../core/script/network/anvil31337_dev
 
 ## 常见问题
 
-### 1. 首币 minter 与 distributor 绑定问题
+### 1. Mint 与 distributor 绑定
 
-`DeployCore` 先部署 `Launch`，由其构造函数创建首币并写入预测的 Mint 地址；Mint 最后部署，部署后回读 `Token.MINTER` 与 `Launch.MINT_ADDRESS` 核对。Token 没有 `setMinter`，错误绑定必须重新部署。开源验证使用本次部署地址文件里的 `MINT_ADDRESS`。
+`DeployCore` 将同一个预测的 Mint 地址传给 `Launch` 和 `Vote` 的构造函数。`Launch` 创建首币时将该地址写入 `Token.MINTER()`，`Vote` 将其固化为 `MINT_ADDRESS()`，并在社区每轮首票时调用该 Mint 预留激励。Mint 部署完成后，脚本核对这三处地址以及 `Mint.VOTE_ADDRESS()`。开源验证使用本次部署地址文件里的 `MINT_ADDRESS`。
 
 首币的 distributor 同样是预测地址：部署顺序固定为 `Phase`(+0) → `AirdropDistributor`(+1) → `Launch`(+2) → `MemberNFT`(+3) → `Stake`(+4) → `Submit`(+5) → `Vote`(+6) → `Mint`(+7)，首币地址预测为 `computeCreateAddress(launch, 1)`（`Launch` 构造函数只有一处 `new`；`factory.createPair` 是外部调用不消耗 nonce）。每个预测地址在部署后都 `require` 核对，任一不符即整笔失败。
 

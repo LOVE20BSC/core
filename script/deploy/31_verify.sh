@@ -128,8 +128,8 @@ if ! SUBMIT_ARGS=$(cast abi-encode "constructor(address,address,address,uint256)
     echo "Error: Failed to encode Submit constructor arguments"
     exit 1
 fi
-if ! VOTE_ARGS=$(cast abi-encode "constructor(address,address,address,address)" \
-    "$PHASE_ADDRESS" "$STAKE_ADDRESS" "$SUBMIT_ADDRESS" "$MEMBER_NFT_ADDRESS"); then
+if ! VOTE_ARGS=$(cast abi-encode "constructor(address,address,address,address,address)" \
+    "$PHASE_ADDRESS" "$STAKE_ADDRESS" "$SUBMIT_ADDRESS" "$MEMBER_NFT_ADDRESS" "$MINT_ADDRESS"); then
     echo "Error: Failed to encode Vote constructor arguments"
     exit 1
 fi
