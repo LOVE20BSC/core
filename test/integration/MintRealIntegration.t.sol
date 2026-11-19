@@ -296,10 +296,10 @@ contract MintRealIntegrationTest {
     function _calculateExpectedProposalReward(
         uint256 proposalRewardAmount,
         uint256 proposalVoteAmount,
-        uint256 eligibleProposalVoteAmount
+        uint256 totalVoteAmount
     ) internal pure returns (uint256) {
-        if (eligibleProposalVoteAmount == 0) return 0;
-        return (proposalRewardAmount * proposalVoteAmount) / eligibleProposalVoteAmount;
+        if (totalVoteAmount == 0) return 0;
+        return (proposalRewardAmount * proposalVoteAmount) / totalVoteAmount;
     }
 
     /// @notice Mathematical model: Calculate minimum votes for 5% threshold (ceil)
@@ -808,14 +808,13 @@ contract MintRealIntegrationTest {
     }
 
     function _verifyAndClaimRewards(ThresholdTestData memory data) internal {
-        // Trigger auto-prepare for round 1 before querying eligibleProposalVoteAmount
+        // Trigger auto-prepare for round 1.
         vm.prank(data.proposalTarget1);
         uint256 claimed1 = mint.mintProposalReward(address(token), data.testRound, data.proposalId1, data.proposalTarget1);
 
         // Verify rewards with mathematical model for round 1
-        uint256 eligibleVoteAmountR1 = mint.eligibleProposalVoteAmount(address(token), data.testRound);
-
-        assertEq(eligibleVoteAmountR1, 34, "Eligible votes round 1 must equal total votes (all eligible)");
+        uint256 totalVoteAmountR1 = vote.totalVoteAmount(address(token), data.testRound);
+        assertEq(totalVoteAmountR1, 34, "Total votes round 1");
 
         (uint256 reward1,) = mint.proposalRewardByProposalId(address(token), data.testRound, data.proposalId1);
         (uint256 reward2,) = mint.proposalRewardByProposalId(address(token), data.testRound, data.proposalId2);
@@ -1192,7 +1191,7 @@ contract MintRealIntegrationTest {
         uint256 expected = _calculateExpectedProposalReward(
             mint.proposalReward(address(token), data.round1),
             vote.voteAmountByProposalId(address(token), data.round1, data.proposalId1),
-            mint.eligibleProposalVoteAmount(address(token), data.round1)
+            vote.totalVoteAmount(address(token), data.round1)
         );
         assertEq(settled, expected, "Settlement must match math model");
 
@@ -1228,7 +1227,7 @@ contract MintRealIntegrationTest {
         uint256 expectedSibling = _calculateExpectedProposalReward(
             mint.proposalReward(address(token), data.round1),
             vote.voteAmountByProposalId(address(token), data.round1, data.proposalId2),
-            mint.eligibleProposalVoteAmount(address(token), data.round1)
+            vote.totalVoteAmount(address(token), data.round1)
         );
 
         uint256 balanceBefore = token.balanceOf(data.proposalTarget2);

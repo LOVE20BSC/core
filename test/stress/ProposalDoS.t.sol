@@ -133,27 +133,24 @@ contract ProposalDoSTest is Test {
         vm.cool(address(mint));
         vm.cool(address(vote));
         vm.cool(address(phase));
-        vm.cool(address(memberNFT));
-        vm.cool(address(token));
         vm.cool(launchAddress);
-        vm.startPrank(actor);
         uint256 beforeGas = gasleft();
-        (uint256 govReward,) = mint.mintGovReward{gas: 8_000_000}(address(token), 1, 1, actor);
+        mint.prepareRewardIfNeeded{gas: 160_000}(address(token), 1);
         uint256 preparationGas = beforeGas - gasleft();
-        vm.stopPrank();
         emit log_named_uint("proposals", count);
-        emit log_named_uint("first mint gas", preparationGas);
-        assertLt(preparationGas, 8_000_000, "local preparation gas budget exceeded");
+        emit log_named_uint("preparation gas", preparationGas);
+        assertLt(preparationGas, 160_000, "local preparation gas budget exceeded");
         assertTrue(mint.isRewardPrepared(address(token), 1));
-        uint256 eligibleVoteAmount = count <= 10 ? (2 * count - 1) * 1e18 : count * 1e18;
-        assertEq(mint.eligibleProposalVoteAmount(address(token), 1), eligibleVoteAmount);
         assertEq(mint.govReward(address(token), 1), expectedPool);
-        assertGt(govReward, 0);
 
         uint256 reserved = mint.totalRewardReserved(address(token));
-        vm.prank(actor);
+        vm.startPrank(actor);
+        (uint256 govReward,) = mint.mintGovReward(address(token), 1, 1, actor);
+        assertGt(govReward, 0);
+
         uint256 reward = mint.mintProposalReward(address(token), 1, 1, actor);
-        assertEq(reward, expectedPool * count * 1e18 / eligibleVoteAmount);
+        vm.stopPrank();
+        assertEq(reward, expectedPool * count / (2 * count - 1));
         assertEq(mint.totalRewardReserved(address(token)), reserved, "prepared twice");
     }
 }

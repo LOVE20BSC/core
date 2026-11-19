@@ -104,7 +104,7 @@ contract MintUnpreparedTest {
     function testUnpreparedProposalRewardCalculatesRealtime() public {
         setupMint(1000, 10000, 0, 1e17);
         (uint256 amount, bool minted) = mint.proposalRewardByProposalId(address(token), 1, 1);
-        require(amount == 900 && !minted, "only eligible proposal gets full pool: 900 * 20 / 20");
+        require(amount == 180 && !minted, "proposal gets 20/100 of the pool");
         require(!mint.isRewardPrepared(address(token), 1), "should not be prepared");
     }
 

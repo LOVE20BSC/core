@@ -37,6 +37,7 @@ contract MintInvariantTest {
     mapping(uint256 => mapping(uint256 => uint256)) private _proposalVotes; // round => proposalId => votes
     mapping(uint256 => mapping(uint256 => uint256)) private _memberVotes; // round => memberId => votes
     mapping(uint256 => mapping(uint256 => bool)) private _proposalVoted; // round => proposalId
+    mapping(uint256 => mapping(uint256 => bool)) private _proposalBurned; // round => proposalId
     mapping(uint256 => uint256[]) private _votedIds; // round => proposalIds
     mapping(uint256 => uint256) private _totalBoost; // round => boost shares
     mapping(uint256 => mapping(uint256 => uint256)) private _memberBoost; // round => memberId => boost shares
@@ -120,6 +121,16 @@ contract MintInvariantTest {
         try mint.mintProposalReward(address(token), round, proposalId, address(this)) {} catch {}
     }
 
+    function burnProposal(uint256 round, uint256 proposalId) public {
+        round = bound(round, 1, MAX_ROUNDS);
+        proposalId = bound(proposalId, 1, MAX_PROPOSALS);
+        try mint.burnRewardIfNeeded(address(token), round, proposalId) {
+            uint256 votes = _proposalVotes[round][proposalId];
+            uint256 minVotes = Math.mulDiv(_totalVotes[round], PROPOSAL_MIN_VOTE_RATIO, PRECISION, Math.Rounding.Ceil);
+            if (votes > 0 && votes < minVotes) _proposalBurned[round][proposalId] = true;
+        } catch {}
+    }
+
     function batchSettle(uint256[] calldata rounds, uint256 memberId) public {
         memberId = bound(memberId, 1, MAX_MEMBERS);
         if (rounds.length == 0 || rounds.length > MAX_ROUNDS) {
@@ -159,10 +170,8 @@ contract MintInvariantTest {
         assert(mint.totalRewardReserved(address(token)) == expected);
     }
 
-    /// @notice `burned` is exactly the sum of the pools cancelled at prepare time: the boost half when
-    ///         nobody who voted has a boost snapshot, and the whole proposal pool when no proposal
-    ///         clears the threshold. This is the invariant that pins both cancel branches.
-    function invariant_BurnedEqualsSumOfCancelledPools() public view {
+    /// @notice Burned reserves equal the cancelled boost pools and processed proposal shares.
+    function invariant_BurnedEqualsSumOfReleasedReserves() public view {
         uint256 expected;
         for (uint256 round = 1; round <= MAX_ROUNDS; round++) {
             if (!mint.isRewardPrepared(address(token), round)) continue;
@@ -171,9 +180,15 @@ contract MintInvariantTest {
             if (_totalBoost[round] == 0) {
                 expected += govReward - (govReward / VOTE_POOL_DIVISOR);
             }
-            if (mint.eligibleProposalVoteAmount(address(token), round) == 0) {
-                expected += proposalReward;
+            uint256 burnedVotes;
+            uint256 burnedAmount;
+            for (uint256 proposalId = 1; proposalId <= MAX_PROPOSALS; proposalId++) {
+                if (!_proposalBurned[round][proposalId]) continue;
+                uint256 votes = _proposalVotes[round][proposalId];
+                burnedVotes += votes;
+                burnedAmount += Math.mulDiv(proposalReward, votes, _totalVotes[round]);
             }
+            expected += burnedVotes == _totalVotes[round] ? proposalReward : burnedAmount;
         }
         assert(mint.totalRewardBurned(address(token)) == expected);
     }
@@ -255,22 +270,21 @@ contract MintInvariantTest {
         }
     }
 
-    /// @notice The frozen eligible-proposal vote total is exactly the sum of the voted proposals that
-    ///         clear the threshold, computed from the votes actually cast in that round.
-    function invariant_EligibleVotesMatchTheFrozenRule() public view {
+    /// @notice Every qualifying proposal's share uses the round's full vote weight.
+    function invariant_ProposalRewardsMatchRoundVoteShares() public view {
         for (uint256 round = 1; round <= MAX_ROUNDS; round++) {
             if (!mint.isRewardPrepared(address(token), round)) continue;
             uint256 minVoteAmount =
                 Math.mulDiv(_totalVotes[round], PROPOSAL_MIN_VOTE_RATIO, PRECISION, Math.Rounding.Ceil);
-            uint256 expected;
+            uint256 pool = mint.proposalReward(address(token), round);
             uint256[] storage proposalIds = _votedIds[round];
             for (uint256 i = 0; i < proposalIds.length; i++) {
-                uint256 votes = _proposalVotes[round][proposalIds[i]];
-                if (votes > 0 && votes >= minVoteAmount) {
-                    expected += votes;
-                }
+                uint256 proposalId = proposalIds[i];
+                uint256 votes = _proposalVotes[round][proposalId];
+                uint256 expected = votes >= minVoteAmount ? Math.mulDiv(pool, votes, _totalVotes[round]) : 0;
+                (uint256 amount,) = mint.proposalRewardByProposalId(address(token), round, proposalId);
+                assert(amount == expected);
             }
-            assert(mint.eligibleProposalVoteAmount(address(token), round) == expected);
         }
     }
 
@@ -315,15 +329,11 @@ contract MintInvariantTest {
             mint.totalRewardBurned(address(token)) == govReward - (govReward / VOTE_POOL_DIVISOR),
             "boost half cancelled"
         );
-        require(
-            mint.eligibleProposalVoteAmount(address(token), round) > 0, "proposal pool stays intact"
-        );
-        invariant_BurnedEqualsSumOfCancelledPools();
+        invariant_BurnedEqualsSumOfReleasedReserves();
     }
 
-    /// @notice Votes exist but no proposal clears the threshold: prepare cancels the proposal pool
-    ///         (and, with no boost snapshots, the boost half as well).
-    function test_proposalPoolIsCancelledWhenNoProposalClearsTheThreshold() public {
+    /// @notice When no proposal qualifies, burning each share releases the entire proposal pool.
+    function test_proposalPoolIsReleasedAfterEveryBelowThresholdShareIsProcessed() public {
         castThinVotes();
         uint256 votedRound = currentRound;
         require(_totalVotes[votedRound] == MAX_PROPOSALS, "thin spread seeded");
@@ -335,15 +345,21 @@ contract MintInvariantTest {
         uint256 govReward = mint.govReward(address(token), votedRound);
         uint256 proposalReward = mint.proposalReward(address(token), votedRound);
         require(govReward > 0 && proposalReward > 0, "both pools frozen");
-        require(mint.eligibleProposalVoteAmount(address(token), votedRound) == 0, "nothing eligible");
+        require(
+            mint.totalRewardBurned(address(token)) == govReward - (govReward / VOTE_POOL_DIVISOR),
+            "only the boost pool is released at preparation"
+        );
 
+        for (uint256 proposalId = 1; proposalId <= MAX_PROPOSALS; proposalId++) {
+            burnProposal(votedRound, proposalId);
+        }
         require(
             mint.totalRewardBurned(address(token))
                 == (govReward - (govReward / VOTE_POOL_DIVISOR)) + proposalReward,
             "both cancelled pools burned"
         );
-        invariant_BurnedEqualsSumOfCancelledPools();
-        invariant_EligibleVotesMatchTheFrozenRule();
+        invariant_BurnedEqualsSumOfReleasedReserves();
+        invariant_ProposalRewardsMatchRoundVoteShares();
     }
 
     /// @notice The round in progress is rejected by prepare, by every path (direct and internal).

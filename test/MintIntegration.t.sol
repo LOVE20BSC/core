@@ -399,9 +399,6 @@ contract MintIntegrationTest {
         vm.prank(member1);
         mint.mintGovReward(address(token), 1, 1, member1);
 
-        // Verify eligibleProposalVoteAmount = 300 + 700 = 1000
-        assertEq(mint.eligibleProposalVoteAmount(address(token), 1), 1000, "Eligible votes should sum correctly");
-
         // Verify member rewards are proportional to their votes
         (uint256 vote1,,) = mint.govRewardByMemberId(address(token), 1, 1);
         (uint256 vote2,,) = mint.govRewardByMemberId(address(token), 1, 2);
@@ -413,8 +410,9 @@ contract MintIntegrationTest {
         (uint256 amount1,) = mint.proposalRewardByProposalId(address(token), 1, 1);
         (uint256 amount2,) = mint.proposalRewardByProposalId(address(token), 1, 2);
 
-        // Proposal1 (30%) should get less than Proposal2 (70%)
-        assertTrue(amount1 < amount2, "Proposal1 reward < Proposal2 reward");
+        uint256 proposalPool = mint.proposalReward(address(token), 1);
+        assertEq(amount1, proposalPool * 300 / 1000, "proposal 1 share");
+        assertEq(amount2, proposalPool * 700 / 1000, "proposal 2 share");
 
         // Claim both proposals with different targets
         vm.prank(target);

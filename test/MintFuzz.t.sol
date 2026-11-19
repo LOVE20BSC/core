@@ -234,12 +234,7 @@ contract MintFuzzTest {
         if (shouldQualify) {
             (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
             uint256 proposalPool = mint.proposalReward(address(token), 1);
-            uint256 eligibleVoteAmount = mint.eligibleProposalVoteAmount(address(token), 1);
-
-            // Skip if no eligible votes (division by zero)
-            if (eligibleVoteAmount == 0) return;
-
-            uint256 expectedAmount = (proposalPool * proposalVoteAmount_) / eligibleVoteAmount;
+            uint256 expectedAmount = (proposalPool * proposalVoteAmount_) / totalVoteAmount_;
             assertEq(amount, expectedAmount);
         }
     }

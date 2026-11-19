@@ -12,6 +12,7 @@ RoundRewardReserved core.round
 RewardPrepared core.round
 GovRewardMinted core.round
 ProposalRewardMinted core.round
+ProposalRewardBurned core.round
 RewardBurned core.round
 PhaseSynchronized core.phase
 PromisedWaitingPhasesIncreased core.stake

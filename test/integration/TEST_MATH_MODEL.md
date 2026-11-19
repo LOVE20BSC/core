@@ -32,9 +32,9 @@ reservedAvailable = totalRewardReserved - totalRewardMinted - totalRewardBurned
 rewardAvailable = (MAX_SUPPLY - currentSupply) - reservedAvailable
 ```
 
-## 3. 轮次激励池准备
+## 3. 轮次激励池预留
 
-每轮准备时从可用激励中分配：
+每轮第一笔投票从当时的可用激励中预留两池。
 
 ### 3.1 治理激励池
 ```
@@ -122,23 +122,14 @@ minVotes = ceil(totalVotes × (PROPOSAL_REWARD_MIN_VOTE_RATIO / 1e18))
 isEligible = (proposalVotes >= minVotes) AND (proposalVotes > 0)
 ```
 
-### 5.2 合格提案总票数
+### 5.2 单个达标提案激励
 ```
-eligibleProposalVoteAmount = sum(proposalVotes for all eligible proposals)
-```
-
-### 5.3 单个提案激励（比例分配）
-```
-proposalReward = (proposalRewardAmount × proposalVotes) / eligibleProposalVoteAmount
+proposalReward = (proposalRewardAmount × proposalVotes) / totalVotes
 ```
 
-**注意**: 整数除法向下取整，精度损失归入池中（dust）
+### 5.3 未达标提案的预留释放
 
-**池取消规则**:
-- 如果 `eligibleProposalVoteAmount == 0`，则 `proposalRewardAmount` 全部销毁：
-  ```
-  totalRewardBurned += proposalRewardAmount
-  ```
+有票但未达标的提案可在轮末按相同公式逐项释放预留。全轮均未达标时，最后一项同时释放池中取整余数。
 
 ## 6. 投票权重计算（来自 Stake 合约）
 
@@ -218,7 +209,7 @@ totalReward2 = 17,812 + 17,812 = 35,624
 totalVotes = 480
 proposal1: 24 votes (24/480 = 5.00%)
 proposal2: 10 votes (10/480 = 2.08%)
-proposal3: 470 votes (470/480 = 97.92%)
+proposal3: 446 votes (446/480 ≈ 92.92%)
 ```
 
 **阈值计算**:
@@ -230,19 +221,16 @@ minVotes = ceil(480 × 0.05) = ceil(24.0) = 24
 ```
 proposal1: 24 >= 24 → 合格 ✓
 proposal2: 10 < 24 → 不合格 ✗
-proposal3: 470 >= 24 → 合格 ✓
-```
-
-**合格票数**:
-```
-eligibleProposalVoteAmount = 24 + 470 = 494
+proposal3: 446 >= 24 → 合格 ✓
 ```
 
 **激励分配** (假设 proposalRewardAmount = 95,000):
 ```
-proposal1Reward = (95,000 × 24) / 494 = 4,615 (整数除法)
-proposal2Reward = 0 (不合格)
-proposal3Reward = (95,000 × 470) / 494 = 90,425 (整数除法)
+proposal1Reward = (95,000 × 24) / 480 = 4,750
+proposal2Reward = 0
+proposal2Burned = (95,000 × 10) / 480 = 1,979
+proposal3Reward = (95,000 × 446) / 480 = 88,270
+remainingReserve = 1
 ```
 
 ### 场景 3: Boost 按理论份额全额发放
@@ -293,12 +281,14 @@ totalRewardBurned += boostPoolAmount
 ```
 
 #### 4.2 提案池取消
-当 `eligibleProposalVoteAmount == 0` 时（无合格提案）：
+所有有票提案均未达标时，逐项调用 `burnRewardIfNeeded`。最后一笔释放本提案的份额和取整尾差：
 ```
-proposalPoolCancelled = proposalRewardAmount
-totalRewardBurned += proposalRewardAmount
+lastRelease = proposalRewardAmount - previouslyReleasedProposalShares
+totalRewardBurned += lastRelease
 所有提案: proposalReward = 0
 ```
+
+全轮各笔提案预留释放额之和等于原始提案池。
 
 ### 场景 5: 质押流转（Unstake 和 Re-stake）
 
@@ -368,14 +358,14 @@ _proposalMinted[tokenAddress][round][proposalId] = true
 - 所有激励分配计算使用整数除法
 - 投票激励池: `votePoolAmount = govRewardAmount / 2`
 - 成员投票激励: `voteReward = (votePoolAmount × memberVotes) / totalVotes`
-- 提案激励: `proposalReward = (proposalRewardAmount × proposalVotes) / eligibleProposalVoteAmount`
+- 提案激励按 `proposalReward = (proposalRewardAmount × proposalVotes) / totalVotes` 计算。
 - Boost 理论值: `theoreticalBoost = (boostPoolAmount × memberBoost) / totalBoost`
 
 ### 8.3 精度损失（Dust）
-由于整数除法向下取整，部分激励无法完全分配，形成 "dust" 留在池中：
+各项份额向下取整后的尾差一般继续预留。全轮有票提案均未达标时，最后一笔逐项销毁一并释放提案池尾差。
+
 ```
-实际分配总和 < 池总额
-差额 = dust（留在池中，不会销毁也不会铸造）
+取整尾差 = 池总额 − 已结算份额 − 已处理的未达标份额
 ```
 
 ## 9. 测试验证原则

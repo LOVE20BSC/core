@@ -40,7 +40,6 @@ contract MintEventsTest {
         uint256 indexed round,
         uint256 govReward,
         uint256 proposalReward,
-        uint256 eligibleProposalVoteAmount,
         uint256 totalRewardReserved,
         uint256 totalRewardBurned
     );
@@ -61,6 +60,14 @@ contract MintEventsTest {
         address recipient,
         uint256 amount,
         uint256 totalRewardMinted
+    );
+
+    event ProposalRewardBurned(
+        address indexed tokenAddress,
+        uint256 indexed round,
+        uint256 indexed proposalId,
+        uint256 amount,
+        uint256 totalRewardBurned
     );
 
     event RewardBurned(
@@ -123,8 +130,10 @@ contract MintEventsTest {
     }
 
     function voteAmountByProposalId(address, uint256, uint256 id) external pure returns (uint256) {
-        if (id == 0 || id > 3) return 0;
-        return 600;
+        if (id == 1) return 400;
+        if (id == 2) return 560;
+        if (id == 3) return 40;
+        return 0;
     }
 
     function votedProposalIds(address, uint256, uint256, uint256 limit, bool)
@@ -190,7 +199,6 @@ contract MintEventsTest {
             round: round,
             govReward: govRewardExpected,
             proposalReward: proposalRewardExpected,
-            eligibleProposalVoteAmount: 1800,
             totalRewardReserved: govRewardExpected + proposalRewardExpected,
             totalRewardBurned: 0
         });
@@ -232,7 +240,7 @@ contract MintEventsTest {
         uint256 proposalId = 2;
 
         uint256 proposalReward = (1000000 - 10000) * 100 / 1000;
-        uint256 amount = proposalReward * 600 / 1800;
+        uint256 amount = proposalReward * 560 / 1000;
 
         // Settle a different proposal first, so `amount` and `totalRewardMinted` differ and a swap
         // between them cannot pass unnoticed.
@@ -246,7 +254,7 @@ contract MintEventsTest {
             proposalId: proposalId,
             recipient: TARGET,
             amount: amount,
-            totalRewardMinted: amount * 2
+            totalRewardMinted: amount + proposalReward * 400 / 1000
         });
 
         vm.prank(TARGET);
@@ -297,8 +305,7 @@ contract MintEventsTest {
     }
 
     /// @notice Verify ProposalRewardMinted is the only settlement event for an unallocatable reward
-    /// @dev Mint no longer voids a proposal reward; an Executor destroys the tokens it received, so
-    ///      the token's own burn event carries that half and Mint emits only the settlement.
+    /// @dev Funds paid to a qualifying proposal are recorded as minted at settlement.
     function testEvent_UnallocatableProposalRewardSettlesAsMinted() public {
         uint256 round = 1;
         uint256 proposalId = 1;
@@ -306,9 +313,27 @@ contract MintEventsTest {
         vm.prank(TARGET);
         uint256 settled = mint.mintProposalReward(address(token), round, proposalId, TARGET);
 
-        assertEq(settled, 33000, "settled amount");
+        assertEq(settled, 39600, "settled amount");
         assertEq(mint.totalRewardMinted(address(token)), settled, "minted ledger");
         assertEq(token.balanceOf(TARGET), settled, "tokens held by the recipient");
+    }
+
+    function testEvent_ProposalRewardBurnedEmitsExactShareAndCumulativeTotal() public {
+        zeroBoost = true;
+        mint.prepareRewardIfNeeded(address(token), 1);
+        uint256 amount = 99000 * 40 / 1000;
+
+        vm.expectEmit(true, true, true, true);
+        emit ProposalRewardBurned({
+            tokenAddress: address(token),
+            round: 1,
+            proposalId: 3,
+            amount: amount,
+            totalRewardBurned: 49500 + amount
+        });
+        vm.prank(TARGET);
+        mint.burnRewardIfNeeded(address(token), 1, 3);
+        assertEq(mint.totalRewardBurned(address(token)), 49500 + amount, "shared burn ledger");
     }
 
     /// @notice 取消池燃烧必须先于奖池准备（依赖序），累计 `totalRewardBurned` 必须等于折叠值
@@ -390,6 +415,9 @@ contract MintEventsTest {
         uint256 foldedReserved;
 
         for (uint256 round = 1; round <= 2; ++round) {
+            currentPhaseValue = round;
+            mint.reserveRoundReward(address(token), round);
+            currentPhaseValue = round + 1;
             vm.recordLogs();
             mint.mintGovReward(address(token), round, 1, address(this));
 
@@ -426,20 +454,19 @@ contract MintEventsTest {
         require(launchIndex < govIndex, "launch count precedes gov reward");
     }
 
-    /// @dev 折叠 `RewardPrepared`：(govReward, proposalReward, eligibleVoteAmount, totalRewardReserved, totalRewardBurned)
+    /// @dev Folds `RewardPrepared` pool amounts and cumulative reservation.
     function _scanPreparedReserved(MintVm.Log[] memory logs)
         private
         view
         returns (uint256 govReward, uint256 proposalReward, uint256 reserved)
     {
         bytes32 preparedTopic =
-            keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256,uint256)");
+            keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256)");
         bool found;
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(mint) || logs[i].topics.length == 0) continue;
             if (logs[i].topics[0] != preparedTopic) continue;
-            (govReward, proposalReward,, reserved,) =
-                abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256));
+            (govReward, proposalReward, reserved,) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
             found = true;
         }
         require(found, "missing RewardPrepared");
@@ -458,7 +485,7 @@ contract MintEventsTest {
     {
         bytes32 burnedTopic = keccak256("RewardBurned(address,uint256,uint256,uint256,uint8)");
         bytes32 preparedTopic =
-            keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256,uint256)");
+            keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256)");
         burnedIndex = type(uint256).max;
         preparedIndex = type(uint256).max;
 
@@ -470,8 +497,7 @@ contract MintEventsTest {
                 burnedCumulative = burnedPost;
                 if (burnedIndex == type(uint256).max) burnedIndex = i;
             } else if (logs[i].topics[0] == preparedTopic) {
-                (, , , , cumulative) =
-                    abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256));
+                (,,, cumulative) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
                 preparedIndex = i;
             }
         }

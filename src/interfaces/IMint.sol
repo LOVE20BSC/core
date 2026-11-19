@@ -18,7 +18,6 @@ interface IMintEvents {
         uint256 indexed round,
         uint256 govReward,
         uint256 proposalReward,
-        uint256 eligibleProposalVoteAmount,
         uint256 totalRewardReserved,
         uint256 totalRewardBurned
     );
@@ -37,6 +36,13 @@ interface IMintEvents {
         address recipient,
         uint256 amount,
         uint256 totalRewardMinted
+    );
+    event ProposalRewardBurned(
+        address indexed tokenAddress,
+        uint256 indexed round,
+        uint256 indexed proposalId,
+        uint256 amount,
+        uint256 totalRewardBurned
     );
     event RewardBurned(
         address indexed tokenAddress,
@@ -115,6 +121,12 @@ interface IMint is IMintEvents, IMintErrors {
     function ROUND_REWARD_PROPOSAL_RATIO() external view returns (uint256);
     function reserveRoundReward(address tokenAddress, uint256 round) external;
     function prepareRewardIfNeeded(address tokenAddress, uint256 round) external;
+    /// @notice Releases a voted, below-threshold proposal's reserved share after the round ends.
+    function burnRewardIfNeeded(
+        address tokenAddress,
+        uint256 round,
+        uint256 proposalId
+    ) external;
     function mintProposalReward(
         address tokenAddress,
         uint256 round,
@@ -139,8 +151,6 @@ interface IMint is IMintEvents, IMintErrors {
     function totalRewardBurned(address tokenAddress) external view returns (uint256);
     function govReward(address tokenAddress, uint256 round) external view returns (uint256);
     function proposalReward(address tokenAddress, uint256 round) external view returns (uint256);
-    function eligibleProposalVoteAmount(address tokenAddress, uint256 round)
-        external view returns (uint256);
     function isRewardPrepared(address tokenAddress, uint256 round) external view returns (bool);
     function proposalRewardByProposalId(address tokenAddress, uint256 round, uint256 proposalId)
         external view returns (uint256 amount, bool minted);

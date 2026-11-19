@@ -174,7 +174,7 @@ contract MintCoverageTest {
         );
     }
 
-    function testPrepareBurnsBothPoolsWhenEligibleVotesZero() public {
+    function testPrepareCancelsOnlyTheBoostPoolWhenNoProposalQualifies() public {
         totalVoteAmountValue = 100;
         firstVotes = 1;
         proposalCount = 1;
@@ -191,8 +191,8 @@ contract MintCoverageTest {
                 burnedCount++;
             }
         }
-        require(burnedCount == 2, "both pools burned");
-        require(mint.totalRewardBurned(address(token)) > burnedBefore, "burned increased");
+        require(burnedCount == 1, "only the boost pool was burned");
+        require(mint.totalRewardBurned(address(token)) == burnedBefore + 450, "boost half released");
     }
 
     function testPrepareSkipsZeroAmountBurnEvents() public {
@@ -202,6 +202,7 @@ contract MintCoverageTest {
         setupMint(999, 1000, 1e15, 1e15);
         uint256 burnedBefore = mint.totalRewardBurned(address(token));
         vm.recordLogs();
+        mint.prepareRewardIfNeeded(address(token), 1);
         MintVm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,uint256,uint8)");
         uint256 burnedCount;
@@ -214,7 +215,7 @@ contract MintCoverageTest {
         require(mint.totalRewardBurned(address(token)) == burnedBefore, "burned unchanged");
     }
 
-    function testPrepareSkipsZeroProposalPoolBurnEvent() public {
+    function testBurnSkipsZeroAmountPoolCancellationEvent() public {
         totalVoteAmountValue = 999;
         firstVotes = 1;
         proposalCount = 1;
@@ -222,6 +223,7 @@ contract MintCoverageTest {
         setupMint(999, 1000, 1e15, 1e15);
         uint256 burnedBefore = mint.totalRewardBurned(address(token));
         vm.recordLogs();
+        mint.burnRewardIfNeeded(address(token), 1, 1);
         MintVm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,uint256,uint8)");
         uint256 burnedCount;

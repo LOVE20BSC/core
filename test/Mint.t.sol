@@ -239,9 +239,8 @@ contract MintTest {
         proposalCount = 2;
         setupMint(1000, 10000, 0, 1e17);
         // Trigger auto-prepare by minting
-        mint.mintProposalReward(address(token), 1, 2, address(this));
+        require(mint.mintProposalReward(address(token), 1, 2, address(this)) == 857, "reward uses 20/21");
         require(!mint.isProposalIdWithReward(address(token), 1, 1), "1/21 is less than 5 percent");
-        require(mint.eligibleProposalVoteAmount(address(token), 1) == 20, "ineligible votes entered denominator");
         (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
         require(amount == 0, "ineligible query");
         vm.expectRevert(
@@ -250,7 +249,7 @@ contract MintTest {
         mint.mintProposalReward(address(token), 1, 1, address(this));
         bool minted;
         (amount, minted) = mint.proposalRewardByProposalId(address(token), 1, 2);
-        require(amount == 900 && minted, "minted query");
+        require(amount == 857 && minted, "minted query");
     }
 
     function testProposalExactlyAtThresholdQualifies() public {
@@ -273,14 +272,12 @@ contract MintTest {
         require(!minted && mint.totalRewardMinted(address(token)) == 0, "zero reward consumed state");
     }
 
-    function testBelowThresholdOutranksTheCancelledPool() public {
+    function testBelowThresholdOutranksAnEmptyPool() public {
         totalVoteAmountValue = 100;
         firstVotes = 1;
         secondVotes = 1;
         proposalCount = 2;
-        setupMint(1000, 10000, 0, 1e18);
-        // Nothing clears the 5% bar, so prepare cancels the whole round pool: both the proposal
-        // condition and the round condition hold, and the per-proposal one has to win.
+        setupMint(1000, 10000, 0, 0);
         vm.expectRevert(
             abi.encodeWithSelector(IMintErrors.ProposalBelowThreshold.selector, address(token), 1, 1, 1, 5)
         );
@@ -329,13 +326,13 @@ contract MintTest {
         );
         mint.mintGovReward(address(token), 2, 1, address(this));
         MintVm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 sig = keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256,uint256)");
+        bytes32 sig = keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256)");
         uint256 count;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].emitter == address(mint) && logs[i].topics[0] == sig) {
                 count++;
                 require(uint256(logs[i].topics[2]) == 2, "event round");
-                require(keccak256(logs[i].data) == keccak256(abi.encode(0, 0, 0, 0, 0)), "event ledger");
+                require(keccak256(logs[i].data) == keccak256(abi.encode(0, 0, 0, 0)), "event ledger");
             }
         }
         require(count == 1, "RewardPrepared missing for zero-vote round");
@@ -417,17 +414,66 @@ contract MintTest {
         require(voteReward == 50 && boostReward == 250 && minted, "settled query");
     }
 
-    function testPrepareScansProposalsOnceAndCachesResult() public {
+    function testPreviewPrepareAndMintNeverReadTheProposalList() public {
         totalVoteAmountValue = memberVoteAmount = proposalCount = 300;
         secondVotes = 1;
         minVoteRatio = 0;
         setupMint(1000, 10000, 0, 1e17);
-        // First mint triggers prepare and scans proposals
-        mint.mintProposalReward(address(token), 1, 1, address(this));
-        require(mint.eligibleProposalVoteAmount(address(token), 1) == 300, "cached votes");
         rejectProposalScan = true;
-        // Second mint uses cached data - no scan
-        require(mint.mintProposalReward(address(token), 1, 300, address(this)) == 3, "cached settlement");
+        (uint256 amount,) = mint.proposalRewardByProposalId(address(token), 1, 1);
+        require(amount == 3, "preview uses full round votes");
+        require(mint.mintProposalReward(address(token), 1, 1, address(this)) == 3, "first mint auto-prepares");
+        require(mint.mintProposalReward(address(token), 1, 300, address(this)) == 3, "subsequent mint");
+    }
+
+    function testBurnRewardReleasesOnlyTheBelowThresholdShare() public {
+        totalVoteAmountValue = 21;
+        firstVotes = 1;
+        secondVotes = 20;
+        proposalCount = 2;
+        setupMint(1000, 10000, 0, 1e17);
+        rejectProposalScan = true;
+        uint256 availableBefore = mint.rewardAvailable(address(token));
+
+        currentPhaseValue = 1;
+        vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 1));
+        mint.burnRewardIfNeeded(address(token), 1, 1);
+        currentPhaseValue = 2;
+
+        vm.prank(address(0xCAFE));
+        mint.burnRewardIfNeeded(address(token), 1, 1);
+        require(token.totalSupply() == 1000, "burn only releases the reserve");
+        require(mint.totalRewardBurned(address(token)) == 42, "floor(900 / 21)");
+        require(mint.rewardAvailable(address(token)) == availableBefore + 42, "share becomes available");
+        require(mint.proposalReward(address(token), 1) == 900, "frozen pool");
+
+        vm.recordLogs();
+        mint.burnRewardIfNeeded(address(token), 1, 1);
+        mint.burnRewardIfNeeded(address(token), 1, 2);
+        mint.burnRewardIfNeeded(address(token), 1, 3);
+        require(vm.getRecordedLogs().length == 0, "skipped proposals emit no events");
+        require(mint.totalRewardBurned(address(token)) == 42, "duplicate, qualifying and zero-vote calls are no-ops");
+        require(mint.mintProposalReward(address(token), 1, 2, address(this)) == 857, "qualifying share is stable");
+        require(mint.reservedAvailable(address(token)) == 1, "mixed-round dust remains reserved");
+    }
+
+    function testLastBelowThresholdProposalReleasesTheAllIneligiblePool() public {
+        totalVoteAmountValue = 3;
+        secondVotes = 1;
+        proposalCount = 3;
+        minVoteRatio = 5e17;
+        setupMint(1000, 1002, 0, 1e18);
+
+        mint.prepareRewardIfNeeded(address(token), 1);
+        require(mint.reservedAvailable(address(token)) == 2, "preparation leaves the pool reserved");
+        mint.burnRewardIfNeeded(address(token), 1, 3);
+        mint.burnRewardIfNeeded(address(token), 1, 3);
+        mint.burnRewardIfNeeded(address(token), 1, 1);
+        require(mint.totalRewardBurned(address(token)) == 0, "individual shares round to zero");
+        mint.burnRewardIfNeeded(address(token), 1, 2);
+        require(mint.totalRewardBurned(address(token)) == 2, "final distinct proposal releases the dust");
+        require(mint.reservedAvailable(address(token)) == 0, "no locked share");
+        require(mint.proposalReward(address(token), 1) == 2, "frozen pool is preserved");
     }
 
     function testSettlementReleasesReservationAndBurnReturnsAvailability() public {
@@ -445,7 +491,6 @@ contract MintTest {
         require(mint.reservedAvailable(address(token)) == reservedBefore - amount, "reserved share consumed");
         require(mint.rewardAvailable(address(token)) == availableBefore, "settling is budget neutral");
         require(mint.proposalReward(address(token), 1) == proposalPoolBefore, "round pool unchanged");
-        require(mint.eligibleProposalVoteAmount(address(token), 1) == 20, "eligible votes unchanged");
         require(token.totalSupply() == 1855 + amount, "reward minted to the recipient");
 
         // No protocol path burns an unallocatable reward (ADR-004): the Executor never receives
@@ -517,7 +562,6 @@ contract MintTest {
         uint256 burnedBefore = mint.totalRewardBurned(address(token));
         uint256 govBefore = mint.govReward(address(token), 1);
         uint256 proposalBefore = mint.proposalReward(address(token), 1);
-        uint256 eligibleBefore = mint.eligibleProposalVoteAmount(address(token), 1);
         require(govBefore > 0 && proposalBefore > 0 && reservedBefore > 0, "empty pool makes idempotence vacuous");
 
         token.burn(100);
@@ -526,7 +570,7 @@ contract MintTest {
         vm.recordLogs();
         mint.prepareRewardIfNeeded(address(token), 1);
         MintVm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 sig = keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256,uint256)");
+        bytes32 sig = keccak256("RewardPrepared(address,uint256,uint256,uint256,uint256,uint256)");
         uint256 preparedEvents;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].emitter == address(mint) && logs[i].topics[0] == sig) {
@@ -540,8 +584,7 @@ contract MintTest {
         require(mint.totalRewardBurned(address(token)) == burnedBefore, "burn ledger changed");
         require(
             mint.govReward(address(token), 1) == govBefore
-                && mint.proposalReward(address(token), 1) == proposalBefore
-                && mint.eligibleProposalVoteAmount(address(token), 1) == eligibleBefore,
+                && mint.proposalReward(address(token), 1) == proposalBefore,
             "round pool changed"
         );
     }
