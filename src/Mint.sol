@@ -169,7 +169,7 @@ contract Mint is IMint {
 
         _burnUnusedBoostReward(tokenAddress, round);
         (uint256 voteAmount, uint256 totalVoteAmount, uint256 minVoteAmount) =
-            _proposalVoteTally(tokenAddress, round, proposalId);
+            _proposalVotesAndThreshold(tokenAddress, round, proposalId);
         if (voteAmount == 0 || voteAmount >= minVoteAmount) return;
 
         uint256 pool = _proposalReward[tokenAddress][round];
@@ -246,7 +246,7 @@ contract Mint is IMint {
         {
             uint256 pool = _proposalReward[tokenAddress][round];
             (uint256 voteAmount, uint256 totalVoteAmount, uint256 minVoteAmount) =
-                _proposalVoteTally(tokenAddress, round, proposalId);
+                _proposalVotesAndThreshold(tokenAddress, round, proposalId);
             if (voteAmount < minVoteAmount) {
                 revert ProposalBelowThreshold(tokenAddress, round, proposalId, voteAmount, minVoteAmount);
             }
@@ -333,7 +333,7 @@ contract Mint is IMint {
 
         status = _proposalRewardStatus[tokenAddress][round][proposalId];
         (uint256 voteAmount, uint256 totalVoteAmount, uint256 minVoteAmount) =
-            _proposalVoteTally(tokenAddress, round, proposalId);
+            _proposalVotesAndThreshold(tokenAddress, round, proposalId);
         if (status == ProposalRewardStatus.Burned || voteAmount >= minVoteAmount) {
             amount = _proposalRewardShare(_proposalReward[tokenAddress][round], voteAmount, totalVoteAmount);
         }
@@ -404,12 +404,12 @@ contract Mint is IMint {
         uint256 proposalId
     ) external view returns (bool) {
         (uint256 proposalVoteAmount, , uint256 minVoteAmount) =
-            _proposalVoteTally(tokenAddress, round, proposalId);
+            _proposalVotesAndThreshold(tokenAddress, round, proposalId);
 
         return proposalVoteAmount > 0 && proposalVoteAmount >= minVoteAmount;
     }
 
-    function _proposalVoteTally(
+    function _proposalVotesAndThreshold(
         address tokenAddress,
         uint256 round,
         uint256 proposalId
