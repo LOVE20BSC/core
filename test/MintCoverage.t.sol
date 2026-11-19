@@ -223,7 +223,7 @@ contract MintCoverageTest {
         setupMint(999, 1000, 1e15, 1e15);
         uint256 burnedBefore = mint.totalRewardBurned(address(token));
         vm.recordLogs();
-        mint.burnRewardIfNeeded(address(token), 1, 1);
+        mint.burnProposalReward(address(token), 1, 1);
         MintVm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,uint256,uint8)");
         uint256 burnedCount;

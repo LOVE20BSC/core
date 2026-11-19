@@ -281,7 +281,7 @@ totalRewardBurned += boostPoolAmount
 ```
 
 #### 4.2 提案池取消
-所有有票提案均未达标时，逐项调用 `burnRewardIfNeeded`。最后一笔释放本提案的份额和取整尾差：
+所有有票提案均未达标时，逐项调用 `burnProposalReward`。最后一笔释放本提案的份额和取整尾差：
 ```
 lastRelease = proposalRewardAmount - previouslyReleasedProposalShares
 totalRewardBurned += lastRelease

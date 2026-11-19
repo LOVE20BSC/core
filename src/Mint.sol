@@ -14,7 +14,7 @@ contract Mint is IMint {
     uint256 private constant PRECISION = 1e18;
     uint256 private constant VOTE_POOL_DIVISOR = 2;
 
-    struct ProposalBurnProgress {
+    struct ProposalBurnState {
         uint256 voteAmount;
         uint256 amount;
     }
@@ -40,7 +40,7 @@ contract Mint is IMint {
     // tokenAddress => round => proposalId => whether its below-threshold share was processed
     mapping(address => mapping(uint256 => mapping(uint256 => bool))) internal _proposalRewardBurned;
     // tokenAddress => round => votes and floored shares processed by proposal burns
-    mapping(address => mapping(uint256 => ProposalBurnProgress)) internal _proposalBurnProgress;
+    mapping(address => mapping(uint256 => ProposalBurnState)) internal _proposalBurnProgress;
     // tokenAddress => round => memberId => whether the governance reward is settled
     mapping(address => mapping(uint256 => mapping(uint256 => bool))) internal _govMinted;
 
@@ -178,7 +178,7 @@ contract Mint is IMint {
         });
     }
 
-    function burnRewardIfNeeded(
+    function burnProposalReward(
         address tokenAddress,
         uint256 round,
         uint256 proposalId
@@ -194,7 +194,7 @@ contract Mint is IMint {
         uint256 amount = Math.mulDiv(pool, voteAmount, totalVoteAmount);
         _proposalRewardBurned[tokenAddress][round][proposalId] = true;
 
-        ProposalBurnProgress storage progress = _proposalBurnProgress[tokenAddress][round];
+        ProposalBurnState storage progress = _proposalBurnProgress[tokenAddress][round];
         progress.voteAmount += voteAmount;
         progress.amount += amount;
         _totalRewardBurned[tokenAddress] += amount;
@@ -207,7 +207,7 @@ contract Mint is IMint {
             totalRewardBurned: _totalRewardBurned[tokenAddress]
         });
 
-        // All positive vote weight was below the threshold, so the remaining reserve is rounding dust.
+        // Load-bearing: Counting each below-threshold proposal once makes equality proof that only rounding dust remains.
         if (progress.voteAmount == totalVoteAmount) {
             _burnCancelledPool(tokenAddress, round, pool - progress.amount, BurnReason.ProposalPoolCancelled);
         }

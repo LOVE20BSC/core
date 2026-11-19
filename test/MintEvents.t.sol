@@ -15,6 +15,7 @@ interface MintVm {
     }
 
     function expectEmit(bool, bool, bool, bool) external;
+    function expectEmit(bool, bool, bool, bool, address) external;
 
     function prank(address sender) external;
 
@@ -323,7 +324,7 @@ contract MintEventsTest {
         mint.prepareRewardIfNeeded(address(token), 1);
         uint256 amount = 99000 * 40 / 1000;
 
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit(true, true, true, true, address(mint));
         emit ProposalRewardBurned({
             tokenAddress: address(token),
             round: 1,
@@ -332,7 +333,7 @@ contract MintEventsTest {
             totalRewardBurned: 49500 + amount
         });
         vm.prank(TARGET);
-        mint.burnRewardIfNeeded(address(token), 1, 3);
+        mint.burnProposalReward(address(token), 1, 3);
         assertEq(mint.totalRewardBurned(address(token)), 49500 + amount, "shared burn ledger");
     }
 

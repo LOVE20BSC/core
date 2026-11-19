@@ -437,20 +437,20 @@ contract MintTest {
 
         currentPhaseValue = 1;
         vm.expectRevert(abi.encodeWithSelector(IMintErrors.RoundNotEnded.selector, 1));
-        mint.burnRewardIfNeeded(address(token), 1, 1);
+        mint.burnProposalReward(address(token), 1, 1);
         currentPhaseValue = 2;
 
         vm.prank(address(0xCAFE));
-        mint.burnRewardIfNeeded(address(token), 1, 1);
+        mint.burnProposalReward(address(token), 1, 1);
         require(token.totalSupply() == 1000, "burn only releases the reserve");
         require(mint.totalRewardBurned(address(token)) == 42, "floor(900 / 21)");
         require(mint.rewardAvailable(address(token)) == availableBefore + 42, "share becomes available");
         require(mint.proposalReward(address(token), 1) == 900, "frozen pool");
 
         vm.recordLogs();
-        mint.burnRewardIfNeeded(address(token), 1, 1);
-        mint.burnRewardIfNeeded(address(token), 1, 2);
-        mint.burnRewardIfNeeded(address(token), 1, 3);
+        mint.burnProposalReward(address(token), 1, 1);
+        mint.burnProposalReward(address(token), 1, 2);
+        mint.burnProposalReward(address(token), 1, 3);
         require(vm.getRecordedLogs().length == 0, "skipped proposals emit no events");
         require(mint.totalRewardBurned(address(token)) == 42, "duplicate, qualifying and zero-vote calls are no-ops");
         require(mint.mintProposalReward(address(token), 1, 2, address(this)) == 857, "qualifying share is stable");
@@ -466,11 +466,11 @@ contract MintTest {
 
         mint.prepareRewardIfNeeded(address(token), 1);
         require(mint.reservedAvailable(address(token)) == 2, "preparation leaves the pool reserved");
-        mint.burnRewardIfNeeded(address(token), 1, 3);
-        mint.burnRewardIfNeeded(address(token), 1, 3);
-        mint.burnRewardIfNeeded(address(token), 1, 1);
+        mint.burnProposalReward(address(token), 1, 3);
+        mint.burnProposalReward(address(token), 1, 3);
+        mint.burnProposalReward(address(token), 1, 1);
         require(mint.totalRewardBurned(address(token)) == 0, "individual shares round to zero");
-        mint.burnRewardIfNeeded(address(token), 1, 2);
+        mint.burnProposalReward(address(token), 1, 2);
         require(mint.totalRewardBurned(address(token)) == 2, "final distinct proposal releases the dust");
         require(mint.reservedAvailable(address(token)) == 0, "no locked share");
         require(mint.proposalReward(address(token), 1) == 2, "frozen pool is preserved");

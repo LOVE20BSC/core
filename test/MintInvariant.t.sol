@@ -124,7 +124,7 @@ contract MintInvariantTest {
     function burnProposal(uint256 round, uint256 proposalId) public {
         round = bound(round, 1, MAX_ROUNDS);
         proposalId = bound(proposalId, 1, MAX_PROPOSALS);
-        try mint.burnRewardIfNeeded(address(token), round, proposalId) {
+        try mint.burnProposalReward(address(token), round, proposalId) {
             uint256 votes = _proposalVotes[round][proposalId];
             uint256 minVotes = Math.mulDiv(_totalVotes[round], PROPOSAL_MIN_VOTE_RATIO, PRECISION, Math.Rounding.Ceil);
             if (votes > 0 && votes < minVotes) _proposalBurned[round][proposalId] = true;

@@ -121,8 +121,7 @@ interface IMint is IMintEvents, IMintErrors {
     function ROUND_REWARD_PROPOSAL_RATIO() external view returns (uint256);
     function reserveRoundReward(address tokenAddress, uint256 round) external;
     function prepareRewardIfNeeded(address tokenAddress, uint256 round) external;
-    /// @notice Releases a voted, below-threshold proposal's reserved share after the round ends.
-    function burnRewardIfNeeded(
+    function burnProposalReward(
         address tokenAddress,
         uint256 round,
         uint256 proposalId
