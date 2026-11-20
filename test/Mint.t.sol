@@ -174,8 +174,9 @@ contract MintTest {
             mint.mintGovRewards(address(token), rounds, 1, address(this));
         require(votes.length == 2 && boosts.length == 2, "array lengths");
         require(votes[0] == 450 && votes[1] == 405, "round order");
-        require(boosts[0] + boosts[1] == 0, "cancelled boost");
+        require(boosts[0] + boosts[1] == 0, "no voter boost");
         require(token.balanceOf(address(this)) == 1855 && mint.totalRewardMinted(address(token)) == 855, "batch reward");
+        require(mint.totalRewardBurned(address(token)) == 0, "batch leaves boost reserves intact");
     }
 
     function testBatchFailureRollsBackRewardsAndLaunchCounts() public {
@@ -188,11 +189,10 @@ contract MintTest {
         mint.mintGovRewards(address(token), rounds, 1, address(this));
         (,, bool minted) = mint.govRewardByMemberId(address(token), 1, 1);
         require(!minted && mint.totalRewardMinted(address(token)) == 0, "reward rollback");
-        require(mint.totalRewardBurned(address(token)) == 0, "boost burn rollback");
         require(token.totalSupply() == 1000, "token rollback");
         require(issuedLaunchCount[address(token)] == 0 && mint.launchCredit(address(token), 1) == 0, "launch rollback");
         (uint256 voteReward,) = mint.mintGovReward(address(token), 1, 1, address(this));
-        require(voteReward == 450 && mint.totalRewardBurned(address(token)) == 450, "retry settles once");
+        require(voteReward == 450 && mint.totalRewardMinted(address(token)) == 450, "retry settles once");
     }
 
     function testEmptyBatchHasNoSideEffects() public {
@@ -245,6 +245,7 @@ contract MintTest {
         mint.mintGovReward(address(token), 1, 1, address(this));
         require(issuedLaunchCount[address(token)] == MAX_LAUNCH_COUNT, "cap exceeded");
         require(mint.launchCredit(address(token), 1) == 40, "capped credit lost");
+        mint.burnUnusedBoostReward(address(token), 1);
         reserveRound(2);
         mint.mintGovReward(address(token), 2, 1, address(this));
         require(mint.launchCredit(address(token), 1) == 40, "credit grew after cap");
@@ -547,25 +548,34 @@ contract MintTest {
         mint.burnUnusedBoostReward(address(token), 0);
     }
 
-    function testExplicitBoostBurnIsSharedAcrossSettlementAndRetry() public {
+    function testUnusedBoostPoolRequiresExplicitBurn() public {
+        totalVoteAmountValue = memberVoteAmount = 100;
+        firstVotes = 96;
+        secondVotes = 4;
+        proposalCount = 2;
         setupMint(1000, 10000, 1e17, 1e17);
         uint256 availableBefore = mint.rewardAvailable(address(token));
         uint256 reservedBefore = mint.totalRewardReserved(address(token));
 
+        (uint256 voteReward, uint256 boostReward) = mint.mintGovReward(address(token), 1, 1, address(this));
+        require(voteReward == 450 && boostReward == 0, "governance settlement pays the vote share");
+        require(mint.mintProposalReward(address(token), 1, 1, address(this)) == 864, "qualifying proposal can mint");
+        require(mint.totalRewardBurned(address(token)) == 0, "minting leaves the boost pool reserved");
+
+        mint.burnProposalReward(address(token), 1, 2);
+        require(mint.totalRewardBurned(address(token)) == 36, "only the proposal share is burned");
+        require(mint.reservedAvailable(address(token)) == 450, "boost pool remains reserved");
+        require(mint.rewardAvailable(address(token)) == availableBefore + 36, "only the proposal share is available");
+
         vm.prank(address(0xCAFE));
         mint.burnUnusedBoostReward(address(token), 1);
-        require(mint.totalRewardBurned(address(token)) == 450, "only the boost half is burned");
-        require(token.totalSupply() == 1000, "burn releases a reservation");
+        require(token.totalSupply() == 2314, "burn releases a reservation");
 
         vm.recordLogs();
         mint.burnUnusedBoostReward(address(token), 1);
         require(vm.getRecordedLogs().length == 0, "retry emits no events");
-
-        mint.mintGovReward(address(token), 1, 1, address(this));
-        mint.mintProposalReward(address(token), 1, 1, address(this));
-        require(mint.totalRewardMinted(address(token)) == 1350, "both payable shares minted");
-        require(mint.totalRewardBurned(address(token)) == 450, "automatic paths share the burn flag");
-        require(mint.rewardAvailable(address(token)) == availableBefore + 450, "capacity restored once");
+        require(mint.totalRewardBurned(address(token)) == 486, "boost pool released once");
+        require(mint.rewardAvailable(address(token)) == availableBefore + 486, "both burns restore capacity");
         require(mint.totalRewardReserved(address(token)) == reservedBefore, "original reserves unchanged");
     }
 }

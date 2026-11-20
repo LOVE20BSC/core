@@ -129,7 +129,14 @@ contract Mint is IMint {
 
     function burnUnusedBoostReward(address tokenAddress, uint256 round) external {
         _checkSettlementRound(tokenAddress, round);
-        _burnUnusedBoostReward(tokenAddress, round);
+
+        uint256 govRewardAmount = _govReward[tokenAddress][round];
+        if (govRewardAmount == 0 || _unusedBoostRewardBurned[tokenAddress][round]) return;
+        if (IVote(VOTE_ADDRESS).totalVoterBoost(tokenAddress, round) != 0) return;
+
+        _unusedBoostRewardBurned[tokenAddress][round] = true;
+        uint256 boostPoolAmount = govRewardAmount - (govRewardAmount / VOTE_POOL_DIVISOR);
+        _burnCancelledPool(tokenAddress, round, boostPoolAmount, BurnReason.BoostPoolCancelled);
     }
 
     function _checkSettlementRound(address tokenAddress, uint256 round) private view {
@@ -140,17 +147,6 @@ contract Mint is IMint {
         if (round == 0 || IPhase(PHASE_ADDRESS).currentPhase() <= round) {
             revert RoundNotEnded(round);
         }
-    }
-
-    function _burnUnusedBoostReward(address tokenAddress, uint256 round) private {
-        uint256 govRewardAmount = _govReward[tokenAddress][round];
-        if (govRewardAmount == 0 || _unusedBoostRewardBurned[tokenAddress][round]) return;
-        // forge-lint: disable-next-item(calls-loop)
-        if (IVote(VOTE_ADDRESS).totalVoterBoost(tokenAddress, round) != 0) return;
-
-        _unusedBoostRewardBurned[tokenAddress][round] = true;
-        uint256 boostPoolAmount = govRewardAmount - (govRewardAmount / VOTE_POOL_DIVISOR);
-        _burnCancelledPool(tokenAddress, round, boostPoolAmount, BurnReason.BoostPoolCancelled);
     }
 
     function burnProposalReward(
@@ -167,7 +163,6 @@ contract Mint is IMint {
             if (status == ProposalRewardStatus.Burned) return;
         }
 
-        _burnUnusedBoostReward(tokenAddress, round);
         (uint256 voteAmount, uint256 totalVoteAmount, uint256 minVoteAmount) =
             _proposalVotesAndThreshold(tokenAddress, round, proposalId);
         if (voteAmount == 0 || voteAmount >= minVoteAmount) return;
@@ -242,7 +237,6 @@ contract Mint is IMint {
             }
         }
 
-        _burnUnusedBoostReward(tokenAddress, round);
         {
             uint256 pool = _proposalReward[tokenAddress][round];
             (uint256 voteAmount, uint256 totalVoteAmount, uint256 minVoteAmount) =
@@ -487,7 +481,6 @@ contract Mint is IMint {
             revert MemberRewardAlreadyMinted(tokenAddress, round, memberId);
         }
 
-        _burnUnusedBoostReward(tokenAddress, round);
         (voteReward, boostReward, ) = _govRewardCalculation(tokenAddress, round, memberId);
 
         if (voteReward + boostReward == 0) {

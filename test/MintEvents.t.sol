@@ -335,7 +335,7 @@ contract MintEventsTest {
         assertEq(mint.totalRewardBurned(address(token)), 49500 + amount, "shared burn ledger");
     }
 
-    function testEvent_RewardBurnedPrecedesGovRewardMinted() public {
+    function testEvent_BurnUnusedBoostRewardEmitsExactRelease() public {
         zeroBoost = true;
         vm.expectEmit(true, true, false, true, address(mint));
         emit RewardBurned({
@@ -345,16 +345,7 @@ contract MintEventsTest {
             totalRewardBurned: 49500,
             reason: BurnReason.BoostPoolCancelled
         });
-        vm.expectEmit(true, true, true, true, address(mint));
-        emit GovRewardMinted({
-            tokenAddress: address(token),
-            round: 1,
-            memberId: 1,
-            voteReward: 9900,
-            boostReward: 0,
-            totalRewardMinted: 9900
-        });
-        mint.mintGovReward(address(token), 1, 1, address(this));
+        mint.burnUnusedBoostReward(address(token), 1);
     }
 
     /// @notice Each burn event carries the total folded from both event types across rounds.
@@ -379,7 +370,7 @@ contract MintEventsTest {
             if (logs[i].emitter != address(mint)) continue;
             bytes32 topic = logs[i].topics[0];
             if (topic != boostTopic && topic != proposalTopic) continue;
-            require(topic == (count % 2 == 0 ? boostTopic : proposalTopic), "boost burn precedes proposal burn");
+            require(topic == (count % 2 == 0 ? proposalTopic : boostTopic), "events follow call order");
             (uint256 amount, uint256 cumulative) = abi.decode(logs[i].data, (uint256, uint256));
             foldedBurned += amount;
             assertEq(cumulative, foldedBurned, "every event carries the post-state total");

@@ -159,27 +159,16 @@ contract MintCoverageTest {
         );
     }
 
-    function testGovSettlementBurnsOnlyTheBoostPoolWhenNoProposalQualifies() public {
-        totalVoteAmountValue = 100;
-        firstVotes = 1;
-        proposalCount = 1;
-        minVoteRatio = 5e16;
-        setupMint(1000, 10000, 1e17, 1e17);
-        uint256 burnedBefore = mint.totalRewardBurned(address(token));
-        vm.recordLogs();
-        mint.mintGovReward(address(token), 1, 1, address(this));
-        MintVm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 burnedSig = keccak256("RewardBurned(address,uint256,uint256,uint256,uint8)");
-        uint256 burnedCount;
-        for (uint256 i; i < logs.length; i++) {
-            if (logs[i].emitter == address(mint) && logs[i].topics[0] == burnedSig) {
-                burnedCount++;
-            }
-        }
-        require(burnedCount == 1, "only the boost pool was burned");
-        require(mint.totalRewardBurned(address(token)) == burnedBefore + 450, "boost half released");
+    function testExplicitBoostBurnKeepsVoteAndProposalRewardsPayable() public {
+        setupMint(990, 10000, 1e17, 1e17);
         mint.burnUnusedBoostReward(address(token), 1);
-        require(mint.totalRewardBurned(address(token)) == burnedBefore + 450, "explicit retry cannot burn again");
+        require(mint.totalRewardBurned(address(token)) == 451, "boost pool includes the odd unit");
+
+        (uint256 voteReward, uint256 boostReward) = mint.mintGovReward(address(token), 1, 1, address(this));
+        require(voteReward == 450 && boostReward == 0, "vote reward remains payable");
+        vm.prank(TARGET);
+        require(mint.mintProposalReward(address(token), 1, 1, TARGET) == 901, "proposal reward remains payable");
+        require(mint.reservedAvailable(address(token)) == 0, "both pools are fully settled");
     }
 
     function testUnusedBoostBurnSkipsZeroAmountEvents() public {

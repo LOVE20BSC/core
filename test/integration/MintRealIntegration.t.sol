@@ -1102,7 +1102,7 @@ contract MintRealIntegrationTest {
 
         _stakeLiquidityForMembers(STAKE_AMOUNT_MEMBER1, STAKE_AMOUNT_MEMBER2);
 
-        // Add a boost position so the unused-boost burn skips this round.
+        // Seed boost snapshots for both voters.
         vm.startPrank(member1);
         token.approve(address(stake), BOOST_AMOUNT);
         stake.stakeBoost(address(token), BOOST_AMOUNT, PROMISED_WAITING_PHASES, 1, type(uint256).max);
