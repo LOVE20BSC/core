@@ -870,6 +870,79 @@ contract SubmitTest {
         require(infos[0].submitterId == 2 && infos[1].submitterId == 1, "wrong reverse order");
     }
 
+    function testProposalAndSubmitPaginationByTarget() external {
+        MockTarget targetA = new MockTarget();
+        address targetB = address(0xBEEF01);
+        stake.setGovVotes(TOKEN, 2, 100);
+        stake.setGovVotes(TOKEN, 3, 100);
+        ProposalBody memory bodyA = ProposalBody({
+            title: "Target A callback",
+            details: "",
+            target: address(targetA),
+            targetMode: TargetMode.Callback,
+            targetData: new bytes[](0)
+        });
+        ProposalBody memory bodyB = ProposalBody({
+            title: "Target B",
+            details: "",
+            target: targetB,
+            targetMode: TargetMode.NoCallback,
+            targetData: new bytes[](0)
+        });
+
+        uint256 proposalA1 = submit.submitNewProposal(TOKEN, 1, bodyA);
+        vm.prank(ALICE);
+        uint256 proposalB = submit.submitNewProposal(TOKEN, 2, bodyB);
+
+        bodyA.title = "Target A without callback";
+        bodyA.targetMode = TargetMode.NoCallback;
+        vm.prank(BOB);
+        uint256 proposalA2 = submit.submitNewProposal(TOKEN, 3, bodyA);
+
+        vm.roll(200);
+        bodyA.title = "Target A later";
+        uint256 proposalA3 = submit.submitNewProposal(TOKEN, 1, bodyA);
+        vm.prank(ALICE);
+        submit.submit(TOKEN, 2, proposalA2);
+        vm.prank(BOB);
+        submit.submit(TOKEN, 3, proposalB);
+
+        (uint256[] memory ids, uint256 totalCount) =
+            submit.proposalIdsByTarget(TOKEN, address(targetA), 0, 2, false);
+        require(totalCount == 3 && ids.length == 2, "target proposal count and page size");
+        require(ids[0] == proposalA1 && ids[1] == proposalA2, "target proposal page");
+
+        (ids, totalCount) = submit.proposalIdsByTarget(TOKEN, address(targetA), 2, 2, false);
+        require(totalCount == 3 && ids.length == 1 && ids[0] == proposalA3, "target proposal last page");
+
+        (ids, totalCount) = submit.proposalIdsByTarget(TOKEN, address(targetA), 0, 3, true);
+        require(totalCount == 3 && ids[0] == proposalA3 && ids[2] == proposalA1, "target proposal reverse order");
+
+        (ids, totalCount) = submit.proposalIdsByAuthorByTarget(TOKEN, 1, address(targetA), 0, 10, false);
+        require(totalCount == 2 && ids[0] == proposalA1 && ids[1] == proposalA3, "author and target index");
+
+        (ids, totalCount) = submit.proposalIdsByAuthorByTarget(TOKEN, 1, targetB, 0, 10, false);
+        require(totalCount == 0 && ids.length == 0, "author with another target");
+
+        (SubmitInfo[] memory infos, uint256 submitCount) =
+            submit.submitInfosByTarget(TOKEN, 2, address(targetA), 0, 1, false);
+        require(submitCount == 2 && infos.length == 1, "target submissions and page size");
+        require(infos[0].submitterId == 1 && infos[0].proposalId == proposalA3, "first target submission");
+
+        (infos, submitCount) = submit.submitInfosByTarget(TOKEN, 2, address(targetA), 1, 2, false);
+        require(submitCount == 2 && infos.length == 1, "target submission last page");
+        require(infos[0].submitterId == 2 && infos[0].proposalId == proposalA2, "second target submission");
+
+        (infos, submitCount) = submit.submitInfosByTarget(TOKEN, 2, address(targetA), 0, 2, true);
+        require(
+            submitCount == 2 && infos[0].proposalId == proposalA2 && infos[1].proposalId == proposalA3,
+            "target submission reverse order"
+        );
+
+        (infos, submitCount) = submit.submitInfosByTarget(TOKEN, 2, targetB, 0, 10, false);
+        require(submitCount == 1 && infos.length == 1 && infos[0].proposalId == proposalB, "other target submission");
+    }
+
     function testLookupMappings() external {
         ProposalBody memory body = ProposalBody({
             title: "Test",

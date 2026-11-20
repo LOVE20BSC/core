@@ -367,6 +367,16 @@ contract VoteRewardReserveStub {
 contract VoteTest {
     VoteVm private constant vm = VoteVm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
+    struct TargetVoteFixture {
+        address targetAddress;
+        uint256 callbackProposal;
+        uint256 noCallbackProposal;
+        uint256 otherTargetProposal;
+        uint256 laterCallbackProposal;
+        uint256 firstMember;
+        uint256 secondMember;
+    }
+
     uint256 private constant ORIGIN_BLOCKS = 100;
     uint256 private constant PHASE_BLOCKS = 100;
     uint256 private constant TARGET_SECONDS = 1000;
@@ -1866,6 +1876,95 @@ contract VoteTest {
 
         (list, amounts, total) = vote.votedProposalIdsByMemberId(TOKEN, 1, memberId, 3, 3, false);
         require(total == 3 && list.length == 0 && amounts.length == 0, "offset at the end");
+    }
+
+    function testVotedProposalIdsByTarget() external {
+        TargetVoteFixture memory fixture = _targetVoteFixture();
+
+        (uint256[] memory page, uint256 totalCount) =
+            vote.votedProposalIdsByTarget(TOKEN, 1, fixture.targetAddress, 0, 2, false);
+        require(totalCount == 3 && page.length == 2, "target vote count and page size");
+        require(
+            page[0] == fixture.callbackProposal && page[1] == fixture.noCallbackProposal,
+            "target first vote order"
+        );
+
+        (page, totalCount) = vote.votedProposalIdsByTarget(TOKEN, 1, fixture.targetAddress, 2, 2, false);
+        require(totalCount == 3 && page.length == 1 && page[0] == fixture.laterCallbackProposal, "target final page");
+
+        (page, totalCount) = vote.votedProposalIdsByTarget(TOKEN, 1, fixture.targetAddress, 0, 3, true);
+        require(
+            totalCount == 3 && page[0] == fixture.laterCallbackProposal && page[2] == fixture.callbackProposal,
+            "target reverse order"
+        );
+
+        (page, totalCount) = vote.votedProposalIdsByTarget(TOKEN, 1, EOA_TARGET, 0, 10, false);
+        require(totalCount == 1 && page.length == 1 && page[0] == fixture.otherTargetProposal, "other target votes");
+
+        (page, totalCount) = vote.votedProposalIdsByTarget(TOKEN, 2, fixture.targetAddress, 0, 10, false);
+        require(totalCount == 0 && page.length == 0, "round-specific target votes");
+    }
+
+    function testVotedProposalIdsByMemberIdByTarget() external {
+        TargetVoteFixture memory fixture = _targetVoteFixture();
+        (uint256[] memory page, uint256[] memory amounts, uint256 totalCount) =
+            vote.votedProposalIdsByMemberIdByTarget(
+                TOKEN, 1, fixture.firstMember, fixture.targetAddress, 0, 10, false
+            );
+        require(totalCount == 2 && page.length == 2 && amounts.length == 2, "member target result sizes");
+        require(page[0] == fixture.callbackProposal && amounts[0] == 15, "repeat vote stays paired");
+        require(page[1] == fixture.noCallbackProposal && amounts[1] == 20, "member target second result");
+
+        (page, amounts, totalCount) = vote.votedProposalIdsByMemberIdByTarget(
+            TOKEN, 1, fixture.secondMember, fixture.targetAddress, 0, 10, false
+        );
+        require(
+            totalCount == 2 && page[0] == fixture.noCallbackProposal && amounts[0] == 40,
+            "second member target result"
+        );
+        require(page[1] == fixture.laterCallbackProposal && amounts[1] == 50, "second member later result");
+
+        (page, amounts, totalCount) = vote.votedProposalIdsByMemberIdByTarget(
+            TOKEN, 1, fixture.firstMember, EOA_TARGET, 0, 10, false
+        );
+        require(
+            totalCount == 1 && page[0] == fixture.otherTargetProposal && amounts[0] == 30,
+            "member other target result"
+        );
+
+        (page, amounts, totalCount) = vote.votedProposalIdsByMemberIdByTarget(
+            TOKEN, 1, fixture.firstMember, address(0xBEEF01), 0, 10, false
+        );
+        require(totalCount == 0 && page.length == 0 && amounts.length == 0, "empty member target result");
+    }
+
+    function _targetVoteFixture() private returns (TargetVoteFixture memory fixture) {
+        fixture.targetAddress = address(target);
+        fixture.callbackProposal = _proposeWithMode(TOKEN, fixture.targetAddress, TargetMode.Callback);
+        fixture.noCallbackProposal = _proposeWithMode(TOKEN, fixture.targetAddress, TargetMode.NoCallback);
+        fixture.otherTargetProposal = _proposeWithMode(TOKEN, EOA_TARGET, TargetMode.NoCallback);
+        fixture.laterCallbackProposal = _proposeWithMode(TOKEN, fixture.targetAddress, TargetMode.Callback);
+        fixture.firstMember = _memberIds[5];
+        fixture.secondMember = _memberIds[6];
+
+        uint256[] memory proposalIds = new uint256[](3);
+        proposalIds[0] = fixture.callbackProposal;
+        proposalIds[1] = fixture.noCallbackProposal;
+        proposalIds[2] = fixture.otherTargetProposal;
+        uint256[] memory voteAmounts = new uint256[](3);
+        voteAmounts[0] = 10;
+        voteAmounts[1] = 20;
+        voteAmounts[2] = 30;
+        _voteWithoutData(TOKEN, fixture.firstMember, proposalIds, voteAmounts);
+
+        proposalIds = new uint256[](2);
+        proposalIds[0] = fixture.noCallbackProposal;
+        proposalIds[1] = fixture.laterCallbackProposal;
+        voteAmounts = new uint256[](2);
+        voteAmounts[0] = 40;
+        voteAmounts[1] = 50;
+        _voteWithoutData(TOKEN, fixture.secondMember, proposalIds, voteAmounts);
+        _voteWithoutData(TOKEN, fixture.firstMember, _singleton(fixture.callbackProposal), _singleton(5));
     }
 
     function testVoteAmountsByMemberIdByProposalIdsMirrorsTheRequest() external {

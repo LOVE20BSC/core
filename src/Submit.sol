@@ -30,11 +30,17 @@ contract Submit is ISubmit {
     // tokenAddress => ProposalInfo[]
     mapping(address => ProposalInfo[]) internal _proposals;
 
+    // tokenAddress => target => proposalId[]
+    mapping(address => mapping(address => uint256[])) internal _proposalIdsByTarget;
     // tokenAddress => author => proposalId[]
     mapping(address => mapping(uint256 => uint256[])) internal _proposalIdsByAuthor;
+    // tokenAddress => author => target => proposalId[]
+    mapping(address => mapping(uint256 => mapping(address => uint256[]))) internal _proposalIdsByAuthorByTarget;
     // tokenAddress => round => SubmitInfo[]
     mapping(address => mapping(uint256 => SubmitInfo[]))
         internal _submits;
+    // tokenAddress => round => target => SubmitInfo[]
+    mapping(address => mapping(uint256 => mapping(address => SubmitInfo[]))) internal _submitInfosByTarget;
     // tokenAddress => round => proposalId => SubmitInfo
     mapping(address => mapping(uint256 => mapping(uint256 => SubmitInfo)))
         internal _submitInfoByProposalId;
@@ -153,6 +159,16 @@ contract Submit is ISubmit {
         }
     }
 
+    function proposalIdsByTarget(
+        address tokenAddress,
+        address target,
+        uint256 offset,
+        uint256 limit,
+        bool reverse
+    ) external view returns (uint256[] memory proposalIdList, uint256 totalCount) {
+        return _proposalIdsByTarget[tokenAddress][target].paginate(offset, limit, reverse);
+    }
+
     function proposalIdsByAuthor(
         address tokenAddress,
         uint256 author,
@@ -161,6 +177,17 @@ contract Submit is ISubmit {
         bool reverse
     ) external view returns (uint256[] memory proposalIdList, uint256 totalCount) {
         return _proposalIdsByAuthor[tokenAddress][author].paginate(offset, limit, reverse);
+    }
+
+    function proposalIdsByAuthorByTarget(
+        address tokenAddress,
+        uint256 author,
+        address target,
+        uint256 offset,
+        uint256 limit,
+        bool reverse
+    ) external view returns (uint256[] memory proposalIdList, uint256 totalCount) {
+        return _proposalIdsByAuthorByTarget[tokenAddress][author][target].paginate(offset, limit, reverse);
     }
 
     function proposalTarget(address tokenAddress, uint256 proposalId)
@@ -197,6 +224,23 @@ contract Submit is ISubmit {
         submitInfoList = new SubmitInfo[](indices.length);
         for (uint256 i = 0; i < indices.length; i++) {
             submitInfoList[i] = _submits[tokenAddress][round][indices[i]];
+        }
+    }
+
+    function submitInfosByTarget(
+        address tokenAddress,
+        uint256 round,
+        address target,
+        uint256 offset,
+        uint256 limit,
+        bool reverse
+    ) external view returns (SubmitInfo[] memory submitInfoList, uint256 totalCount) {
+        SubmitInfo[] storage infos = _submitInfosByTarget[tokenAddress][round][target];
+        totalCount = infos.length;
+        uint256[] memory indices = Pagination.paginateIndices(totalCount, offset, limit, reverse);
+        submitInfoList = new SubmitInfo[](indices.length);
+        for (uint256 i = 0; i < indices.length; i++) {
+            submitInfoList[i] = infos[indices[i]];
         }
     }
 
@@ -255,7 +299,9 @@ contract Submit is ISubmit {
         });
 
         _proposals[tokenAddress].push(ProposalInfo({head: head, body: proposalBody}));
+        _proposalIdsByTarget[tokenAddress][proposalBody.target].push(proposalId);
         _proposalIdsByAuthor[tokenAddress][memberId].push(proposalId);
+        _proposalIdsByAuthorByTarget[tokenAddress][memberId][proposalBody.target].push(proposalId);
 
         emit ProposalCreated({
             tokenAddress: tokenAddress,
@@ -307,6 +353,8 @@ contract Submit is ISubmit {
         );
 
         _submits[tokenAddress][round].push(submitInfo);
+        address target = _proposals[tokenAddress][proposalId - PROPOSAL_ID_TO_INDEX_OFFSET].body.target;
+        _submitInfosByTarget[tokenAddress][round][target].push(submitInfo);
         _submitInfoByProposalId[tokenAddress][round][
             proposalId
         ] = submitInfo;

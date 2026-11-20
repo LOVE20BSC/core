@@ -32,8 +32,13 @@ contract Vote is IVote {
 
     // tokenAddress => round => proposalIds
     mapping(address => mapping(uint256 => uint256[])) internal _votedProposalIds;
+    // tokenAddress => round => target => proposalIds
+    mapping(address => mapping(uint256 => mapping(address => uint256[]))) internal _votedProposalIdsByTarget;
     // tokenAddress => round => memberId => proposalIds
     mapping(address => mapping(uint256 => mapping(uint256 => uint256[]))) internal _votedProposalIdsByMemberId;
+    // tokenAddress => round => memberId => target => proposalIds
+    mapping(address => mapping(uint256 => mapping(uint256 => mapping(address => uint256[]))))
+        internal _votedProposalIdsByMemberIdByTarget;
 
     // tokenAddress => round => proposalId => memberIds
     mapping(address => mapping(uint256 => mapping(uint256 => uint256[]))) internal _voterIdsByProposalId;
@@ -153,6 +158,17 @@ contract Vote is IVote {
         return _votedProposalIds[tokenAddress][round].paginate(offset, limit, reverse);
     }
 
+    function votedProposalIdsByTarget(
+        address tokenAddress,
+        uint256 round,
+        address target,
+        uint256 offset,
+        uint256 limit,
+        bool reverse
+    ) external view returns (uint256[] memory proposalIds, uint256 totalCount) {
+        return _votedProposalIdsByTarget[tokenAddress][round][target].paginate(offset, limit, reverse);
+    }
+
     function voterIdsByProposalId(
         address tokenAddress,
         uint256 round,
@@ -174,6 +190,25 @@ contract Vote is IVote {
     ) external view returns (uint256[] memory proposalIds, uint256[] memory voteAmounts, uint256 totalCount) {
         (proposalIds, totalCount) =
             _votedProposalIdsByMemberId[tokenAddress][round][memberId].paginate(offset, limit, reverse);
+        voteAmounts = new uint256[](proposalIds.length);
+        for (uint256 i = 0; i < proposalIds.length; i++) {
+            voteAmounts[i] = _voteAmountByMemberIdByProposalId[tokenAddress][round][memberId][proposalIds[i]];
+        }
+    }
+
+    function votedProposalIdsByMemberIdByTarget(
+        address tokenAddress,
+        uint256 round,
+        uint256 memberId,
+        address target,
+        uint256 offset,
+        uint256 limit,
+        bool reverse
+    ) external view returns (uint256[] memory proposalIds, uint256[] memory voteAmounts, uint256 totalCount) {
+        (proposalIds, totalCount) =
+            _votedProposalIdsByMemberIdByTarget[tokenAddress][round][memberId][target].paginate(
+                offset, limit, reverse
+            );
         voteAmounts = new uint256[](proposalIds.length);
         for (uint256 i = 0; i < proposalIds.length; i++) {
             voteAmounts[i] = _voteAmountByMemberIdByProposalId[tokenAddress][round][memberId][proposalIds[i]];
@@ -258,8 +293,10 @@ contract Vote is IVote {
             if (isFirstVoteByMember) {
                 if (isFirstVoteOnProposal) {
                     _votedProposalIds[tokenAddress][round].push(proposalId);
+                    _votedProposalIdsByTarget[tokenAddress][round][target].push(proposalId);
                 }
                 _votedProposalIdsByMemberId[tokenAddress][round][memberId].push(proposalId);
+                _votedProposalIdsByMemberIdByTarget[tokenAddress][round][memberId][target].push(proposalId);
                 _voterIdsByProposalId[tokenAddress][round][proposalId].push(memberId);
             }
         }

@@ -129,9 +129,26 @@ interface ISubmit is ISubmitErrors, ISubmitEvents {
     function proposalIds(address tokenAddress, uint256 offset, uint256 limit, bool reverse)
         external view returns (uint256[] memory proposalIdList, uint256 totalCount);
 
+    function proposalIdsByTarget(
+        address tokenAddress,
+        address target,
+        uint256 offset,
+        uint256 limit,
+        bool reverse
+    ) external view returns (uint256[] memory proposalIdList, uint256 totalCount);
+
     function proposalIdsByAuthor(
         address tokenAddress,
         uint256 author,
+        uint256 offset,
+        uint256 limit,
+        bool reverse
+    ) external view returns (uint256[] memory proposalIdList, uint256 totalCount);
+
+    function proposalIdsByAuthorByTarget(
+        address tokenAddress,
+        uint256 author,
+        address target,
         uint256 offset,
         uint256 limit,
         bool reverse
@@ -150,6 +167,15 @@ interface ISubmit is ISubmitErrors, ISubmitEvents {
     function submitInfos(
         address tokenAddress,
         uint256 round,
+        uint256 offset,
+        uint256 limit,
+        bool reverse
+    ) external view returns (SubmitInfo[] memory submitInfoList, uint256 totalCount);
+
+    function submitInfosByTarget(
+        address tokenAddress,
+        uint256 round,
+        address target,
         uint256 offset,
         uint256 limit,
         bool reverse
