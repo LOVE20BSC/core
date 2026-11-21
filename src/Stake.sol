@@ -274,7 +274,7 @@ contract Stake is IStake {
         _checkPromisedWaitingPhasesNotRewritten(tokenAddress, memberId, member, memberOwner, promisedWaitingPhases);
 
         TotalStake storage totals = _totalStake[tokenAddress];
-        _checkBoostCap(tokenAddress, memberId, round, boostAmount);
+        _checkBoostCap(tokenAddress, round, memberId, boostAmount);
 
         StakeWrite memory write = StakeWrite({
             round: round,
@@ -454,12 +454,12 @@ contract Stake is IStake {
         MergedStake memory merged = _mergeIntoTarget(tokenAddress, round, sourceMemberId, targetMemberId);
 
         if (merged.boostShares > 0) {
-            _moveBoostHistory(tokenAddress, sourceMemberId, targetMemberId, merged.boostShares, round);
+            _moveBoostHistory(tokenAddress, round, sourceMemberId, targetMemberId, merged.boostShares);
         }
 
         if (merged.boostShares > 0 && targetHadPosition) {
             uint256 targetBoostShares = _memberStake[tokenAddress][targetMemberId].boostShares;
-            (, uint256 targetCap) = _boostStakeBaseAndMemberCap(tokenAddress, targetMemberId, round);
+            (, uint256 targetCap) = _boostStakeBaseAndMemberCap(tokenAddress, round, targetMemberId);
             if (targetBoostShares > targetCap) {
                 revert BoostCapExceeded(tokenAddress, targetMemberId, targetBoostShares, targetCap);
             }
@@ -599,7 +599,7 @@ contract Stake is IStake {
         view
         returns (uint256 memberCap, uint256 memberUsed)
     {
-        (, memberCap) = _boostStakeBaseAndMemberCap(tokenAddress, memberId, _currentRound());
+        (, memberCap) = _boostStakeBaseAndMemberCap(tokenAddress, _currentRound(), memberId);
         memberUsed = _memberStake[tokenAddress][memberId].boostShares;
     }
 
@@ -652,7 +652,11 @@ contract Stake is IStake {
             - _totalValidBoostSharesRemoved[tokenAddress].value(round);
     }
 
-    function _boostStakeBaseAndMemberCap(address tokenAddress, uint256 memberId, uint256 round)
+    function _boostStakeBaseAndMemberCap(
+        address tokenAddress,
+        uint256 round,
+        uint256 memberId
+    )
         private
         view
         returns (uint256 baseCap, uint256 memberCap)
@@ -677,12 +681,12 @@ contract Stake is IStake {
 
     function _checkBoostCap(
         address tokenAddress,
-        uint256 memberId,
         uint256 round,
+        uint256 memberId,
         uint256 boostAmount
     ) private view {
         MemberStake storage member = _memberStake[tokenAddress][memberId];
-        (, uint256 memberCap) = _boostStakeBaseAndMemberCap(tokenAddress, memberId, round);
+        (, uint256 memberCap) = _boostStakeBaseAndMemberCap(tokenAddress, round, memberId);
         if (member.boostShares + boostAmount > memberCap) {
             uint256 memberRemaining = member.boostShares < memberCap ? memberCap - member.boostShares : 0;
             revert BoostCapExceeded(tokenAddress, memberId, boostAmount, memberRemaining);
@@ -810,9 +814,13 @@ contract Stake is IStake {
         delete lastMajorStakeRound[tokenAddress][sourceMemberId];
     }
 
-    function _moveBoostHistory(address tokenAddress, uint256 sourceMemberId, uint256 targetMemberId, uint256 shares, uint256 round)
-        private
-    {
+    function _moveBoostHistory(
+        address tokenAddress,
+        uint256 round,
+        uint256 sourceMemberId,
+        uint256 targetMemberId,
+        uint256 shares
+    ) private {
         _validBoostSharesByMember[tokenAddress][sourceMemberId].decrease(round, shares);
         _validBoostSharesByMember[tokenAddress][targetMemberId].increase(round, shares);
     }
