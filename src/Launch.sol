@@ -94,7 +94,7 @@ contract Launch is ILaunch {
         uint256 memberId,
         address distributor,
         DistributorMode distributorMode,
-        bytes[] calldata distributorData
+        bytes calldata distributorData
     ) external onlyMemberOwner(memberId) returns (address tokenAddress) {
         _checkValidTokenSymbol(tokenSymbol);
         if (distributor == address(0)) revert ZeroDistributorAddress();

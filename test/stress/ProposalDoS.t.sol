@@ -108,11 +108,11 @@ contract ProposalDoSTest is Test {
                 details: "",
                 target: actor,
                 targetMode: TargetMode.NoCallback,
-                targetData: new bytes[](0)
-            }));
+                creationData: ""
+            }), "");
             amounts[0] = amount;
             if (i == 0) expectedPool = mint.rewardAvailable(address(token)) / 10;
-            vote.vote(address(token), memberId, ids, amounts, new bytes[][](0));
+            vote.vote(address(token), memberId, ids, amounts, new bytes[](0));
             assertEq(stake.govVotes(address(token), 1, memberId), amount);
         }
         vm.roll(1001);

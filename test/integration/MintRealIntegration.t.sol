@@ -254,13 +254,13 @@ contract MintRealIntegrationTest {
         uint256[] memory amounts1 = new uint256[](1);
         amounts1[0] = votes1;
         vm.prank(member1);
-        vote.vote(address(token), 1, proposalIds, amounts1, new bytes[][](0));
+        vote.vote(address(token), 1, proposalIds, amounts1, new bytes[](0));
 
         // Member2 votes
         uint256[] memory amounts2 = new uint256[](1);
         amounts2[0] = votes2;
         vm.prank(member2);
-        vote.vote(address(token), 2, proposalIds, amounts2, new bytes[][](0));
+        vote.vote(address(token), 2, proposalIds, amounts2, new bytes[](0));
     }
 
     /// @notice Mathematical model: Calculate expected vote reward
@@ -349,8 +349,9 @@ contract MintRealIntegrationTest {
                 details: "Description",
                 target: proposalTarget,
                 targetMode: TargetMode.NoCallback,
-                targetData: new bytes[](0)
-            })
+                creationData: ""
+            }),
+            ""
         );
 
         // ========== Step 3: Members vote ==========
@@ -523,8 +524,9 @@ contract MintRealIntegrationTest {
                 details: "Test",
                 target: proposalTarget1,
                 targetMode: TargetMode.NoCallback,
-                targetData: new bytes[](0)
-            })
+                creationData: ""
+            }),
+            ""
         );
         _voteInRound(round1, proposalId1, VOTE_AMOUNT_MEMBER1, VOTE_AMOUNT_MEMBER2);
 
@@ -542,8 +544,9 @@ contract MintRealIntegrationTest {
                 details: "Test",
                 target: proposalTarget2,
                 targetMode: TargetMode.NoCallback,
-                targetData: new bytes[](0)
-            })
+                creationData: ""
+            }),
+            ""
         );
         _voteInRound(round2, proposalId2, VOTE_AMOUNT_MEMBER1, VOTE_AMOUNT_MEMBER2);
 
@@ -561,8 +564,9 @@ contract MintRealIntegrationTest {
                 details: "Test",
                 target: proposalTarget3,
                 targetMode: TargetMode.NoCallback,
-                targetData: new bytes[](0)
-            })
+                creationData: ""
+            }),
+            ""
         );
         _voteInRound(round3, proposalId3, VOTE_AMOUNT_MEMBER1, VOTE_AMOUNT_MEMBER2);
 
@@ -688,8 +692,9 @@ contract MintRealIntegrationTest {
                 details: "Boundary test",
                 target: data.proposalTarget1,
                 targetMode: TargetMode.NoCallback,
-                targetData: new bytes[](0)
-            })
+                creationData: ""
+            }),
+            ""
         );
 
         vm.prank(member2);
@@ -700,8 +705,9 @@ contract MintRealIntegrationTest {
                 details: "Should NOT be eligible",
                 target: data.proposalTarget2,
                 targetMode: TargetMode.NoCallback,
-                targetData: new bytes[](0)
-            })
+                creationData: ""
+            }),
+            ""
         );
 
         // Vote on proposals in round 1 (testRound) BEFORE advancing blocks
@@ -714,14 +720,14 @@ contract MintRealIntegrationTest {
         amounts1Round1[0] = 12;
         amounts1Round1[1] = 5;
         vm.prank(member1);
-        vote.vote(address(token), 1, proposalIdsRound1, amounts1Round1, new bytes[][](0));
+        vote.vote(address(token), 1, proposalIdsRound1, amounts1Round1, new bytes[](0));
 
         // Member2 votes in round 1: 12 to proposal1, 5 to proposal2
         uint256[] memory amounts2Round1 = new uint256[](2);
         amounts2Round1[0] = 12;
         amounts2Round1[1] = 5;
         vm.prank(member2);
-        vote.vote(address(token), 2, proposalIdsRound1, amounts2Round1, new bytes[][](0));
+        vote.vote(address(token), 2, proposalIdsRound1, amounts2Round1, new bytes[](0));
     }
 
     function _setupProposalsAndVotesRound2(ThresholdTestData memory data) internal {
@@ -738,8 +744,9 @@ contract MintRealIntegrationTest {
                 details: "Should be eligible",
                 target: data.proposalTarget3,
                 targetMode: TargetMode.NoCallback,
-                targetData: new bytes[](0)
-            })
+                creationData: ""
+            }),
+            ""
         );
 
         // Vote on proposal 3 in round 2 BEFORE advancing blocks
@@ -750,13 +757,13 @@ contract MintRealIntegrationTest {
         uint256[] memory amounts1Round2 = new uint256[](1);
         amounts1Round2[0] = 83;
         vm.prank(member1);
-        vote.vote(address(token), 1, proposalIdsRound2, amounts1Round2, new bytes[][](0));
+        vote.vote(address(token), 1, proposalIdsRound2, amounts1Round2, new bytes[](0));
 
         // Member2 votes in round 2: 363 to proposal3
         uint256[] memory amounts2Round2 = new uint256[](1);
         amounts2Round2[0] = 363;
         vm.prank(member2);
-        vote.vote(address(token), 2, proposalIdsRound2, amounts2Round2, new bytes[][](0));
+        vote.vote(address(token), 2, proposalIdsRound2, amounts2Round2, new bytes[](0));
 
         // Advance to round 3.
         vm.roll(block.number + BLOCKS_PER_ROUND);
@@ -865,8 +872,9 @@ contract MintRealIntegrationTest {
                 details: "Testing errors",
                 target: proposalTarget,
                 targetMode: TargetMode.NoCallback,
-                targetData: new bytes[](0)
-            })
+                creationData: ""
+            }),
+            ""
         );
 
         uint256[] memory proposalIds = new uint256[](1);
@@ -875,7 +883,7 @@ contract MintRealIntegrationTest {
         amounts[0] = VOTE_AMOUNT_MEMBER1;
 
         vm.prank(member1);
-        vote.vote(address(token), 1, proposalIds, amounts, new bytes[][](0));
+        vote.vote(address(token), 1, proposalIds, amounts, new bytes[](0));
 
         // Advance to the next round.
         vm.roll(block.number + BLOCKS_PER_ROUND);
@@ -966,8 +974,9 @@ contract MintRealIntegrationTest {
                 details: "Test",
                 target: data.proposalTarget1,
                 targetMode: TargetMode.NoCallback,
-                targetData: new bytes[](0)
-            })
+                creationData: ""
+            }),
+            ""
         );
 
         // Member1 votes in round 1
@@ -976,7 +985,7 @@ contract MintRealIntegrationTest {
         uint256[] memory amounts1 = new uint256[](1);
         amounts1[0] = VOTE_AMOUNT_MEMBER1;
         vm.prank(member1);
-        vote.vote(address(token), 1, proposalIds1, amounts1, new bytes[][](0));
+        vote.vote(address(token), 1, proposalIds1, amounts1, new bytes[](0));
     }
 
     function _unstakeAndAdvanceToRound4(UnstakeTestData memory data) internal {
@@ -1020,8 +1029,9 @@ contract MintRealIntegrationTest {
                 details: "Test",
                 target: data.proposalTarget2,
                 targetMode: TargetMode.NoCallback,
-                targetData: new bytes[](0)
-            })
+                creationData: ""
+            }),
+            ""
         );
 
         // Vote with less (60 instead of 100)
@@ -1030,7 +1040,7 @@ contract MintRealIntegrationTest {
         uint256[] memory amounts2 = new uint256[](1);
         amounts2[0] = VOTE_AMOUNT_MEMBER2;
         vm.prank(member1);
-        vote.vote(address(token), 1, proposalIds2, amounts2, new bytes[][](0));
+        vote.vote(address(token), 1, proposalIds2, amounts2, new bytes[](0));
 
         // Advance to round 5
         vm.roll(3201 + BLOCKS_PER_ROUND);
@@ -1126,8 +1136,9 @@ contract MintRealIntegrationTest {
                 details: "Burn settlement",
                 target: data.proposalTarget1,
                 targetMode: TargetMode.NoCallback,
-                targetData: new bytes[](0)
-            })
+                creationData: ""
+            }),
+            ""
         );
 
         vm.prank(member2);
@@ -1138,8 +1149,9 @@ contract MintRealIntegrationTest {
                 details: "Remaining share",
                 target: data.proposalTarget2,
                 targetMode: TargetMode.NoCallback,
-                targetData: new bytes[](0)
-            })
+                creationData: ""
+            }),
+            ""
         );
 
         // Member1 votes 100 on proposal 1, member2 votes 60 on proposal 2
@@ -1149,12 +1161,12 @@ contract MintRealIntegrationTest {
         proposalIds[0] = data.proposalId1;
         voteAmounts[0] = VOTE_AMOUNT_MEMBER1;
         vm.prank(member1);
-        vote.vote(address(token), 1, proposalIds, voteAmounts, new bytes[][](0));
+        vote.vote(address(token), 1, proposalIds, voteAmounts, new bytes[](0));
 
         proposalIds[0] = data.proposalId2;
         voteAmounts[0] = VOTE_AMOUNT_MEMBER2;
         vm.prank(member2);
-        vote.vote(address(token), 2, proposalIds, voteAmounts, new bytes[][](0));
+        vote.vote(address(token), 2, proposalIds, voteAmounts, new bytes[](0));
     }
 
     function _settleThenDestroyProposal(BurnUnmintedTestData memory data) internal returns (uint256 settled) {
@@ -1268,8 +1280,9 @@ contract MintRealIntegrationTest {
                 details: "Test",
                 target: proposalTarget1,
                 targetMode: TargetMode.NoCallback,
-                targetData: new bytes[](0)
-            })
+                creationData: ""
+            }),
+            ""
         );
 
         uint256[] memory proposalIds = new uint256[](1);
@@ -1278,7 +1291,7 @@ contract MintRealIntegrationTest {
         votes[0] = VOTE_AMOUNT_MEMBER1;
 
         vm.prank(member1);
-        vote.vote(address(token), 1, proposalIds, votes, new bytes[][](0));
+        vote.vote(address(token), 1, proposalIds, votes, new bytes[](0));
 
         // Move to Round 2 and mint gov reward
         // Phase 2 starts at block 1100 (ORIGIN_BLOCKS=100 + ORIGIN_PHASE_BLOCKS=1000)
@@ -1302,7 +1315,7 @@ contract MintRealIntegrationTest {
             1,
             member1,
             DistributorMode.NoCallback,
-            new bytes[](0)
+            ""
         );
 
         // Verify child token was created
@@ -1505,8 +1518,9 @@ contract MintRealIntegrationTest {
                 details: "Testing resubmission across rounds",
                 target: proposalTarget1,
                 targetMode: TargetMode.NoCallback,
-                targetData: new bytes[](0)
-            })
+                creationData: ""
+            }),
+            ""
         );
 
         assertTrue(submit.isSubmitted(address(token), 1, proposalId), "Proposal must be submitted in round 1");
@@ -1519,7 +1533,7 @@ contract MintRealIntegrationTest {
 
         // Member 1 resubmits the same proposal in Round 2
         vm.prank(member1);
-        submit.submit(address(token), 1, proposalId);
+        submit.submit(address(token), 1, proposalId, "");
 
         assertTrue(submit.isSubmitted(address(token), 2, proposalId), "Proposal must be submitted in round 2");
         assertEq(submit.proposalIdBySubmitterId(address(token), 2, 1), proposalId, "Lookup must return proposal ID");
@@ -1532,7 +1546,7 @@ contract MintRealIntegrationTest {
 
         // Member 1 resubmits again in Round 3
         vm.prank(member1);
-        submit.submit(address(token), 1, proposalId);
+        submit.submit(address(token), 1, proposalId, "");
 
         assertTrue(submit.isSubmitted(address(token), 3, proposalId), "Proposal must be submitted in round 3");
     }

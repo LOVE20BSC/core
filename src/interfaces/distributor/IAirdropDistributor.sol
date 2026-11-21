@@ -36,10 +36,6 @@ interface IAirdropDistributorEvents {
 
 interface IAirdropDistributorErrors {
     error NotLaunchContract(address caller);
-    error InvalidDistributorDataCount(
-        uint256 count,
-        uint256 expectedCount
-    );
     error InvalidDistributorDataLength(
         uint256 length,
         uint256 expectedLength

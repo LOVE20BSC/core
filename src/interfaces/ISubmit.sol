@@ -14,7 +14,7 @@ struct ProposalBody {
     string details;
     address target;
     TargetMode targetMode;
-    bytes[] targetData;
+    bytes creationData;
 }
 
 struct ProposalInfo {
@@ -36,12 +36,8 @@ interface ISubmitErrors {
         uint256 length,
         uint256 maxLength
     );
-    error TargetDataTooMany(
-        uint256 count,
-        uint256 maxCount
-    );
-    error TargetDataTooLarge(
-        uint256 totalLength,
+    error CreationDataTooLarge(
+        uint256 length,
         uint256 maxLength
     );
     error ZeroTargetAddress();
@@ -81,7 +77,7 @@ interface ISubmitEvents {
         uint256 indexed authorId,
         address target,
         TargetMode targetMode,
-        bytes[] targetData,
+        bytes creationData,
         string title,
         string details
     );
@@ -102,8 +98,7 @@ interface ISubmit is ISubmitErrors, ISubmitEvents {
     function SUBMIT_MIN_RATIO() external view returns (uint256);
     function MAX_TITLE_LENGTH() external view returns (uint256);
     function MAX_DETAILS_LENGTH() external view returns (uint256);
-    function MAX_TARGET_DATA_BYTES() external view returns (uint256);
-    function MAX_TARGET_DATA_COUNT() external view returns (uint256);
+    function MAX_CREATION_DATA_BYTES() external view returns (uint256);
 
     function currentRound() external view returns (uint256);
 
@@ -115,10 +110,16 @@ interface ISubmit is ISubmitErrors, ISubmitEvents {
     function submitNewProposal(
         address tokenAddress,
         uint256 memberId,
-        ProposalBody calldata proposalBody
+        ProposalBody calldata proposalBody,
+        bytes calldata submitData
     ) external returns (uint256 proposalId);
 
-    function submit(address tokenAddress, uint256 memberId, uint256 proposalId) external;
+    function submit(
+        address tokenAddress,
+        uint256 memberId,
+        uint256 proposalId,
+        bytes calldata submitData
+    ) external;
 
     function isSubmitted(
         address tokenAddress,

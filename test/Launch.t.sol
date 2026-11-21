@@ -65,7 +65,7 @@ contract CallbackDistributor {
     address public lastTokenAddress;
     address public lastParentTokenAddress;
     uint256 public lastLauncherMemberId;
-    bytes[] public lastData;
+    bytes public lastData;
     uint256 public callCount;
     bool public rejectNextCall;
 
@@ -88,17 +88,13 @@ contract CallbackDistributor {
         address tokenAddress,
         address parentTokenAddress,
         uint256 launcherMemberId,
-        bytes[] calldata data
+        bytes calldata data
     ) external {
         if (rejectNextCall) revert DistributorCallbackFailed();
         lastTokenAddress = tokenAddress;
         lastParentTokenAddress = parentTokenAddress;
         lastLauncherMemberId = launcherMemberId;
-        // 逐元素复制：calldata 的嵌套动态数组不能整体写入 storage
-        delete lastData;
-        for (uint256 i; i < data.length; ++i) {
-            lastData.push(data[i]);
-        }
+        lastData = data;
         if (address(probe) != address(0)) {
             observedRegistered = probe.isLOVE20Token(tokenAddress);
             observedLaunchCount = probe.remainingLaunchCount(parentTokenAddress, launcherMemberId);
@@ -192,13 +188,13 @@ contract ReenteringDistributor is ILaunchDistributor {
     }
 
     function launchToken(string calldata symbol, DistributorMode mode) external returns (address) {
-        return launch.launchToken(symbol, parentToken, memberId, address(this), mode, new bytes[](0));
+        return launch.launchToken(symbol, parentToken, memberId, address(this), mode, "");
     }
 
-    function onTokenLaunched(address, address, uint256, bytes[] calldata) external {
+    function onTokenLaunched(address, address, uint256, bytes calldata) external {
         if (reentered) return;
         reentered = true;
-        launch.launchToken(reentrySymbol, parentToken, memberId, address(this), DistributorMode.NoCallback, new bytes[](0));
+        launch.launchToken(reentrySymbol, parentToken, memberId, address(this), DistributorMode.NoCallback, "");
     }
 }
 
@@ -758,10 +754,8 @@ contract LaunchTest {
     function testLaunchTokenEnforcesDataAndModeRules() public {
         _grantCount(address(firstToken), aliceMemberId, 1);
 
-        bytes[] memory oneValue = new bytes[](1);
-        oneValue[0] = hex"aabb";
+        bytes memory oneValue = hex"aabb";
 
-        // NoCallback 忽略 data 数组，且不调用回调
         (bool ok, bytes memory data) = alice.forward(
             address(launch),
             _launchCalldata(
@@ -801,9 +795,7 @@ contract LaunchTest {
     function testLaunchTokenInvokesCallbackDistributor() public {
         _grantCount(address(firstToken), aliceMemberId, 1);
 
-        bytes[] memory data = new bytes[](2);
-        data[0] = hex"aabb";
-        data[1] = hex"cc";
+        bytes memory data = hex"aabbcc";
 
         (bool ok, bytes memory returnData) = alice.forward(
             address(launch),
@@ -818,8 +810,7 @@ contract LaunchTest {
         require(distributor.lastTokenAddress() == tokenAddress, "callback token");
         require(distributor.lastParentTokenAddress() == address(firstToken), "callback parent");
         require(distributor.lastLauncherMemberId() == aliceMemberId, "callback member");
-        require(keccak256(distributor.lastData(0)) == keccak256(hex"aabb"), "data 0");
-        require(distributor.lastData(1).length == 1, "data 1");
+        require(keccak256(distributor.lastData()) == keccak256(data), "payload forwarded verbatim");
         require(LOVE20Token(tokenAddress).balanceOf(address(distributor)) == LAUNCH_AMOUNT, "supply to distributor");
         require(launch.isLOVE20Token(tokenAddress), "registered before callback");
     }
@@ -1801,7 +1792,7 @@ contract LaunchTest {
         uint256 memberId,
         address distributorAddress,
         DistributorMode distributorMode,
-        bytes[] memory data
+        bytes memory data
     ) private pure returns (bytes memory) {
         return abi.encodeWithSelector(
             ILaunch.launchToken.selector,
@@ -1814,8 +1805,8 @@ contract LaunchTest {
         );
     }
 
-    function _emptyData() private pure returns (bytes[] memory) {
-        return new bytes[](0);
+    function _emptyData() private pure returns (bytes memory) {
+        return "";
     }
 
     /// 由任意字节构造符号字符串，用于非法 UTF-8 与码点边界用例

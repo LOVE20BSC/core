@@ -65,10 +65,10 @@ contract ProposalBot is IProposalTarget {
     }
 
     function submitProposal(ProposalBody calldata body) external returns (uint256 proposalId) {
-        return SUBMIT.submitNewProposal(TOKEN, botId, body);
+        return SUBMIT.submitNewProposal(TOKEN, botId, body, "");
     }
 
-    function onProposalCreated(address tokenAddress, uint256, bytes[] calldata) external {
+    function onProposalCreated(address tokenAddress, uint256, bytes calldata) external {
         mergeAttempted = true;
         require(tokenAddress == TOKEN, "unexpected token");
         try STAKE.mergeStake(TOKEN, botId, targetId) {
@@ -78,9 +78,9 @@ contract ProposalBot is IProposalTarget {
         }
     }
 
-    function onProposalSubmitted(address, uint256, uint256, bytes[] calldata) external {}
+    function onProposalSubmitted(address, uint256, uint256, uint256, bytes calldata) external {}
 
-    function onProposalVoted(address, uint256, uint256, uint256, uint256, bytes[] calldata) external {}
+    function onProposalVoted(address, uint256, uint256, uint256, uint256, bytes calldata) external {}
 
     function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
         return this.onERC721Received.selector;
@@ -267,7 +267,7 @@ contract CoreSecurityPoC {
         uint256 pairsBefore = factory.createdPairCount();
         vm.prank(m1);
         address child = launch.launchToken(
-            "ABCD", address(token), 1, address(this), DistributorMode.NoCallback, new bytes[](0)
+            "ABCD", address(token), 1, address(this), DistributorMode.NoCallback, ""
         );
 
         _eqAddr(child, predicted, "child token address is predictable");
@@ -304,7 +304,7 @@ contract CoreSecurityPoC {
             details: "",
             target: address(bot),
             targetMode: TargetMode.Callback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
         bot.submitProposal(body);
 

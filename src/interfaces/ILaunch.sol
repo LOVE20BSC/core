@@ -119,7 +119,7 @@ interface ILaunch is ILaunchErrors, ILaunchEvents {
         uint256 memberId,
         address distributor,
         DistributorMode distributorMode,
-        bytes[] calldata distributorData
+        bytes calldata distributorData
     ) external returns (address tokenAddress);
     function mergeLaunchCount(address tokenAddress, uint256 sourceMemberId, uint256 targetMemberId, uint256 count)
         external;

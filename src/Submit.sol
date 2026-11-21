@@ -19,8 +19,7 @@ contract Submit is ISubmit {
 
     uint256 public constant MAX_TITLE_LENGTH = 1024;
     uint256 public constant MAX_DETAILS_LENGTH = 1024;
-    uint256 public constant MAX_TARGET_DATA_BYTES = 16 * 1024;
-    uint256 public constant MAX_TARGET_DATA_COUNT = 16;
+    uint256 public constant MAX_CREATION_DATA_BYTES = 16 * 1024;
 
     address public PHASE_ADDRESS;
     address public STAKE_ADDRESS;
@@ -69,16 +68,16 @@ contract Submit is ISubmit {
         address tokenAddress,
         uint256 memberId
     ) public view returns (bool) {
-        (uint256 validVotes, uint256 requiredVotes, ) = _submitPower(tokenAddress, memberId);
+        (uint256 validVotes, uint256 requiredVotes, ) = _submitPower(tokenAddress, memberId, currentRound());
         return _meetsSubmitPower(validVotes, requiredVotes);
     }
 
     function _submitPower(
         address tokenAddress,
-        uint256 memberId
+        uint256 memberId,
+        uint256 round
     ) private view returns (uint256 validVotes, uint256 requiredVotes, uint256 totalVotes) {
         IStake stake = IStake(STAKE_ADDRESS);
-        uint256 round = currentRound();
         validVotes = stake.govVotes(tokenAddress, round, memberId);
         totalVotes = stake.totalGovVotes(tokenAddress, round);
         requiredVotes = Math.mulDiv(totalVotes, SUBMIT_MIN_RATIO, PRECISION, Math.Rounding.Ceil);
@@ -88,8 +87,12 @@ contract Submit is ISubmit {
         return requiredVotes != 0 && validVotes >= requiredVotes;
     }
 
-    function _checkSubmitPower(address tokenAddress, uint256 memberId) private view {
-        (uint256 validVotes, uint256 requiredVotes, uint256 totalVotes) = _submitPower(tokenAddress, memberId);
+    function _checkSubmitPower(
+        address tokenAddress,
+        uint256 memberId,
+        uint256 round
+    ) private view {
+        (uint256 validVotes, uint256 requiredVotes, uint256 totalVotes) = _submitPower(tokenAddress, memberId, round);
         if (totalVotes == 0) {
             revert NoGovVotes(tokenAddress);
         }
@@ -108,35 +111,43 @@ contract Submit is ISubmit {
     function submitNewProposal(
         address tokenAddress,
         uint256 memberId,
-        ProposalBody calldata proposalBody
+        ProposalBody calldata proposalBody,
+        bytes calldata submitData
     ) external onlyMemberOwner(memberId) returns (uint256 proposalId) {
         _checkProposalBody(proposalBody);
-        _checkSubmitPower(tokenAddress, memberId);
-        _checkSubmitterQuota(tokenAddress, memberId);
+        uint256 round = currentRound();
+        _checkSubmitPower(tokenAddress, memberId, round);
+        _checkSubmitterQuota(tokenAddress, memberId, round);
 
         proposalId = _createProposal(tokenAddress, memberId, proposalBody);
 
-        _recordSubmission(tokenAddress, memberId, proposalId);
-        _callProposalCreated(tokenAddress, proposalId);
-        _callProposalSubmitted(tokenAddress, proposalId, memberId);
+        _recordSubmission(tokenAddress, memberId, proposalId, round);
+        if (proposalBody.targetMode == TargetMode.Callback) {
+            IProposalTarget(proposalBody.target).onProposalCreated(tokenAddress, proposalId, proposalBody.creationData);
+            IProposalTarget(proposalBody.target).onProposalSubmitted(tokenAddress, round, proposalId, memberId, submitData);
+        }
         return proposalId;
     }
 
-    function submit(address tokenAddress, uint256 memberId, uint256 proposalId)
-        external
-        onlyMemberOwner(memberId)
-    {
+    function submit(
+        address tokenAddress,
+        uint256 memberId,
+        uint256 proposalId,
+        bytes calldata submitData
+    ) external onlyMemberOwner(memberId) {
         _checkExistingProposal(tokenAddress, proposalId);
-        _checkSubmitPower(tokenAddress, memberId);
-
         uint256 round = currentRound();
+        _checkSubmitPower(tokenAddress, memberId, round);
         if (isSubmitted(tokenAddress, round, proposalId)) {
             revert ProposalAlreadySubmitted(tokenAddress, round, proposalId);
         }
-        _checkSubmitterQuota(tokenAddress, memberId);
+        _checkSubmitterQuota(tokenAddress, memberId, round);
 
-        _recordSubmission(tokenAddress, memberId, proposalId);
-        _callProposalSubmitted(tokenAddress, proposalId, memberId);
+        _recordSubmission(tokenAddress, memberId, proposalId, round);
+        ProposalBody storage body = _proposals[tokenAddress][proposalId - PROPOSAL_ID_TO_INDEX_OFFSET].body;
+        if (body.targetMode == TargetMode.Callback) {
+            IProposalTarget(body.target).onProposalSubmitted(tokenAddress, round, proposalId, memberId, submitData);
+        }
     }
 
     function isSubmitted(
@@ -268,16 +279,8 @@ contract Submit is ISubmit {
         uint256 detailsLength = bytes(proposalBody.details).length;
         if (detailsLength > MAX_DETAILS_LENGTH) revert DetailsTooLong(detailsLength, MAX_DETAILS_LENGTH);
 
-        uint256 targetDataCount = proposalBody.targetData.length;
-        if (targetDataCount > MAX_TARGET_DATA_COUNT) {
-            revert TargetDataTooMany(targetDataCount, MAX_TARGET_DATA_COUNT);
-        }
-        uint256 targetDataBytes = 0;
-        for (uint256 i = 0; i < targetDataCount; ++i) {
-            targetDataBytes += proposalBody.targetData[i].length;
-        }
-        if (targetDataBytes > MAX_TARGET_DATA_BYTES) {
-            revert TargetDataTooLarge(targetDataBytes, MAX_TARGET_DATA_BYTES);
+        if (proposalBody.creationData.length > MAX_CREATION_DATA_BYTES) {
+            revert CreationDataTooLarge(proposalBody.creationData.length, MAX_CREATION_DATA_BYTES);
         }
 
         if (proposalBody.target == address(0)) revert ZeroTargetAddress();
@@ -289,7 +292,7 @@ contract Submit is ISubmit {
     function _createProposal(
         address tokenAddress,
         uint256 memberId,
-        ProposalBody memory proposalBody
+        ProposalBody calldata proposalBody
     ) internal returns (uint256 proposalId) {
         proposalId = _proposals[tokenAddress].length + 1;
         ProposalHead memory head = ProposalHead({
@@ -309,7 +312,7 @@ contract Submit is ISubmit {
             authorId: memberId,
             target: proposalBody.target,
             targetMode: proposalBody.targetMode,
-            targetData: proposalBody.targetData,
+            creationData: proposalBody.creationData,
             title: proposalBody.title,
             details: proposalBody.details
         });
@@ -324,13 +327,11 @@ contract Submit is ISubmit {
         }
     }
 
-    /// @dev 状态/资格检查先于任何账本写入（error-standards §五）。`submitNewProposal` 的新提案不可能
-    ///      已被推举，因此这里只查成员名额与本轮总量。
     function _checkSubmitterQuota(
         address tokenAddress,
-        uint256 memberId
+        uint256 memberId,
+        uint256 round
     ) internal view {
-        uint256 round = currentRound();
         if (
             _submitInfoBySubmitterId[tokenAddress][round][memberId]
                 .submitterId != 0
@@ -343,10 +344,9 @@ contract Submit is ISubmit {
     function _recordSubmission(
         address tokenAddress,
         uint256 memberId,
-        uint256 proposalId
+        uint256 proposalId,
+        uint256 round
     ) internal {
-        uint256 round = currentRound();
-
         SubmitInfo memory submitInfo = SubmitInfo(
             memberId,
             proposalId
@@ -375,21 +375,6 @@ contract Submit is ISubmit {
         if (isFirstSubmit) {
             // forge-lint: disable-next-item(unused-return)
             IPhase(PHASE_ADDRESS).sync();
-        }
-
-    }
-
-    function _callProposalCreated(address tokenAddress, uint256 proposalId) private {
-        ProposalBody memory body = _proposals[tokenAddress][proposalId - PROPOSAL_ID_TO_INDEX_OFFSET].body;
-        if (body.targetMode == TargetMode.Callback) {
-            IProposalTarget(body.target).onProposalCreated(tokenAddress, proposalId, body.targetData);
-        }
-    }
-
-    function _callProposalSubmitted(address tokenAddress, uint256 proposalId, uint256 memberId) private {
-        ProposalBody memory body = _proposals[tokenAddress][proposalId - PROPOSAL_ID_TO_INDEX_OFFSET].body;
-        if (body.targetMode == TargetMode.Callback) {
-            IProposalTarget(body.target).onProposalSubmitted(tokenAddress, proposalId, memberId, body.targetData);
         }
     }
 }

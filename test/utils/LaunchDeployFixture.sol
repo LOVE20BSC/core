@@ -194,7 +194,7 @@ abstract contract LaunchDeployFixture {
         address launcher,
         uint256 memberId,
         string memory symbol,
-        bytes[] memory distributorData
+        bytes memory distributorData
     ) internal returns (address tokenAddress) {
         vm.prank(launcher);
         return launch.launchToken(
@@ -202,11 +202,8 @@ abstract contract LaunchDeployFixture {
         );
     }
 
-    /// 把 (merkleRoot, claimDelayRounds) 打包成 Launch 回调要求的单条目数据
-    function _distributorData(bytes32 merkleRoot, uint256 claimDelayRounds) internal pure returns (bytes[] memory) {
-        bytes[] memory data = new bytes[](1);
-        data[0] = abi.encode(merkleRoot, claimDelayRounds);
-        return data;
+    function _distributorData(bytes32 merkleRoot, uint256 claimDelayRounds) internal pure returns (bytes memory) {
+        return abi.encode(merkleRoot, claimDelayRounds);
     }
 
     function _leaf(address claimer, uint256 share) internal pure returns (bytes32) {

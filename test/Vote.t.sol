@@ -148,17 +148,12 @@ contract MockTarget is IProposalTarget {
     uint256 public lastVotedProposalId;
     uint256 public lastVotedVoterId;
     uint256 public lastVotedVotes;
-    uint256 public lastVotedOuterDataLength;
-    uint256 public lastVotedInnerDataLength;
-    bytes public lastVotedFirstData;
     /// Value of `Vote.voteAmountByMemberId` observed *inside* the callback, i.e. after Vote wrote state.
     uint256 public voteAmountObservedInCallback;
 
     uint256[] private _votedVotes;
     uint256[] private _votedProposalIds;
-    uint256[] private _votedOuterDataLengths;
-    uint256[] private _votedInnerDataLengths;
-    bytes[] private _votedFirstDataList;
+    bytes[] private _voteDataByCall;
     uint256[] private _observedVoteAmounts;
 
     MockStake private _mutatedStake;
@@ -210,18 +205,8 @@ contract MockTarget is IProposalTarget {
         return _votedProposalIds[index];
     }
 
-    function votedOuterDataLengthAt(uint256 index) external view returns (uint256) {
-        return _votedOuterDataLengths[index];
-    }
-
-    function votedInnerDataLengthAt(uint256 index) external view returns (uint256) {
-        return _votedInnerDataLengths[index];
-    }
-
-    /// @dev The bytes of `targetData[0]` as seen by the callback at `index`; empty when the outer
-    ///      array was empty.
-    function votedFirstDataAt(uint256 index) external view returns (bytes memory) {
-        return _votedFirstDataList[index];
+    function voteDataAt(uint256 index) external view returns (bytes memory) {
+        return _voteDataByCall[index];
     }
 
     /// @dev `Vote.voteAmountByMemberId` as read from inside the callback at `index`.
@@ -229,13 +214,13 @@ contract MockTarget is IProposalTarget {
         return _observedVoteAmounts[index];
     }
 
-    function onProposalCreated(address tokenAddress, uint256 proposalId, bytes[] calldata) external {
+    function onProposalCreated(address tokenAddress, uint256 proposalId, bytes calldata) external {
         createdCalls += 1;
         lastCreatedTokenAddress = tokenAddress;
         lastCreatedProposalId = proposalId;
     }
 
-    function onProposalSubmitted(address tokenAddress, uint256 proposalId, uint256 submitterId, bytes[] calldata)
+    function onProposalSubmitted(address tokenAddress, uint256, uint256 proposalId, uint256 submitterId, bytes calldata)
         external
     {
         submittedCalls += 1;
@@ -250,7 +235,7 @@ contract MockTarget is IProposalTarget {
         uint256 proposalId,
         uint256 voterId,
         uint256 votes,
-        bytes[] calldata targetData
+        bytes calldata voteData
     ) external {
         votedCalls += 1;
         if (revertOnVotedCall != 0 && votedCalls == revertOnVotedCall) {
@@ -262,17 +247,11 @@ contract MockTarget is IProposalTarget {
         lastVotedProposalId = proposalId;
         lastVotedVoterId = voterId;
         lastVotedVotes = votes;
-        lastVotedOuterDataLength = targetData.length;
-        lastVotedInnerDataLength = targetData.length == 0 ? 0 : targetData[0].length;
-        lastVotedFirstData = targetData.length == 0 ? bytes("") : targetData[0];
         voteAmountObservedInCallback = IVote(VOTE_ADDRESS).voteAmountByMemberId(tokenAddress, round, voterId);
 
         _votedVotes.push(votes);
         _votedProposalIds.push(proposalId);
-        _votedOuterDataLengths.push(targetData.length);
-        _votedInnerDataLengths.push(targetData.length == 0 ? 0 : targetData[0].length);
-        _votedFirstDataList.push();
-        _votedFirstDataList[_votedFirstDataList.length - 1] = lastVotedFirstData;
+        _voteDataByCall.push(voteData);
         _observedVoteAmounts.push(voteAmountObservedInCallback);
 
         if (_mutateCapOnce) {
@@ -310,14 +289,14 @@ contract ReenteringVoter is IProposalTarget {
         proposalIds[0] = proposalId;
         uint256[] memory voteAmounts = new uint256[](1);
         voteAmounts[0] = votes;
-        VOTE.vote(TOKEN, memberId, proposalIds, voteAmounts, new bytes[][](0));
+        VOTE.vote(TOKEN, memberId, proposalIds, voteAmounts, new bytes[](0));
     }
 
-    function onProposalCreated(address, uint256, bytes[] calldata) external {}
+    function onProposalCreated(address, uint256, bytes calldata) external {}
 
-    function onProposalSubmitted(address, uint256, uint256, bytes[] calldata) external {}
+    function onProposalSubmitted(address, uint256, uint256, uint256, bytes calldata) external {}
 
-    function onProposalVoted(address, uint256, uint256 proposalId, uint256, uint256, bytes[] calldata) external {
+    function onProposalVoted(address, uint256, uint256 proposalId, uint256, uint256, bytes calldata) external {
         if (!armed) return;
         armed = false;
         reentered = true;
@@ -325,7 +304,7 @@ contract ReenteringVoter is IProposalTarget {
         proposalIds[0] = proposalId;
         uint256[] memory voteAmounts = new uint256[](1);
         voteAmounts[0] = 1;
-        try VOTE.vote(TOKEN, memberId, proposalIds, voteAmounts, new bytes[][](0)) {} catch (bytes memory reason) {
+        try VOTE.vote(TOKEN, memberId, proposalIds, voteAmounts, new bytes[](0)) {} catch (bytes memory reason) {
             reentryRevertData = reason;
         }
     }
@@ -472,20 +451,20 @@ contract VoteTest {
             details: "details",
             target: targetAddress,
             targetMode: mode,
-            targetData: new bytes[](0)
+            creationData: ""
         });
     }
 
     function _proposeNoCallback(address tokenAddress) private returns (uint256 proposalId) {
         uint256 memberId = _nextSubmitter();
         vm.prank(_ownerOfMember(memberId));
-        proposalId = submit.submitNewProposal(tokenAddress, memberId, _body(EOA_TARGET, TargetMode.NoCallback));
+        proposalId = submit.submitNewProposal(tokenAddress, memberId, _body(EOA_TARGET, TargetMode.NoCallback), "");
     }
 
     function _proposeCallback(address tokenAddress, address targetAddress) private returns (uint256 proposalId) {
         uint256 memberId = _nextSubmitter();
         vm.prank(_ownerOfMember(memberId));
-        proposalId = submit.submitNewProposal(tokenAddress, memberId, _body(targetAddress, TargetMode.Callback));
+        proposalId = submit.submitNewProposal(tokenAddress, memberId, _body(targetAddress, TargetMode.Callback), "");
     }
 
     function _proposeBatch(address tokenAddress, uint256 count) private returns (uint256[] memory ids) {
@@ -501,14 +480,7 @@ contract VoteTest {
     {
         uint256 memberId = _nextSubmitter();
         vm.prank(_ownerOfMember(memberId));
-        proposalId = submit.submitNewProposal(tokenAddress, memberId, _body(targetAddress, mode));
-    }
-
-    function _emptyRows(uint256 count) private pure returns (bytes[][] memory rows) {
-        rows = new bytes[][](count);
-        for (uint256 i = 0; i < count; i++) {
-            rows[i] = new bytes[](0);
-        }
+        proposalId = submit.submitNewProposal(tokenAddress, memberId, _body(targetAddress, mode), "");
     }
 
     /// @dev The `VoteCast` events emitted by this Vote during the current log recording.
@@ -564,7 +536,7 @@ contract VoteTest {
         uint256[] memory votes
     ) private {
         vm.prank(_ownerOfMember(memberId));
-        vote.vote(tokenAddress, memberId, proposalIds, votes, new bytes[][](0));
+        vote.vote(tokenAddress, memberId, proposalIds, votes, new bytes[](0));
     }
 
     /// @dev Votes with an explicit Target Data array; returns the raw call result so that callers can
@@ -574,7 +546,7 @@ contract VoteTest {
         uint256 memberId,
         uint256[] memory proposalIds,
         uint256[] memory votes,
-        bytes[][] memory targetData
+        bytes[] memory targetData
     ) private returns (bool ok, bytes memory data) {
         vm.prank(_ownerOfMember(memberId));
         (ok, data) =
@@ -726,7 +698,7 @@ contract VoteTest {
         vm.prank(ALICE);
         _expectRevertOn(
             address(vote),
-            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(10), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(10), new bytes[](0))),
             expected,
             "non-owner"
         );
@@ -739,7 +711,7 @@ contract VoteTest {
         uint256 proposalId = _proposeNoCallback(TOKEN);
         bytes memory expected = abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, uint256(9999));
         _expectRevert(
-            abi.encodeCall(vote.vote, (TOKEN, 9999, _singleton(proposalId), _singleton(10), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, 9999, _singleton(proposalId), _singleton(10), new bytes[](0))),
             expected,
             "unknown member"
         );
@@ -749,7 +721,7 @@ contract VoteTest {
         uint256 proposalId = _proposeNoCallback(TOKEN);
         bytes memory expected = abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, uint256(0));
         _expectRevert(
-            abi.encodeCall(vote.vote, (TOKEN, 0, _singleton(proposalId), _singleton(10), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, 0, _singleton(proposalId), _singleton(10), new bytes[](0))),
             expected,
             "zero member"
         );
@@ -771,7 +743,7 @@ contract VoteTest {
         stake.setGovVotesAtRound(TOKEN, roundTwo, memberId, 0);
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(1), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(1), new bytes[](0))),
             abi.encodeWithSelector(IVoteErrors.NoVotingPower.selector, TOKEN, memberId),
             "round 1 allowance must not carry into round 2"
         );
@@ -815,7 +787,7 @@ contract VoteTest {
         vm.prank(ALICE);
         _expectRevertOn(
             address(vote),
-            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(1), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(1), new bytes[](0))),
             expected,
             "ownership before eligibility"
         );
@@ -829,13 +801,13 @@ contract VoteTest {
         // Shape errors surface before the voting-power lookup.
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, new uint256[](0), new uint256[](0), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, new uint256[](0), new uint256[](0), new bytes[](0))),
             abi.encodeWithSelector(IVoteErrors.ProposalIdsEmpty.selector),
             "empty ids before eligibility"
         );
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), new uint256[](0), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), new uint256[](0), new bytes[](0))),
             abi.encodeWithSelector(IVoteErrors.ProposalVoteAmountsLengthMismatch.selector, 1, 0),
             "length mismatch before eligibility"
         );
@@ -843,7 +815,7 @@ contract VoteTest {
         // A well-formed batch still reports the missing voting power.
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(1), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(1), new bytes[](0))),
             abi.encodeWithSelector(IVoteErrors.NoVotingPower.selector, TOKEN, memberId),
             "eligibility after shape"
         );
@@ -860,21 +832,21 @@ contract VoteTest {
         // Control: a well formed call does reach the read, so the switch is meaningful.
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(1), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(1), new bytes[](0))),
             abi.encodeWithSelector(MockStake.MockStakeReadDisabled.selector),
             "control"
         );
 
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(999), _singleton(1), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(999), _singleton(1), new bytes[](0))),
             abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, TOKEN, uint256(999)),
             "existence before snapshot"
         );
 
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(0), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(0), new bytes[](0))),
             abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, TOKEN, 1, proposalId),
             "amount before snapshot"
         );
@@ -887,7 +859,7 @@ contract VoteTest {
         bytes memory expected = abi.encodeWithSelector(IVoteErrors.ProposalIdsEmpty.selector);
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, new uint256[](0), new uint256[](0), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, new uint256[](0), new uint256[](0), new bytes[](0))),
             expected,
             "empty batch"
         );
@@ -900,14 +872,14 @@ contract VoteTest {
 
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _singleton(1), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _singleton(1), new bytes[](0))),
             abi.encodeWithSelector(IVoteErrors.ProposalVoteAmountsLengthMismatch.selector, uint256(2), uint256(1)),
             "votes shorter than proposals"
         );
 
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _filled(3, 1), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _filled(3, 1), new bytes[](0))),
             abi.encodeWithSelector(IVoteErrors.ProposalVoteAmountsLengthMismatch.selector, uint256(2), uint256(3)),
             "votes longer than proposals"
         );
@@ -915,23 +887,19 @@ contract VoteTest {
         _assertAllVoteStateEmpty(TOKEN, vote.currentRound(), memberId);
     }
 
-    function testVoteRejectsTargetDataLengthMismatch() external {
+    function testVoteRejectsVoteDataLengthMismatch() external {
         uint256 memberId = _memberIds[0];
         uint256[] memory ids = _proposeBatch(TOKEN, 2);
 
-        bytes[][] memory tooShort = new bytes[][](1);
-        tooShort[0] = new bytes[](0);
+        bytes[] memory tooShort = new bytes[](1);
         bytes memory expectedShort =
-            abi.encodeWithSelector(IVoteErrors.TargetDataLengthMismatch.selector, uint256(2), uint256(1));
+            abi.encodeWithSelector(IVoteErrors.VoteDataLengthMismatch.selector, uint256(2), uint256(1));
         (bool ok, bytes memory data) = _voteWithData(TOKEN, memberId, ids, _filled(2, 1), tooShort);
         require(!ok && keccak256(data) == keccak256(expectedShort), "outer array shorter than proposals");
 
-        bytes[][] memory tooLong = new bytes[][](3);
-        for (uint256 i = 0; i < tooLong.length; i++) {
-            tooLong[i] = new bytes[](0);
-        }
+        bytes[] memory tooLong = new bytes[](3);
         bytes memory expectedLong =
-            abi.encodeWithSelector(IVoteErrors.TargetDataLengthMismatch.selector, uint256(2), uint256(3));
+            abi.encodeWithSelector(IVoteErrors.VoteDataLengthMismatch.selector, uint256(2), uint256(3));
         (ok, data) = _voteWithData(TOKEN, memberId, ids, _filled(2, 1), tooLong);
         require(!ok && keccak256(data) == keccak256(expectedLong), "outer array longer than proposals");
 
@@ -970,7 +938,7 @@ contract VoteTest {
     function testProposalMustBeSubmittedAgainInEveryRound() external {
         uint256 author = _nextSubmitter();
         vm.prank(_ownerOfMember(author));
-        uint256 proposalId = submit.submitNewProposal(TOKEN, author, _body(EOA_TARGET, TargetMode.NoCallback));
+        uint256 proposalId = submit.submitNewProposal(TOKEN, author, _body(EOA_TARGET, TargetMode.NoCallback), "");
 
         uint256 memberId = _memberIds[1];
         _advanceRounds(1);
@@ -979,14 +947,14 @@ contract VoteTest {
             abi.encodeWithSelector(IVoteErrors.ProposalNotSubmitted.selector, TOKEN, 2, proposalId);
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(5), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(proposalId), _singleton(5), new bytes[](0))),
             expected,
             "previous round submission does not carry over"
         );
 
         uint256 resubmitter = _nextSubmitter();
         vm.prank(_ownerOfMember(resubmitter));
-        submit.submit(TOKEN, resubmitter, proposalId);
+        submit.submit(TOKEN, resubmitter, proposalId, "");
 
         _voteWithoutData(TOKEN, memberId, _singleton(proposalId), _singleton(5));
         require(vote.voteAmountByProposalId(TOKEN, 2, proposalId) == 5, "counted in the new round");
@@ -998,13 +966,13 @@ contract VoteTest {
 
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(999), _singleton(1), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(999), _singleton(1), new bytes[](0))),
             abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, TOKEN, uint256(999)),
             "never created"
         );
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(0), _singleton(1), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(0), _singleton(1), new bytes[](0))),
             abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, TOKEN, uint256(0)),
             "zero proposal id"
         );
@@ -1018,13 +986,13 @@ contract VoteTest {
         _advanceRounds(1);
         uint256 resubmitter = _nextSubmitter();
         vm.prank(_ownerOfMember(resubmitter));
-        submit.submit(TOKEN, resubmitter, ids[0]);
+        submit.submit(TOKEN, resubmitter, ids[0], "");
 
         bytes memory expected =
             abi.encodeWithSelector(IVoteErrors.ProposalNotSubmitted.selector, TOKEN, 2, ids[1]);
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _filled(2, 10), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _filled(2, 10), new bytes[](0))),
             expected,
             "the second proposal is not submitted this round"
         );
@@ -1037,7 +1005,7 @@ contract VoteTest {
 
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(ids[0]), _singleton(0), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(ids[0]), _singleton(0), new bytes[](0))),
             abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, TOKEN, 1, ids[0]),
             "zero on a single proposal"
         );
@@ -1046,7 +1014,7 @@ contract VoteTest {
         votes[1] = 0;
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, ids, votes, new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, ids, votes, new bytes[](0))),
             abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, TOKEN, 1, ids[1]),
             "zero later in the batch localizes the proposal"
         );
@@ -1058,7 +1026,7 @@ contract VoteTest {
 
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(999), _singleton(0), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(999), _singleton(0), new bytes[](0))),
             abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, TOKEN, 1, uint256(999)),
             "an unallocated id still reports the zero amount first"
         );
@@ -1079,7 +1047,7 @@ contract VoteTest {
             abi.encodeWithSelector(IVoteErrors.VoteLimitExceeded.selector, TOKEN, 1, memberId, 101, DEFAULT_CAP);
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(ids[2]), _singleton(1), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, _singleton(ids[2]), _singleton(1), new bytes[](0))),
             expected,
             "one over the cap"
         );
@@ -1112,7 +1080,7 @@ contract VoteTest {
             abi.encodeWithSelector(IVoteErrors.VoteLimitExceeded.selector, TOKEN, 1, memberId, 101, DEFAULT_CAP);
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, batch, votes, new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, batch, votes, new bytes[](0))),
             expected,
             "70 fills the cap, the next entry crosses it"
         );
@@ -1129,7 +1097,7 @@ contract VoteTest {
         bytes memory expected =
             abi.encodeWithSelector(IVoteErrors.VoteLimitExceeded.selector, TOKEN, 1, memberId, 101, DEFAULT_CAP);
         _expectRevertAs(
-            memberId, abi.encodeCall(vote.vote, (TOKEN, memberId, ids, votes, new bytes[][](0))), expected, "60 + 41"
+            memberId, abi.encodeCall(vote.vote, (TOKEN, memberId, ids, votes, new bytes[](0))), expected, "60 + 41"
         );
 
         // Not even the entries that were already accepted survive.
@@ -1573,7 +1541,7 @@ contract VoteTest {
         vm.recordLogs();
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _singleton(0), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _singleton(0), new bytes[](0))),
             abi.encodeWithSelector(IVoteErrors.ZeroVoteAmount.selector, TOKEN, 1, ids[0]),
             "zero amount"
         );
@@ -1646,12 +1614,10 @@ contract VoteTest {
         uint256 proposalId = _proposeWithMode(TOKEN, address(target), TargetMode.Callback);
         stake.setBoost(TOKEN, 1, memberId, 50);
 
-        bytes[][] memory rows = new bytes[][](1);
-        rows[0] = new bytes[](2);
-        rows[0][0] = abi.encode(7);
-        rows[0][1] = hex"deadbeef";
+        bytes[] memory voteData = new bytes[](1);
+        voteData[0] = abi.encode(7, hex"deadbeef");
 
-        (bool ok,) = _voteWithData(TOKEN, memberId, _singleton(proposalId), _singleton(10), rows);
+        (bool ok,) = _voteWithData(TOKEN, memberId, _singleton(proposalId), _singleton(10), voteData);
         require(ok, "vote must succeed");
 
         require(target.lastVotedTokenAddress() == TOKEN, "tokenAddress");
@@ -1659,12 +1625,10 @@ contract VoteTest {
         require(target.lastVotedProposalId() == proposalId, "proposalId");
         require(target.lastVotedVoterId() == memberId, "voterId");
         require(target.lastVotedVotes() == 10, "votes is this proposal's amount");
-        require(target.lastVotedOuterDataLength() == 2, "the row is passed through untouched");
-        require(keccak256(target.votedFirstDataAt(0)) == keccak256(abi.encode(7)), "first element verbatim");
+        require(keccak256(target.voteDataAt(0)) == keccak256(voteData[0]), "payload forwarded verbatim");
     }
 
-    /// @dev Each callback receives the row that belongs to its own proposal, in order.
-    function testCallbackGetsTheRowOfItsOwnProposal() external {
+    function testCallbackGetsThePayloadOfItsOwnProposal() external {
         uint256 memberId = _memberIds[0];
         uint256 first = _proposeWithMode(TOKEN, address(target), TargetMode.Callback);
         uint256 second = _proposeWithMode(TOKEN, address(target), TargetMode.Callback);
@@ -1673,22 +1637,18 @@ contract VoteTest {
         ids[0] = first;
         ids[1] = second;
 
-        bytes[][] memory rows = new bytes[][](2);
-        rows[0] = new bytes[](1);
-        rows[0][0] = abi.encode(11);
-        rows[1] = new bytes[](1);
-        rows[1][0] = abi.encode(22);
+        bytes[] memory voteData = new bytes[](2);
+        voteData[0] = abi.encode(11);
+        voteData[1] = abi.encode(22);
 
-        (bool ok,) = _voteWithData(TOKEN, memberId, ids, _filled(2, 10), rows);
+        (bool ok,) = _voteWithData(TOKEN, memberId, ids, _filled(2, 10), voteData);
         require(ok, "vote must succeed");
         require(target.votedCalls() == 2, "both proposals are Callback mode");
-        require(keccak256(target.votedFirstDataAt(0)) == keccak256(abi.encode(11)), "row 0 reaches proposal 0");
-        require(keccak256(target.votedFirstDataAt(1)) == keccak256(abi.encode(22)), "row 1 reaches proposal 1");
+        require(keccak256(target.voteDataAt(0)) == keccak256(voteData[0]), "first payload reaches first proposal");
+        require(keccak256(target.voteDataAt(1)) == keccak256(voteData[1]), "second payload reaches second proposal");
     }
 
-    /// @dev Vote accepts both "no rows at all" and "one row per proposal". The callback receives the
-    ///      inner row, so the two forms are the same input: an empty row either way.
-    function testEmptyOuterArrayEqualsOneEmptyRowPerProposal() external {
+    function testEmptyBatchDataEqualsOneEmptyPayloadPerProposal() external {
         uint256 memberId = _memberIds[0];
         uint256 first = _proposeWithMode(TOKEN, address(target), TargetMode.Callback);
         uint256 second = _proposeWithMode(TOKEN, address(target), TargetMode.Callback);
@@ -1697,17 +1657,17 @@ contract VoteTest {
         ids[0] = first;
         ids[1] = second;
 
-        (bool ok,) = _voteWithData(TOKEN, memberId, ids, _filled(2, 10), new bytes[][](0));
+        (bool ok,) = _voteWithData(TOKEN, memberId, ids, _filled(2, 10), new bytes[](0));
         require(ok, "an empty outer array is accepted");
         require(target.votedCalls() == 2, "and still calls back for every proposal");
-        require(target.votedOuterDataLengthAt(0) == 0 && target.votedOuterDataLengthAt(1) == 0, "empty rows");
+        require(target.voteDataAt(0).length == 0 && target.voteDataAt(1).length == 0, "empty payloads");
 
-        (ok,) = _voteWithData(TOKEN, memberId, ids, _filled(2, 10), _emptyRows(2));
-        require(ok, "one empty row per proposal is accepted");
+        (ok,) = _voteWithData(TOKEN, memberId, ids, _filled(2, 10), new bytes[](2));
+        require(ok, "one empty payload per proposal is accepted");
         require(target.votedCalls() == 4, "one more call per proposal");
         require(
-            target.votedOuterDataLengthAt(2) == 0 && target.votedOuterDataLengthAt(3) == 0,
-            "the callback sees an empty row either way"
+            target.voteDataAt(2).length == 0 && target.voteDataAt(3).length == 0,
+            "the callback sees an empty payload either way"
         );
     }
 
@@ -1753,7 +1713,7 @@ contract VoteTest {
         stake.setBoost(TOKEN, 1, memberId, 50);
         target.setRevertOnVotedCall(2);
 
-        (bool ok, bytes memory data) = _voteWithData(TOKEN, memberId, ids, _filled(2, 10), new bytes[][](0));
+        (bool ok, bytes memory data) = _voteWithData(TOKEN, memberId, ids, _filled(2, 10), new bytes[](0));
         bytes memory expected = abi.encodeWithSelector(MockTarget.MockTargetCallbackFailure.selector, 2);
         require(!ok && keccak256(data) == keccak256(expected), "the callback failure surfaces unchanged");
 
@@ -1769,7 +1729,7 @@ contract VoteTest {
 
         target.setRevertOnVotedCall(1);
 
-        (bool ok, bytes memory data) = _voteWithData(TOKEN, memberId, _singleton(proposalId), _singleton(10), new bytes[][](0));
+        (bool ok, bytes memory data) = _voteWithData(TOKEN, memberId, _singleton(proposalId), _singleton(10), new bytes[](0));
         bytes memory expected = abi.encodeWithSelector(MockTarget.MockTargetCallbackFailure.selector, 1);
         require(!ok && keccak256(data) == keccak256(expected), "the callback failure surfaces unchanged");
 
@@ -2042,7 +2002,7 @@ contract VoteTest {
         require(vote.currentRound() == 3, "round 3 starts at the calibrated block");
         uint256 resubmitter = _nextSubmitter();
         vm.prank(_ownerOfMember(resubmitter));
-        submit.submit(TOKEN, resubmitter, second);
+        submit.submit(TOKEN, resubmitter, second, "");
 
         _voteWithoutData(TOKEN, memberId, _singleton(second), _singleton(10));
         require(vote.voteAmountByProposalId(TOKEN, 3, second) == 10, "counted in the calibrated round 3");
@@ -2097,7 +2057,7 @@ contract VoteTest {
             abi.encodeWithSelector(IVoteErrors.VoteLimitExceeded.selector, TOKEN, 1, memberId, amount, cap);
         _expectRevertAs(
             memberId,
-            abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _singleton(amount), new bytes[][](0))),
+            abi.encodeCall(vote.vote, (TOKEN, memberId, ids, _singleton(amount), new bytes[](0))),
             expected,
             "over the allowance"
         );
@@ -2270,7 +2230,7 @@ contract VoteStubTest {
         submitStub.setTarget(TOKEN, 1, address(0), TargetMode.Callback);
 
         vm.prank(OWNER);
-        vote.vote(TOKEN, _memberId, _ids(1, 1), _ones(1), new bytes[][](0));
+        vote.vote(TOKEN, _memberId, _ids(1, 1), _ones(1), new bytes[](0));
 
         require(vote.voteAmountByProposalId(TOKEN, 1, 1) == 1, "the vote is still recorded");
         require(target.votedCalls() == 0, "the zero address is never called");
@@ -2281,7 +2241,7 @@ contract VoteStubTest {
         uint256 size = MAX_PROPOSAL_ID;
 
         vm.prank(OWNER);
-        vote.vote(TOKEN, _memberId, _ids(1, size), _ones(size), new bytes[][](0));
+        vote.vote(TOKEN, _memberId, _ids(1, size), _ones(size), new bytes[](0));
 
         require(vote.totalVoteAmount(TOKEN, 1) == size, "every entry is recorded");
         require(vote.voteAmountByMemberId(TOKEN, 1, _memberId) == size, "member total");
@@ -2320,7 +2280,7 @@ contract VoteStubTest {
 
         uint256 before = gasleft();
         vm.prank(OWNER);
-        vote.vote(TOKEN, _memberId, ids, votes, new bytes[][](0));
+        vote.vote(TOKEN, _memberId, ids, votes, new bytes[](0));
         gasUsed = before - gasleft();
     }
 

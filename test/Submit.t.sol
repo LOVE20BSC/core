@@ -95,20 +95,43 @@ contract MockMemberNFT {
 }
 
 contract MockTarget {
+    error SubmissionRejected();
+
     uint256 public lastCreatedProposalId;
     uint256 public lastSubmittedProposalId;
     uint256 public lastSubmitterId;
+    uint256 public lastSubmittedRound;
     address public lastTokenAddress;
+    bytes public lastCreationData;
+    bytes public lastSubmitData;
+    bool public rejectSubmission;
+    mapping(address => mapping(uint256 => bool)) private _created;
 
-    function onProposalCreated(address tokenAddress, uint256 proposalId, bytes[] calldata) external {
-        lastTokenAddress = tokenAddress;
-        lastCreatedProposalId = proposalId;
+    function setRejectSubmission(bool value) external {
+        rejectSubmission = value;
     }
 
-    function onProposalSubmitted(address tokenAddress, uint256 proposalId, uint256 submitterId, bytes[] calldata) external {
+    function onProposalCreated(address tokenAddress, uint256 proposalId, bytes calldata creationData) external {
         lastTokenAddress = tokenAddress;
+        lastCreatedProposalId = proposalId;
+        lastCreationData = creationData;
+        _created[tokenAddress][proposalId] = true;
+    }
+
+    function onProposalSubmitted(
+        address tokenAddress,
+        uint256 round,
+        uint256 proposalId,
+        uint256 submitterId,
+        bytes calldata submitData
+    ) external {
+        if (rejectSubmission) revert SubmissionRejected();
+        require(_created[tokenAddress][proposalId], "create must precede submit");
+        lastTokenAddress = tokenAddress;
+        lastSubmittedRound = round;
         lastSubmittedProposalId = proposalId;
         lastSubmitterId = submitterId;
+        lastSubmitData = submitData;
     }
 }
 
@@ -118,15 +141,15 @@ contract MockTarget {
 contract GasBurningTarget {
     uint256 public spinSeed;
 
-    function onProposalCreated(address, uint256, bytes[] calldata) external {
+    function onProposalCreated(address, uint256, bytes calldata) external {
         while (true) {
             spinSeed += 1;
         }
     }
 
-    function onProposalSubmitted(address, uint256, uint256, bytes[] calldata) external {}
+    function onProposalSubmitted(address, uint256, uint256, uint256, bytes calldata) external {}
 
-    function onProposalVoted(address, uint256, uint256, uint256, uint256, bytes[] calldata) external {}
+    function onProposalVoted(address, uint256, uint256, uint256, uint256, bytes calldata) external {}
 }
 
 /// @notice Target that owns a member and re-enters `Submit.submit` from its create callback.
@@ -154,21 +177,21 @@ contract ReenteringSubmitter {
     }
 
     function submitNewProposal(ProposalBody calldata proposalBody) external returns (uint256) {
-        return SUBMIT.submitNewProposal(TOKEN, MEMBER_ID, proposalBody);
+        return SUBMIT.submitNewProposal(TOKEN, MEMBER_ID, proposalBody, "");
     }
 
-    function onProposalCreated(address, uint256, bytes[] calldata) external {
+    function onProposalCreated(address, uint256, bytes calldata) external {
         if (!armed) return;
         armed = false;
         reentered = true;
-        try SUBMIT.submit(TOKEN, MEMBER_ID, REENTER_PROPOSAL_ID) {} catch (bytes memory reason) {
+        try SUBMIT.submit(TOKEN, MEMBER_ID, REENTER_PROPOSAL_ID, "") {} catch (bytes memory reason) {
             reentryRevertData = reason;
         }
     }
 
-    function onProposalSubmitted(address, uint256, uint256, bytes[] calldata) external {}
+    function onProposalSubmitted(address, uint256, uint256, uint256, bytes calldata) external {}
 
-    function onProposalVoted(address, uint256, uint256, uint256, uint256, bytes[] calldata) external {}
+    function onProposalVoted(address, uint256, uint256, uint256, uint256, bytes calldata) external {}
 }
 
 contract SubmitTest {
@@ -286,9 +309,9 @@ contract SubmitTest {
             details: "Detailed description",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
-        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
+        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body, "");
         require(proposalId == 1, "wrong proposal id");
         require(submit.isSubmitted(TOKEN, 1, proposalId), "not submitted");
     }
@@ -300,12 +323,48 @@ contract SubmitTest {
             details: "With callback",
             target: address(target),
             targetMode: TargetMode.Callback,
-            targetData: new bytes[](0)
+            creationData: hex"010203"
         });
-        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
+        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body, hex"04");
         require(target.lastCreatedProposalId() == proposalId, "callback not called on create");
         require(target.lastSubmittedProposalId() == proposalId, "callback not called on submit");
         require(target.lastSubmitterId() == 1, "wrong submitter in callback");
+        require(target.lastSubmittedRound() == 1, "wrong first submission round");
+        require(keccak256(target.lastCreationData()) == keccak256(hex"010203"), "creation data");
+        require(keccak256(target.lastSubmitData()) == keccak256(hex"04"), "first submission data");
+
+        vm.roll(200);
+        stake.setGovVotes(TOKEN, 2, 100);
+        vm.prank(ALICE);
+        submit.submit(TOKEN, 2, proposalId, hex"050607");
+        require(target.lastSubmittedRound() == 2, "wrong later submission round");
+        require(target.lastSubmitterId() == 2, "wrong later submitter");
+        require(keccak256(target.lastCreationData()) == keccak256(hex"010203"), "original creation data");
+        require(keccak256(target.lastSubmitData()) == keccak256(hex"050607"), "later submission data");
+    }
+
+    function testSubmissionCallbackFailureRollsBackNewProposalAndRoundSlot() external {
+        MockTarget target = new MockTarget();
+        target.setRejectSubmission(true);
+        ProposalBody memory body = ProposalBody("Callback", "", address(target), TargetMode.Callback, hex"01");
+
+        vm.expectRevert(abi.encodeWithSelector(MockTarget.SubmissionRejected.selector));
+        submit.submitNewProposal(TOKEN, 1, body, hex"02");
+        (, uint256 totalCount) = submit.proposalIds(TOKEN, 0, 0, false);
+        require(totalCount == 0 && target.lastCreatedProposalId() == 0, "creation rolled back");
+        require(submit.proposalIdBySubmitterId(TOKEN, 1, 1) == 0, "submission rolled back");
+
+        target.setRejectSubmission(false);
+        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body, "");
+        require(proposalId == 1 && target.lastSubmittedRound() == 1, "first submission retried");
+        require(target.lastSubmitData().length == 0, "empty submission still called");
+
+        vm.roll(200);
+        target.setRejectSubmission(true);
+        vm.expectRevert(abi.encodeWithSelector(MockTarget.SubmissionRejected.selector));
+        submit.submit(TOKEN, 1, proposalId, hex"03");
+        require(!submit.isSubmitted(TOKEN, 2, proposalId), "later submission rolled back");
+        require(submit.isSubmitted(TOKEN, 1, proposalId), "original submission preserved");
     }
 
     function testGasBurningTargetRevertsTheWholeCallAndLeavesNoState() external {
@@ -319,10 +378,10 @@ contract SubmitTest {
             details: "No callback, so the target is never entered",
             target: address(target),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
         vm.prank(ALICE);
-        uint256 controlId = submit.submitNewProposal(TOKEN, 2, controlBody);
+        uint256 controlId = submit.submitNewProposal(TOKEN, 2, controlBody, "");
         require(controlId == 1, "control call must succeed");
 
         ProposalBody memory bombBody = ProposalBody({
@@ -330,11 +389,11 @@ contract SubmitTest {
             details: "The create callback burns everything it is given",
             target: address(target),
             targetMode: TargetMode.Callback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
         vm.prank(BOB);
         (bool ok,) = address(submit).call{gas: 1_000_000}(
-            abi.encodeCall(submit.submitNewProposal, (TOKEN, 3, bombBody))
+            abi.encodeCall(submit.submitNewProposal, (TOKEN, 3, bombBody, ""))
         );
         require(!ok, "the gas-burning callback must fail the outer call");
 
@@ -352,10 +411,10 @@ contract SubmitTest {
             details: "Created in round 1 by another member",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
         vm.prank(ALICE);
-        uint256 seedProposalId = submit.submitNewProposal(TOKEN, 2, seedBody);
+        uint256 seedProposalId = submit.submitNewProposal(TOKEN, 2, seedBody, "");
 
         // Round 2: member 1 belongs to the re-entering target, so the re-entry clears the owner gate.
         vm.roll(200);
@@ -369,7 +428,7 @@ contract SubmitTest {
             details: "Its create callback re-enters submit for the seed proposal",
             target: address(reentering),
             targetMode: TargetMode.Callback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
         uint256 proposalId = reentering.submitNewProposal(body);
 
@@ -391,11 +450,11 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
         bytes memory expected = abi.encodeWithSelector(ISubmitErrors.TitleEmpty.selector);
         (bool ok, bytes memory data) = address(submit).call(
-            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body))
+            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body, ""))
         );
         require(!ok && keccak256(data) == keccak256(expected), "should reject empty title");
     }
@@ -406,11 +465,11 @@ contract SubmitTest {
             details: "Details",
             target: address(0),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
         bytes memory expected = abi.encodeWithSelector(ISubmitErrors.ZeroTargetAddress.selector);
         (bool ok, bytes memory data) = address(submit).call(
-            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body))
+            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body, ""))
         );
         require(!ok && keccak256(data) == keccak256(expected), "should reject zero target");
     }
@@ -421,11 +480,11 @@ contract SubmitTest {
             details: "EOA target",
             target: address(0x1),
             targetMode: TargetMode.Callback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
         bytes memory expected = abi.encodeWithSelector(ISubmitErrors.CallbackTargetNotContract.selector, address(0x1));
         (bool ok, bytes memory data) = address(submit).call(
-            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body))
+            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body, ""))
         );
         require(!ok && keccak256(data) == keccak256(expected), "should reject callback to EOA");
     }
@@ -436,11 +495,11 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
         bytes memory expected = abi.encodeWithSelector(ISubmitErrors.NotMemberOwner.selector, 2);
         (bool ok, bytes memory data) = address(submit).call(
-            abi.encodeCall(submit.submitNewProposal, (TOKEN, 2, body))
+            abi.encodeCall(submit.submitNewProposal, (TOKEN, 2, body, ""))
         );
         require(!ok && keccak256(data) == keccak256(expected), "should reject non-owner");
     }
@@ -452,12 +511,12 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
         bytes memory expected =
             abi.encodeWithSelector(ISubmitErrors.InsufficientSubmitPower.selector, TOKEN, 1, 9, 10);
         (bool ok, bytes memory data) = address(submit).call(
-            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body))
+            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body, ""))
         );
         require(!ok && keccak256(data) == keccak256(expected), "should reject insufficient votes");
     }
@@ -468,11 +527,11 @@ contract SubmitTest {
             details: "",
             target: address(0),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
         bytes memory expected = abi.encodeWithSelector(ISubmitErrors.NotMemberOwner.selector, 2);
         (bool ok, bytes memory data) = address(submit).call(
-            abi.encodeCall(submit.submitNewProposal, (TOKEN, 2, body))
+            abi.encodeCall(submit.submitNewProposal, (TOKEN, 2, body, ""))
         );
         require(!ok && keccak256(data) == keccak256(expected), "auth before parameters");
     }
@@ -484,11 +543,11 @@ contract SubmitTest {
             details: "",
             target: address(0),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
         bytes memory expected = abi.encodeWithSelector(ISubmitErrors.TitleEmpty.selector);
         (bool ok, bytes memory data) = address(submit).call(
-            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body))
+            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body, ""))
         );
         require(!ok && keccak256(data) == keccak256(expected), "parameters before threshold");
     }
@@ -496,7 +555,7 @@ contract SubmitTest {
     function testSubmitChecksAuthBeforeProposalExistence() external {
         bytes memory expected = abi.encodeWithSelector(ISubmitErrors.NotMemberOwner.selector, 2);
         (bool ok, bytes memory data) = address(submit).call(
-            abi.encodeCall(submit.submit, (TOKEN, 2, 999))
+            abi.encodeCall(submit.submit, (TOKEN, 2, 999, ""))
         );
         require(!ok && keccak256(data) == keccak256(expected), "auth before existence");
     }
@@ -507,15 +566,15 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
-        submit.submitNewProposal(TOKEN, 1, body);
+        submit.submitNewProposal(TOKEN, 1, body, "");
 
         vm.roll(200);
         stake.setGovVotes(TOKEN, 1, 9);
         bytes memory expected = abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, TOKEN, uint256(999));
         (bool ok, bytes memory data) = address(submit).call(
-            abi.encodeCall(submit.submit, (TOKEN, 1, 999))
+            abi.encodeCall(submit.submit, (TOKEN, 1, 999, ""))
         );
         require(!ok && keccak256(data) == keccak256(expected), "existence before threshold");
     }
@@ -524,8 +583,8 @@ contract SubmitTest {
 
     function testOneBasedProposalIdsAcrossCreateReadAndResubmit() external {
         MockTarget target = new MockTarget();
-        ProposalBody memory body = ProposalBody("first", "", address(target), TargetMode.Callback, new bytes[](0));
-        require(submit.submitNewProposal(TOKEN, 1, body) == 1, "first id");
+        ProposalBody memory body = ProposalBody("first", "", address(target), TargetMode.Callback, "");
+        require(submit.submitNewProposal(TOKEN, 1, body, "") == 1, "first id");
         require(target.lastCreatedProposalId() == 1 && target.lastSubmittedProposalId() == 1, "first callbacks");
         require(submit.proposalIdBySubmitterId(TOKEN, 1, 1) == 1, "submitted member");
         require(submit.proposalIdBySubmitterId(TOKEN, 1, 2) == 0, "absent member");
@@ -535,11 +594,11 @@ contract SubmitTest {
         stake.setGovVotes(TOKEN, 2, 100);
         memberNFT.setOwner(2, address(this));
         body.title = "second";
-        require(submit.submitNewProposal(TOKEN, 2, body) == 2, "next id");
+        require(submit.submitNewProposal(TOKEN, 2, body, "") == 2, "next id");
         require(target.lastCreatedProposalId() == 2 && target.lastSubmittedProposalId() == 2, "last callbacks");
 
         vm.roll(300);
-        submit.submit(TOKEN, 1, 1);
+        submit.submit(TOKEN, 1, 1, "");
         require(target.lastCreatedProposalId() == 2 && target.lastSubmittedProposalId() == 1, "resubmit callback");
         require(submit.proposalIdBySubmitterId(TOKEN, 3, 1) == 1, "resubmit lookup");
         require(submit.submitterIdByProposalId(TOKEN, 3, 1) == 1, "reverse lookup");
@@ -561,15 +620,15 @@ contract SubmitTest {
             bytes32 expected = keccak256(abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, TOKEN, ids[0]));
             (bool ok, bytes memory data) = address(submit).call(abi.encodeCall(submit.proposalInfosByProposalIds, (TOKEN, ids)));
             require(!ok && keccak256(data) == expected, "missing detail");
-            (ok, data) = address(submit).call(abi.encodeCall(submit.submit, (TOKEN, 1, ids[0])));
+            (ok, data) = address(submit).call(abi.encodeCall(submit.submit, (TOKEN, 1, ids[0], "")));
             require(!ok && keccak256(data) == expected, "missing submission");
         }
     }
 
     function testProposalTargetMatchesTheRecordAndRejectsUnassignedIds() external {
         MockTarget target = new MockTarget();
-        ProposalBody memory body = ProposalBody("first", "", address(target), TargetMode.Callback, new bytes[](0));
-        require(submit.submitNewProposal(TOKEN, 1, body) == 1, "first id");
+        ProposalBody memory body = ProposalBody("first", "", address(target), TargetMode.Callback, "");
+        require(submit.submitNewProposal(TOKEN, 1, body, "") == 1, "first id");
 
         (address stored, TargetMode mode) = submit.proposalTarget(TOKEN, 1);
         require(stored == address(target) && mode == TargetMode.Callback, "callback target");
@@ -578,8 +637,8 @@ contract SubmitTest {
         stake.setGovVotes(TOKEN, 2, 100);
         memberNFT.setOwner(2, address(this));
         ProposalBody memory noCallback =
-            ProposalBody("second", "", address(0xE1E1), TargetMode.NoCallback, new bytes[](0));
-        require(submit.submitNewProposal(TOKEN, 2, noCallback) == 2, "next id");
+            ProposalBody("second", "", address(0xE1E1), TargetMode.NoCallback, "");
+        require(submit.submitNewProposal(TOKEN, 2, noCallback, "") == 2, "next id");
         (stored, mode) = submit.proposalTarget(TOKEN, 2);
         require(stored == address(0xE1E1) && mode == TargetMode.NoCallback, "no callback target");
 
@@ -611,11 +670,11 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
 
         vm.recordLogs();
-        submit.submitNewProposal(TOKEN, 1, body);
+        submit.submitNewProposal(TOKEN, 1, body, "");
         SubmitVm.Log[] memory logs = vm.getRecordedLogs();
 
         bytes32 submittedTopic = keccak256("ProposalSubmitted(address,uint256,uint256,uint256)");
@@ -638,15 +697,15 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
-        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
+        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body, "");
 
         vm.roll(200);
         stake.setGovVotes(TOKEN, 3, 100);
         memberNFT.setOwner(3, address(this));
         vm.recordLogs();
-        submit.submit(TOKEN, 3, proposalId);
+        submit.submit(TOKEN, 3, proposalId, "");
         SubmitVm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 topic = keccak256("ProposalSubmitted(address,uint256,uint256,uint256)");
         bool found;
@@ -668,7 +727,7 @@ contract SubmitTest {
     function testSubmitRejectsNonExistentProposal() external {
         bytes memory expected = abi.encodeWithSelector(ISubmitErrors.ProposalNotFound.selector, TOKEN, 999);
         (bool ok, bytes memory data) = address(submit).call(
-            abi.encodeCall(submit.submit, (TOKEN, 1, 999))
+            abi.encodeCall(submit.submit, (TOKEN, 1, 999, ""))
         );
         require(!ok && keccak256(data) == keccak256(expected), "should reject non-existent proposal");
     }
@@ -679,16 +738,16 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
-        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
+        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body, "");
 
         stake.setGovVotes(TOKEN, 2, 100);
         memberNFT.setOwner(2, address(this));
         bytes memory expected =
             abi.encodeWithSelector(ISubmitErrors.ProposalAlreadySubmitted.selector, TOKEN, 1, proposalId);
         (bool ok, bytes memory data) = address(submit).call(
-            abi.encodeCall(submit.submit, (TOKEN, 2, proposalId))
+            abi.encodeCall(submit.submit, (TOKEN, 2, proposalId, ""))
         );
         require(!ok && keccak256(data) == keccak256(expected), "should reject already submitted");
     }
@@ -700,9 +759,9 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
-        submit.submitNewProposal(TOKEN, 1, body);
+        submit.submitNewProposal(TOKEN, 1, body, "");
 
         // Create proposal 2 with member 2 (creates but doesn't submit yet)
         body.title = "Second";
@@ -713,7 +772,7 @@ contract SubmitTest {
         // Instead, we need to move to next round, create the proposal there,
         // then come back to round 1 to test the duplicate submission
         vm.roll(200); // Move to round 2
-        uint256 proposalId2 = submit.submitNewProposal(TOKEN, 2, body);
+        uint256 proposalId2 = submit.submitNewProposal(TOKEN, 2, body, "");
 
         // Roll back to round 1
         vm.roll(100);
@@ -722,7 +781,7 @@ contract SubmitTest {
         bytes memory expected =
             abi.encodeWithSelector(ISubmitErrors.MemberAlreadySubmitted.selector, TOKEN, 1, 1);
         (bool ok, bytes memory data) = address(submit).call(
-            abi.encodeCall(submit.submit, (TOKEN, 1, proposalId2))
+            abi.encodeCall(submit.submit, (TOKEN, 1, proposalId2, ""))
         );
         require(!ok && keccak256(data) == keccak256(expected), "should reject second submission in same round");
     }
@@ -733,14 +792,14 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
-        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
+        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body, "");
 
         vm.roll(200);
         bytes memory expected = abi.encodeWithSelector(ISubmitErrors.NotMemberOwner.selector, 2);
         (bool ok, bytes memory data) = address(submit).call(
-            abi.encodeCall(submit.submit, (TOKEN, 2, proposalId))
+            abi.encodeCall(submit.submit, (TOKEN, 2, proposalId, ""))
         );
         require(!ok && keccak256(data) == keccak256(expected), "should reject non-owner");
     }
@@ -751,27 +810,27 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
-        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
+        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body, "");
 
         vm.roll(200);
         stake.setGovVotes(TOKEN, 1, 9);
         bytes memory expected =
             abi.encodeWithSelector(ISubmitErrors.InsufficientSubmitPower.selector, TOKEN, 1, 9, 10);
         (bool ok, bytes memory data) = address(submit).call(
-            abi.encodeCall(submit.submit, (TOKEN, 1, proposalId))
+            abi.encodeCall(submit.submit, (TOKEN, 1, proposalId, ""))
         );
         require(!ok && keccak256(data) == keccak256(expected), "should reject insufficient votes");
     }
 
     function testSubmitRejectsWhenCommunityHasNoGovVotes() external {
         stake.setGlobalGovVotes(TOKEN, 0);
-        ProposalBody memory body = ProposalBody("Test", "Details", address(0x1), TargetMode.NoCallback, new bytes[](0));
+        ProposalBody memory body = ProposalBody("Test", "Details", address(0x1), TargetMode.NoCallback, "");
 
         bytes memory expected = abi.encodeWithSelector(ISubmitErrors.NoGovVotes.selector, TOKEN);
         (bool ok, bytes memory data) = address(submit).call(
-            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body))
+            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body, ""))
         );
         require(!ok && keccak256(data) == keccak256(expected), "zero community votes");
         require(!submit.canSubmit(TOKEN, 1), "still cannot submit");
@@ -785,12 +844,12 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
 
         uint256 currentBlock = block.number;
         for (uint256 i = 0; i < 5; i++) {
-            submit.submitNewProposal(TOKEN, 1, body);
+            submit.submitNewProposal(TOKEN, 1, body, "");
             currentBlock += 100;
             vm.roll(currentBlock);
         }
@@ -824,17 +883,17 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
 
-        submit.submitNewProposal(TOKEN, 1, body);
+        submit.submitNewProposal(TOKEN, 1, body, "");
         vm.roll(200);
-        submit.submitNewProposal(TOKEN, 1, body);
+        submit.submitNewProposal(TOKEN, 1, body, "");
 
         stake.setGovVotes(TOKEN, 2, 100);
         memberNFT.setOwner(2, address(this));
         vm.roll(300);
-        submit.submitNewProposal(TOKEN, 2, body);
+        submit.submitNewProposal(TOKEN, 2, body, "");
 
         (uint256[] memory ids, uint256 count) = submit.proposalIdsByAuthor(TOKEN, 1, 0, 10, false);
         require(count == 2 && ids.length == 2 && ids[0] == 1 && ids[1] == 2, "author 1 proposals");
@@ -852,14 +911,14 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
 
-        uint256 p1 = submit.submitNewProposal(TOKEN, 1, body);
+        uint256 p1 = submit.submitNewProposal(TOKEN, 1, body, "");
 
         stake.setGovVotes(TOKEN, 2, 100);
         memberNFT.setOwner(2, address(this));
-        uint256 p2 = submit.submitNewProposal(TOKEN, 2, body);
+        uint256 p2 = submit.submitNewProposal(TOKEN, 2, body, "");
 
         (SubmitInfo[] memory infos, uint256 count) = submit.submitInfos(TOKEN, 1, 0, 10, false);
         require(count == 2 && infos.length == 2, "wrong count");
@@ -880,32 +939,32 @@ contract SubmitTest {
             details: "",
             target: address(targetA),
             targetMode: TargetMode.Callback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
         ProposalBody memory bodyB = ProposalBody({
             title: "Target B",
             details: "",
             target: targetB,
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
 
-        uint256 proposalA1 = submit.submitNewProposal(TOKEN, 1, bodyA);
+        uint256 proposalA1 = submit.submitNewProposal(TOKEN, 1, bodyA, "");
         vm.prank(ALICE);
-        uint256 proposalB = submit.submitNewProposal(TOKEN, 2, bodyB);
+        uint256 proposalB = submit.submitNewProposal(TOKEN, 2, bodyB, "");
 
         bodyA.title = "Target A without callback";
         bodyA.targetMode = TargetMode.NoCallback;
         vm.prank(BOB);
-        uint256 proposalA2 = submit.submitNewProposal(TOKEN, 3, bodyA);
+        uint256 proposalA2 = submit.submitNewProposal(TOKEN, 3, bodyA, "");
 
         vm.roll(200);
         bodyA.title = "Target A later";
-        uint256 proposalA3 = submit.submitNewProposal(TOKEN, 1, bodyA);
+        uint256 proposalA3 = submit.submitNewProposal(TOKEN, 1, bodyA, "");
         vm.prank(ALICE);
-        submit.submit(TOKEN, 2, proposalA2);
+        submit.submit(TOKEN, 2, proposalA2, "");
         vm.prank(BOB);
-        submit.submit(TOKEN, 3, proposalB);
+        submit.submit(TOKEN, 3, proposalB, "");
 
         (uint256[] memory ids, uint256 totalCount) =
             submit.proposalIdsByTarget(TOKEN, address(targetA), 0, 2, false);
@@ -949,9 +1008,9 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
-        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
+        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body, "");
 
         require(submit.proposalIdBySubmitterId(TOKEN, 1, 1) == proposalId, "wrong proposalId by submitter");
         require(submit.submitterIdByProposalId(TOKEN, 1, proposalId) == 1, "wrong submitterId by proposal");
@@ -967,18 +1026,18 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
 
         stake.setGlobalGovVotes(TOKEN, 1000);
         stake.setGovVotes(TOKEN, 1, 100);
-        uint256 p1 = submit.submitNewProposal(TOKEN, 1, body);
+        uint256 p1 = submit.submitNewProposal(TOKEN, 1, body, "");
 
         vm.roll(200);
         stake.setGlobalGovVotes(TOKEN2, 1000);
         stake.setGovVotes(TOKEN2, 1, 100);
         body.title = "Token2 Proposal";
-        uint256 p2 = submit.submitNewProposal(TOKEN2, 1, body);
+        uint256 p2 = submit.submitNewProposal(TOKEN2, 1, body, "");
 
         require(p1 == 1 && p2 == 1, "both should be id 1");
         require(submit.isSubmitted(TOKEN, 1, p1), "token1 submitted");
@@ -993,15 +1052,15 @@ contract SubmitTest {
     // ============ Phase Integration Tests ============
 
     function testSubmitUsesSharedPhaseAfterCalibration() external {
-        ProposalBody memory body = ProposalBody("first", "", address(0x1), TargetMode.NoCallback, new bytes[](0));
-        uint256 id = submit.submitNewProposal(TOKEN, 1, body);
+        ProposalBody memory body = ProposalBody("first", "", address(0x1), TargetMode.NoCallback, "");
+        uint256 id = submit.submitNewProposal(TOKEN, 1, body, "");
         vm.roll(201);
         vm.warp(1505);
         require(submit.currentRound() == 2, "round before sync");
 
         stake.setGovVotes(TOKEN, 2, 100);
         memberNFT.setOwner(2, address(this));
-        submit.submit(TOKEN, 2, id);
+        submit.submit(TOKEN, 2, id, "");
         require(submit.currentRound() == 2 && phase.currentPhase() == 2, "current round unchanged");
         (uint256 start, uint256 length) = phase.phaseInfo(3);
         require(start == 300 && length == 200, "future phase calibrated");
@@ -1009,7 +1068,7 @@ contract SubmitTest {
         vm.roll(400);
         vm.warp(2500);
         require(phase.currentPhase() == 3 && submit.currentRound() == 3, "shared calibrated round");
-        submit.submit(TOKEN, 1, id);
+        submit.submit(TOKEN, 1, id, "");
         require(submit.isSubmitted(TOKEN, 3, id), "submission in calibrated round");
         require(!submit.isSubmitted(TOKEN, 4, id), "no future submission");
     }
@@ -1024,13 +1083,13 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
 
         vm.roll(201);
         vm.warp(1505);
         uint256 phaseBefore = phase.currentPhase();
-        submit.submitNewProposal(TOKEN, 1, body);
+        submit.submitNewProposal(TOKEN, 1, body, "");
         uint256 phaseAfter = phase.currentPhase();
         require(phaseAfter >= phaseBefore, "phase should sync");
     }
@@ -1043,12 +1102,12 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
 
         uint256 currentBlock = block.number;
         for (uint256 i = 1; i <= 10; i++) {
-            uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
+            uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body, "");
             require(proposalId == i, "wrong proposal id");
             currentBlock += 100;
             vm.roll(currentBlock);
@@ -1061,15 +1120,15 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
-        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
+        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body, "");
 
         uint256 currentBlock = block.number;
         for (uint256 round = 2; round <= 5; round++) {
             currentBlock += 100;
             vm.roll(currentBlock);
-            submit.submit(TOKEN, 1, proposalId);
+            submit.submit(TOKEN, 1, proposalId, "");
             require(submit.isSubmitted(TOKEN, round, proposalId), "not submitted in round");
             require(submit.proposalIdBySubmitterId(TOKEN, round, 1) == proposalId, "wrong lookup");
         }
@@ -1081,36 +1140,34 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
-        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
+        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body, "");
 
         vm.roll(200);
         stake.setGovVotes(TOKEN, 2, 100);
         memberNFT.setOwner(2, address(this));
-        submit.submit(TOKEN, 2, proposalId);
+        submit.submit(TOKEN, 2, proposalId, "");
 
         require(submit.proposalIdBySubmitterId(TOKEN, 1, 1) == proposalId, "member 1 submission");
         require(submit.proposalIdBySubmitterId(TOKEN, 2, 2) == proposalId, "member 2 submission");
     }
 
     function testProposalWithLargeData() external {
-        bytes[] memory largeData = new bytes[](10);
-        for (uint256 i = 0; i < 10; i++) {
-            largeData[i] = abi.encodePacked(i, i, i);
-        }
+        bytes memory largeData = new bytes(960);
+        largeData[959] = 0x01;
         ProposalBody memory body = ProposalBody({
             title: "Large Data Proposal",
             details: "With large target data",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: largeData
+            creationData: largeData
         });
-        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
+        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body, "");
         require(proposalId == 1, "should create proposal with large data");
 
         ProposalInfo[] memory infos = submit.proposalInfosByProposalIds(TOKEN, _asSingletonArray(proposalId));
-        require(infos[0].body.targetData.length == 10, "data not preserved");
+        require(keccak256(infos[0].body.creationData) == keccak256(largeData), "data not preserved");
     }
 
     function testProposalWithLongStrings() external {
@@ -1122,9 +1179,9 @@ contract SubmitTest {
             details: longDetails,
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
-        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
+        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body, "");
 
         ProposalInfo[] memory infos = submit.proposalInfosByProposalIds(TOKEN, _asSingletonArray(proposalId));
         require(
@@ -1143,11 +1200,11 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
 
         uint256 currentBlock = block.number;
-        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
+        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body, "");
 
         ProposalInfo[] memory infos = submit.proposalInfosByProposalIds(TOKEN, _asSingletonArray(proposalId));
         require(infos[0].head.createAtBlock == currentBlock, "wrong block number");
@@ -1159,10 +1216,10 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
 
-        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
+        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body, "");
 
         ProposalInfo[] memory infos = submit.proposalInfosByProposalIds(TOKEN, _asSingletonArray(proposalId));
         require(infos[0].head.author == 1, "wrong author");
@@ -1171,8 +1228,8 @@ contract SubmitTest {
     // ============ Boundary Value Tests ============
 
     function testSubmissionLimitPerTokenAndRound() external {
-        ProposalBody memory body = ProposalBody("Proposal", "", address(0x1), TargetMode.NoCallback, new bytes[](0));
-        uint256 oldProposalId = submit.submitNewProposal(TOKEN, 1, body);
+        ProposalBody memory body = ProposalBody("Proposal", "", address(0x1), TargetMode.NoCallback, "");
+        uint256 oldProposalId = submit.submitNewProposal(TOKEN, 1, body, "");
         vm.roll(200);
 
         // These submissions represent separate transactions in the same round.
@@ -1180,7 +1237,7 @@ contract SubmitTest {
         for (uint256 memberId = 1; memberId <= 1000; memberId++) {
             memberNFT.setOwner(memberId, address(this));
             stake.setGovVotes(TOKEN, memberId, 100);
-            submit.submitNewProposal(TOKEN, memberId, body);
+            submit.submitNewProposal(TOKEN, memberId, body, "");
         }
         vm.resumeGasMetering();
 
@@ -1188,9 +1245,9 @@ contract SubmitTest {
         stake.setGovVotes(TOKEN, 1001, 100);
         require(submit.canSubmit(TOKEN, 1001), "vote threshold still met");
         vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.SubmitRoundFull.selector, TOKEN, 2, 1000));
-        submit.submitNewProposal(TOKEN, 1001, body);
+        submit.submitNewProposal(TOKEN, 1001, body, "");
         vm.expectRevert(abi.encodeWithSelector(ISubmitErrors.SubmitRoundFull.selector, TOKEN, 2, 1000));
-        submit.submit(TOKEN, 1001, oldProposalId);
+        submit.submit(TOKEN, 1001, oldProposalId, "");
 
         (, uint256 count) = submit.submitInfos(TOKEN, 2, 0, 0, false);
         require(count == 1000, "round limit");
@@ -1203,12 +1260,12 @@ contract SubmitTest {
 
         stake.setGlobalGovVotes(TOKEN2, 1000);
         stake.setGovVotes(TOKEN2, 1001, 100);
-        require(submit.submitNewProposal(TOKEN2, 1001, body) == 1, "other token independent");
+        require(submit.submitNewProposal(TOKEN2, 1001, body, "") == 1, "other token independent");
 
         vm.roll(300);
-        submit.submit(TOKEN, 1001, oldProposalId);
+        submit.submit(TOKEN, 1001, oldProposalId, "");
         require(submit.isSubmitted(TOKEN, 3, oldProposalId), "old proposal accepted next round");
-        require(submit.submitNewProposal(TOKEN, 1, body) == 1002, "new proposal accepted beyond history of 1000");
+        require(submit.submitNewProposal(TOKEN, 1, body, "") == 1002, "new proposal accepted beyond history of 1000");
     }
 
     function testThresholdBoundaries() external {
@@ -1254,13 +1311,13 @@ contract SubmitTest {
             details: "Details",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
 
         uint256[] memory ids = new uint256[](5);
         uint256 currentBlock = block.number;
         for (uint256 i = 0; i < 5; i++) {
-            ids[i] = submit.submitNewProposal(TOKEN, 1, body);
+            ids[i] = submit.submitNewProposal(TOKEN, 1, body, "");
             currentBlock += 100;
             vm.roll(currentBlock);
         }
@@ -1274,27 +1331,25 @@ contract SubmitTest {
 
     // ============ Event and Bounds Tests ============
 
-    function testProposalCreatedCarriesTargetData() external {
+    function testProposalCreatedCarriesCreationData() external {
         MockTarget target = new MockTarget();
-        bytes[] memory targetData = new bytes[](2);
-        targetData[0] = hex"01";
-        targetData[1] = hex"0203";
+        bytes memory creationData = hex"010203";
         ProposalBody memory body = ProposalBody({
             title: "Test Proposal",
             details: "Detailed description",
             target: address(target),
             targetMode: TargetMode.Callback,
-            targetData: targetData
+            creationData: creationData
         });
 
         // A prior proposal keeps `proposalId` and `authorId` from collapsing onto the same value.
         stake.setGovVotes(TOKEN, 2, 100);
         vm.prank(ALICE);
-        submit.submitNewProposal(TOKEN, 2, body);
+        submit.submitNewProposal(TOKEN, 2, body, "");
         vm.recordLogs();
-        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body);
+        uint256 proposalId = submit.submitNewProposal(TOKEN, 1, body, "");
 
-        bytes32 topic = keccak256("ProposalCreated(address,uint256,uint256,address,uint8,bytes[],string,string)");
+        bytes32 topic = keccak256("ProposalCreated(address,uint256,uint256,address,uint8,bytes,string,string)");
         SubmitVm.Log[] memory logs = vm.getRecordedLogs();
         bool found;
         for (uint256 i; i < logs.length; ++i) {
@@ -1307,17 +1362,15 @@ contract SubmitTest {
             (
                 address targetAddress,
                 uint8 targetMode,
-                bytes[] memory emittedTargetData,
+                bytes memory emittedCreationData,
                 string memory title,
                 string memory details
-            ) = abi.decode(logs[i].data, (address, uint8, bytes[], string, string));
+            ) = abi.decode(logs[i].data, (address, uint8, bytes, string, string));
             require(keccak256(bytes(title)) == keccak256("Test Proposal"), "event title");
             require(keccak256(bytes(details)) == keccak256("Detailed description"), "event details");
             require(targetAddress == address(target), "event target");
             require(targetMode == uint8(TargetMode.Callback), "event target mode");
-            require(emittedTargetData.length == 2, "event target data length");
-            require(keccak256(emittedTargetData[0]) == keccak256(hex"01"), "event target data 0");
-            require(keccak256(emittedTargetData[1]) == keccak256(hex"0203"), "event target data 1");
+            require(keccak256(emittedCreationData) == keccak256(creationData), "event creation data");
             found = true;
         }
         require(found, "missing ProposalCreated");
@@ -1329,7 +1382,7 @@ contract SubmitTest {
             details: "",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: new bytes[](0)
+            creationData: ""
         });
         _expectSubmitRevert(
             body, abi.encodeWithSelector(ISubmitErrors.TitleTooLong.selector, 1025, 1024), "title bound"
@@ -1342,22 +1395,15 @@ contract SubmitTest {
         );
 
         body.details = "";
-        body.targetData = new bytes[](17);
-        _expectSubmitRevert(
-            body, abi.encodeWithSelector(ISubmitErrors.TargetDataTooMany.selector, 17, 16), "target data count"
-        );
-
-        body.targetData = new bytes[](1);
-        body.targetData[0] = new bytes(16 * 1024 + 1);
+        body.creationData = new bytes(16 * 1024 + 1);
         _expectSubmitRevert(
             body,
-            abi.encodeWithSelector(ISubmitErrors.TargetDataTooLarge.selector, 16 * 1024 + 1, 16 * 1024),
-            "target data bytes"
+            abi.encodeWithSelector(ISubmitErrors.CreationDataTooLarge.selector, 16 * 1024 + 1, 16 * 1024),
+            "creation data bytes"
         );
     }
 
-    /// @notice GroupAction 的验证 schema 作为 `targetData[6]` 仍受 targetData 总量 16 KiB 约束
-    function testProposalTargetDataRejectsOversizedVerificationSchema() external {
+    function testProposalCreationDataRejectsOversizedVerificationSchema() external {
         string[] memory keys = new string[](16);
         string[] memory descriptions = new string[](16);
         for (uint256 i; i < 16; ++i) {
@@ -1365,54 +1411,41 @@ contract SubmitTest {
             descriptions[i] = "d";
         }
 
-        bytes[] memory data = new bytes[](7);
-        for (uint256 i; i < 6; ++i) {
-            data[i] = abi.encode(uint256(i));
-        }
-        data[6] = abi.encode(keys, descriptions);
-
-        uint256 total;
-        for (uint256 i; i < data.length; ++i) {
-            total += data[i].length;
-        }
-        require(total > 16 * 1024, "schema payload must exceed the cap");
+        bytes memory data = abi.encode(keys, descriptions);
+        require(data.length > 16 * 1024, "schema payload must exceed the cap");
 
         ProposalBody memory body = ProposalBody({
             title: "t",
             details: "",
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: data
+            creationData: data
         });
         _expectSubmitRevert(
             body,
-            abi.encodeWithSelector(ISubmitErrors.TargetDataTooLarge.selector, total, 16 * 1024),
+            abi.encodeWithSelector(ISubmitErrors.CreationDataTooLarge.selector, data.length, 16 * 1024),
             "schema payload cap"
         );
     }
 
     function testProposalMetadataAcceptsExactBounds() external {
-        bytes[] memory data = new bytes[](16);
-        for (uint256 i; i < 16; ++i) {
-            data[i] = new bytes(1024);
-        }
         ProposalBody memory body = ProposalBody({
             title: _repeat("T", 1024),
             details: _repeat("D", 1024),
             target: address(0x1),
             targetMode: TargetMode.NoCallback,
-            targetData: data
+            creationData: new bytes(16 * 1024)
         });
 
         (bool ok, bytes memory result) =
-            address(submit).call(abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body)));
+            address(submit).call(abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body, "")));
         require(ok, "exact bounds accepted");
         require(result.length == 32, "proposal id returned");
     }
 
     function _expectSubmitRevert(ProposalBody memory body, bytes memory expected, string memory note) private {
         (bool ok, bytes memory data) = address(submit).call(
-            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body))
+            abi.encodeCall(submit.submitNewProposal, (TOKEN, 1, body, ""))
         );
         require(!ok, note);
         require(keccak256(data) == keccak256(expected), note);

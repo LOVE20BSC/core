@@ -12,9 +12,9 @@ interface IVoteErrors {
         uint256 proposalIdsLength,
         uint256 voteAmountsLength
     );
-    error TargetDataLengthMismatch(
+    error VoteDataLengthMismatch(
         uint256 proposalIdsLength,
-        uint256 targetDataLength
+        uint256 voteDataLength
     );
     error ProposalNotSubmitted(
         address tokenAddress,
@@ -61,7 +61,7 @@ interface IVote is IVoteErrors, IVoteEvents {
         uint256 memberId,
         uint256[] calldata proposalIds,
         uint256[] calldata voteAmounts,
-        bytes[][] calldata targetData
+        bytes[] calldata voteData
     ) external;
 
     function currentRound() external view returns (uint256);

@@ -19,6 +19,8 @@ contract AirdropDistributor is IAirdropDistributor {
     uint256 public constant MAX_CLAIM_DELAY_ROUNDS = 1000;
     uint256 public constant MAX_SNAPSHOT_URI_BYTES = 256;
 
+    uint256 private constant AIRDROP_CONFIG_BYTES = 64;
+
     address public immutable LAUNCH_ADDRESS;
     address public immutable PHASE_ADDRESS;
 
@@ -77,12 +79,12 @@ contract AirdropDistributor is IAirdropDistributor {
         address tokenAddress,
         address,
         uint256 launcherMemberId,
-        bytes[] calldata distributorData
+        bytes calldata distributorData
     ) external onlyLaunch {
-        if (distributorData.length != 1) revert InvalidDistributorDataCount(distributorData.length, 1);
-        if (distributorData[0].length != 64) revert InvalidDistributorDataLength(distributorData[0].length, 64);
-
-        (bytes32 merkleRoot, uint256 claimDelayRounds) = abi.decode(distributorData[0], (bytes32, uint256));
+        if (distributorData.length != AIRDROP_CONFIG_BYTES) {
+            revert InvalidDistributorDataLength(distributorData.length, AIRDROP_CONFIG_BYTES);
+        }
+        (bytes32 merkleRoot, uint256 claimDelayRounds) = abi.decode(distributorData, (bytes32, uint256));
         _configure(tokenAddress, merkleRoot, claimDelayRounds, launcherMemberId);
     }
 

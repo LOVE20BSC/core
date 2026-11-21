@@ -75,7 +75,7 @@ contract Vote is IVote {
         uint256 memberId,
         uint256[] calldata proposalIds,
         uint256[] calldata voteAmounts,
-        bytes[][] calldata targetData
+        bytes[] calldata voteData
     ) external onlyMemberOwner(memberId) {
         if (proposalIds.length == 0) {
             revert ProposalIdsEmpty();
@@ -83,8 +83,8 @@ contract Vote is IVote {
         if (proposalIds.length != voteAmounts.length) {
             revert ProposalVoteAmountsLengthMismatch(proposalIds.length, voteAmounts.length);
         }
-        if (targetData.length != 0 && targetData.length != proposalIds.length) {
-            revert TargetDataLengthMismatch(proposalIds.length, targetData.length);
+        if (voteData.length != 0 && voteData.length != proposalIds.length) {
+            revert VoteDataLengthMismatch(proposalIds.length, voteData.length);
         }
         uint256 round = currentRound();
         uint256 voteLimit = _maxVoteAmount(tokenAddress, round, memberId);
@@ -92,14 +92,12 @@ contract Vote is IVote {
             revert NoVotingPower(tokenAddress, memberId);
         }
 
-        bytes[] memory noTargetData = new bytes[](0);
-
         for (uint256 i = 0; i < proposalIds.length; i++) {
-            bytes[] memory itemTargetData = noTargetData;
-            if (targetData.length != 0) {
-                itemTargetData = targetData[i];
+            bytes memory proposalVoteData = "";
+            if (voteData.length != 0) {
+                proposalVoteData = voteData[i];
             }
-            _vote(tokenAddress, round, memberId, proposalIds[i], voteAmounts[i], voteLimit, itemTargetData);
+            _vote(tokenAddress, round, memberId, proposalIds[i], voteAmounts[i], voteLimit, proposalVoteData);
         }
     }
 
@@ -246,7 +244,7 @@ contract Vote is IVote {
         uint256 proposalId,
         uint256 voteAmount,
         uint256 voteLimit,
-        bytes[] memory targetData
+        bytes memory voteData
     ) internal {
         if (voteAmount == 0) {
             // forge-lint: disable-next-line(require-revert-in-loop)
@@ -310,7 +308,7 @@ contract Vote is IVote {
 
         if (targetMode == TargetMode.Callback && target != address(0)) {
             // forge-lint: disable-next-item(calls-loop, reentrancy-events)
-            IProposalTarget(target).onProposalVoted(tokenAddress, round, proposalId, memberId, voteAmount, targetData);
+            IProposalTarget(target).onProposalVoted(tokenAddress, round, proposalId, memberId, voteAmount, voteData);
         }
     }
 

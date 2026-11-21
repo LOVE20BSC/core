@@ -22,7 +22,7 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
     // ============ 9. 回调鉴权 ============
 
     function testOnTokenLaunchedRejectsNonLaunchCaller() external {
-        bytes[] memory data = _distributorData(keccak256("x"), 0);
+        bytes memory data = _distributorData(keccak256("x"), 0);
         _assertRevertSelector(
             ALICE,
             abi.encodeCall(ILaunchDistributor.onTokenLaunched, (address(0x1234), address(firstToken), 1, data)),
@@ -32,7 +32,7 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
 
     function testOnTokenLaunchedRejectsNonLaunchCallerEvenWithInvalidPayload() external {
         // 鉴权先于参数校验：即使 payload 非法，非 Launch 调用者只拿到鉴权错误
-        bytes[] memory data = new bytes[](0);
+        bytes memory data = "";
         _assertRevertSelector(
             ALICE,
             abi.encodeCall(ILaunchDistributor.onTokenLaunched, (address(0x1234), address(firstToken), 1, data)),
@@ -41,7 +41,7 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
     }
 
     function testOnTokenLaunchedReportsCallerInErrorPayload() external {
-        bytes[] memory data = new bytes[](0);
+        bytes memory data = "";
         bytes memory expected = abi.encodeWithSelector(
             IAirdropDistributorErrors.NotLaunchContract.selector, ALICE
         );
@@ -52,44 +52,17 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
         );
     }
 
-    // ============ 10. distributorData 条数 ============
-
     function testOnTokenLaunchedRejectsEmptyDistributorData() external {
-        bytes[] memory data = new bytes[](0);
+        bytes memory data = "";
         _assertRevertSelector(
             address(launch),
             abi.encodeCall(ILaunchDistributor.onTokenLaunched, (address(0x1234), address(firstToken), 1, data)),
-            IAirdropDistributorErrors.InvalidDistributorDataCount.selector
+            IAirdropDistributorErrors.InvalidDistributorDataLength.selector
         );
     }
-
-    function testOnTokenLaunchedRejectsTwoDistributorDataEntries() external {
-        bytes[] memory data = new bytes[](2);
-        data[0] = abi.encode(keccak256("a"), uint256(0));
-        data[1] = abi.encode(keccak256("b"), uint256(0));
-        _assertRevertSelector(
-            address(launch),
-            abi.encodeCall(ILaunchDistributor.onTokenLaunched, (address(0x1234), address(firstToken), 1, data)),
-            IAirdropDistributorErrors.InvalidDistributorDataCount.selector
-        );
-    }
-
-    function testOnTokenLaunchedReportsDistributorDataCountPayload() external {
-        bytes[] memory data = new bytes[](2);
-        data[0] = abi.encode(keccak256("a"), uint256(0));
-        data[1] = abi.encode(keccak256("b"), uint256(0));
-        _expectRevert(
-            address(launch),
-            abi.encodeCall(ILaunchDistributor.onTokenLaunched, (address(0x1234), address(firstToken), 1, data)),
-            abi.encodeWithSelector(IAirdropDistributorErrors.InvalidDistributorDataCount.selector, 2, 1)
-        );
-    }
-
-    // ============ 11. distributorData 元素长度 ============
 
     function testOnTokenLaunchedRejectsWrongPayloadLength() external {
-        bytes[] memory data = new bytes[](1);
-        data[0] = abi.encode(keccak256("short"));
+        bytes memory data = abi.encode(keccak256("short"));
 
         _expectRevert(
             address(launch),
@@ -99,8 +72,7 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
     }
 
     function testOnTokenLaunchedRejectsOversizedPayload() external {
-        bytes[] memory data = new bytes[](1);
-        data[0] = abi.encode(keccak256("a"), uint256(0), uint256(0));
+        bytes memory data = abi.encode(keccak256("a"), uint256(0), uint256(0));
 
         _expectRevert(
             address(launch),
@@ -127,7 +99,7 @@ contract AirdropDistributorEdgeCasesTest is LaunchDeployFixture {
     function testOnTokenLaunchedAcceptsMaximumClaimDelayRounds() external {
         _rollToPhase(2);
         address tokenAddress = address(0x1234);
-        bytes[] memory data = _distributorData(keccak256("max delay"), 1000);
+        bytes memory data = _distributorData(keccak256("max delay"), 1000);
 
         vm.prank(address(launch));
         distributor.onTokenLaunched(tokenAddress, address(firstToken), 1, data);

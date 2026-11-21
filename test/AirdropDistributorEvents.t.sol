@@ -70,7 +70,7 @@ contract AirdropDistributorEventsTest is LaunchDeployFixture {
     function testSubTokenConfigurationEmitsAirdropConfiguredWithExactFields() external {
         _rollToPhase(3);
         bytes32 merkleRoot = keccak256("sub root");
-        bytes[] memory data = _distributorData(merkleRoot, 2);
+        bytes memory data = _distributorData(merkleRoot, 2);
 
         vm.recordLogs();
         address subToken = _launchSubToken(ALICE, aliceMemberId, "SUB", data);
