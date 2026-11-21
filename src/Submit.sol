@@ -68,14 +68,14 @@ contract Submit is ISubmit {
         address tokenAddress,
         uint256 memberId
     ) public view returns (bool) {
-        (uint256 validVotes, uint256 requiredVotes, ) = _submitPower(tokenAddress, memberId, currentRound());
+        (uint256 validVotes, uint256 requiredVotes, ) = _submitPower(tokenAddress, currentRound(), memberId);
         return _meetsSubmitPower(validVotes, requiredVotes);
     }
 
     function _submitPower(
         address tokenAddress,
-        uint256 memberId,
-        uint256 round
+        uint256 round,
+        uint256 memberId
     ) private view returns (uint256 validVotes, uint256 requiredVotes, uint256 totalVotes) {
         IStake stake = IStake(STAKE_ADDRESS);
         validVotes = stake.govVotes(tokenAddress, round, memberId);
@@ -89,10 +89,10 @@ contract Submit is ISubmit {
 
     function _checkSubmitPower(
         address tokenAddress,
-        uint256 memberId,
-        uint256 round
+        uint256 round,
+        uint256 memberId
     ) private view {
-        (uint256 validVotes, uint256 requiredVotes, uint256 totalVotes) = _submitPower(tokenAddress, memberId, round);
+        (uint256 validVotes, uint256 requiredVotes, uint256 totalVotes) = _submitPower(tokenAddress, round, memberId);
         if (totalVotes == 0) {
             revert NoGovVotes(tokenAddress);
         }
@@ -116,12 +116,12 @@ contract Submit is ISubmit {
     ) external onlyMemberOwner(memberId) returns (uint256 proposalId) {
         _checkProposalBody(proposalBody);
         uint256 round = currentRound();
-        _checkSubmitPower(tokenAddress, memberId, round);
-        _checkSubmitterQuota(tokenAddress, memberId, round);
+        _checkSubmitPower(tokenAddress, round, memberId);
+        _checkSubmitterQuota(tokenAddress, round, memberId);
 
         proposalId = _createProposal(tokenAddress, memberId, proposalBody);
 
-        _recordSubmission(tokenAddress, memberId, proposalId, round);
+        _recordSubmission(tokenAddress, round, proposalId, memberId);
         if (proposalBody.targetMode == TargetMode.Callback) {
             IProposalTarget(proposalBody.target).onProposalCreated(tokenAddress, proposalId, proposalBody.creationData);
             IProposalTarget(proposalBody.target).onProposalSubmitted(tokenAddress, round, proposalId, memberId, submitData);
@@ -137,13 +137,13 @@ contract Submit is ISubmit {
     ) external onlyMemberOwner(memberId) {
         _checkExistingProposal(tokenAddress, proposalId);
         uint256 round = currentRound();
-        _checkSubmitPower(tokenAddress, memberId, round);
+        _checkSubmitPower(tokenAddress, round, memberId);
         if (isSubmitted(tokenAddress, round, proposalId)) {
             revert ProposalAlreadySubmitted(tokenAddress, round, proposalId);
         }
-        _checkSubmitterQuota(tokenAddress, memberId, round);
+        _checkSubmitterQuota(tokenAddress, round, memberId);
 
-        _recordSubmission(tokenAddress, memberId, proposalId, round);
+        _recordSubmission(tokenAddress, round, proposalId, memberId);
         ProposalBody storage body = _proposals[tokenAddress][proposalId - PROPOSAL_ID_TO_INDEX_OFFSET].body;
         if (body.targetMode == TargetMode.Callback) {
             IProposalTarget(body.target).onProposalSubmitted(tokenAddress, round, proposalId, memberId, submitData);
@@ -329,8 +329,8 @@ contract Submit is ISubmit {
 
     function _checkSubmitterQuota(
         address tokenAddress,
-        uint256 memberId,
-        uint256 round
+        uint256 round,
+        uint256 memberId
     ) internal view {
         if (
             _submitInfoBySubmitterId[tokenAddress][round][memberId]
@@ -343,9 +343,9 @@ contract Submit is ISubmit {
 
     function _recordSubmission(
         address tokenAddress,
-        uint256 memberId,
+        uint256 round,
         uint256 proposalId,
-        uint256 round
+        uint256 memberId
     ) internal {
         SubmitInfo memory submitInfo = SubmitInfo(
             memberId,

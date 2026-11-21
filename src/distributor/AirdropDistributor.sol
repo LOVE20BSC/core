@@ -77,10 +77,11 @@ contract AirdropDistributor is IAirdropDistributor {
 
     function onTokenLaunched(
         address tokenAddress,
-        address,
+        address parentTokenAddress,
         uint256 launcherMemberId,
         bytes calldata distributorData
     ) external onlyLaunch {
+        parentTokenAddress;
         if (distributorData.length != AIRDROP_CONFIG_BYTES) {
             revert InvalidDistributorDataLength(distributorData.length, AIRDROP_CONFIG_BYTES);
         }
